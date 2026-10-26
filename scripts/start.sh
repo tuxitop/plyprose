@@ -4,6 +4,15 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+OPEN_BROWSER=false
+for arg in "$@"; do
+  case "$arg" in
+    --open|-o)
+      OPEN_BROWSER=true
+      ;;
+  esac
+done
+
 API_PID=""
 UI_PID=""
 
@@ -39,6 +48,19 @@ sleep 1
 echo "Starting Vite frontend on http://0.0.0.0:5173..."
 "$REPO_ROOT/scripts/start_ui.sh" &
 UI_PID=$!
+
+if [ "$OPEN_BROWSER" = true ]; then
+  (
+    sleep 2
+    if command -v explorer.exe >/dev/null 2>&1; then
+      explorer.exe "http://localhost:5173" >/dev/null 2>&1 || true
+    elif command -v cmd.exe >/dev/null 2>&1; then
+      cmd.exe /c start "http://localhost:5173" >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "http://localhost:5173" >/dev/null 2>&1 || true
+    fi
+  ) &
+fi
 
 echo ""
 echo "✨ Services are running:"
