@@ -1,0 +1,421 @@
+@import '@lichess-org/chessground/assets/chessground.base.css';
+@import '@lichess-org/chessground/assets/chessground.cburnett.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom sleek modern scrollbars (Light & Dark) */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; /* slate-300 */
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; /* slate-400 */
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155; /* slate-700 */
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569; /* slate-600 */
+}
+
+/* Firefox standard scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.dark * {
+  scrollbar-color: #334155 transparent;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+/* Prevent lingering focus rings on move list and interactive board buttons */
+button:focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Board figure rendering */
+figure img {
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  background-color: white;
+}
+
+figure.board-figure {
+  position: relative;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+figure.board-figure:hover img {
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.25);
+  outline: 2px solid #3b82f6;
+}
+
+/* Remove Tailwind typography default backticks around inline code */
+.prose code::before,
+.prose code::after {
+  content: '' !important;
+}
+
+/* Interactive report moves styling */
+.prose code.chess-clickable-move,
+.prose code {
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.prose code:hover {
+  border-color: #3b82f6 !important;
+  color: #2563eb !important;
+  cursor: pointer;
+}
+
+.dark .prose code:hover {
+  border-color: #60a5fa !important;
+  color: #93c5fd !important;
+}
+
+/* Interactive Board Container */
+.chessground-board-wrap {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  transition:
+    width 0.1s ease,
+    height 0.1s ease;
+}
+
+/* Highlight last move source and destination squares */
+cg-board square.last-move {
+  background-color: rgba(155, 199, 0, 0.45) !important;
+  z-index: 1;
+}
+
+/* Highlight selected square on click */
+cg-board square.selected {
+  background-color: rgba(20, 85, 30, 0.5) !important;
+  z-index: 1;
+}
+
+/* Highlight checked king square */
+cg-board square.check {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 0, 0, 1) 0%,
+    rgba(231, 0, 0, 1) 25%,
+    rgba(169, 0, 0, 0) 89%,
+    rgba(158, 0, 0, 0) 100%
+  ) !important;
+  z-index: 1;
+}
+
+/* Legal move destination markers */
+cg-board square.move-dest {
+  background: radial-gradient(
+    rgba(20, 85, 30, 0.5) 22%,
+    #208530 0,
+    rgba(0, 0, 0, 0.3) 0,
+    rgba(0, 0, 0, 0) 0
+  );
+  pointer-events: auto;
+}
+
+.chessground-board-wrap .cg-wrap {
+  width: 100% !important;
+  height: 100% !important;
+  position: relative;
+  display: block;
+}
+
+/* Coordinates on Squares (Ranks 1-8 & Files a-h) */
+.cg-wrap coords {
+  pointer-events: none;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  opacity: 0.9;
+  z-index: 5;
+}
+
+.cg-wrap coords.ranks {
+  position: absolute !important;
+  top: 0 !important;
+  left: 3px !important;
+  height: 100% !important;
+  width: 12px !important;
+  display: flex !important;
+  flex-direction: column-reverse !important;
+  margin: 0 !important;
+}
+
+.cg-wrap coords.ranks.black {
+  flex-direction: column !important;
+}
+
+.cg-wrap coords.ranks coord {
+  flex: 1 1 0 !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  padding-top: 2px !important;
+  transform: none !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+}
+
+.cg-wrap coords.files {
+  position: absolute !important;
+  bottom: 2px !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 12px !important;
+  display: flex !important;
+  flex-direction: row !important;
+  margin: 0 !important;
+  text-transform: uppercase !important;
+}
+
+.cg-wrap coords.files.black {
+  flex-direction: row-reverse !important;
+}
+
+.cg-wrap coords.files coord {
+  flex: 1 1 0 !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  align-items: flex-end !important;
+  padding-right: 3px !important;
+  transform: none !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+}
+
+/* Board Square Themes (Crisp 8x8 SVG Checkerboards) */
+.board-theme-green cg-board {
+  background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA4IDgnIHNoYXBlLXJlbmRlcmluZz0nY3Jpc3BFZGdlcyc+PHJlY3Qgd2lkdGg9JzgnIGhlaWdodD0nOCcgZmlsbD0nI2VlZWVkMicvPjxwYXRoIGZpbGw9JyM3Njk2NTYnIGQ9J00xIDBoMXYxSDF6TTMgMGgxdjFIM3pNNSAwaDF2MUg1ek03IDBoMXYxSDd6TTAgMWgxdjFIMHpNMiAxaDF2MUgyek00IDFoMXYxSDR6TTYgMWgxdjFINnpNMSAyaDF2MUgxek0zIDJoMXYxSDN6TTUgMmgxdjFINXpNNyAyaDF2MUg3ek0wIDNoMXYxSDB6TTIgM2gxdjFIMnpNNCAzaDF2MUg0ek02IDNoMXYxSDZ6TTEgNGgxdjFIMXpNMyA0aDF2MUgzek01IDRoMXYxSDV6TTcgNGgxdjFIN3pNMCA1aDF2MUgwek0yIDVoMXYxSDJ6TTQgNWgxdjFINHpNNiA1aDF2MUg2ek0xIDZoMXYxSDF6TTMgNmgxdjFIM3pNNSA2aDF2MUg1ek03IDZoMXYxSDd6TTAgN2gxdjFIMHpNMiA3aDF2MUgyek00IDdoMXYxSDR6TTYgN2gxdjFINnonLz48L3N2Zz4=') !important;
+  background-size: cover;
+}
+.board-theme-green .orientation-white .ranks coord:nth-child(odd),
+.board-theme-green .orientation-white .files coord:nth-child(odd),
+.board-theme-green .orientation-black .ranks coord:nth-child(even),
+.board-theme-green .orientation-black .files coord:nth-child(even) {
+  color: #eeeed2;
+}
+.board-theme-green .orientation-white .ranks coord:nth-child(even),
+.board-theme-green .orientation-white .files coord:nth-child(even),
+.board-theme-green .orientation-black .ranks coord:nth-child(odd),
+.board-theme-green .orientation-black .files coord:nth-child(odd) {
+  color: #769656;
+}
+
+.board-theme-brown cg-board {
+  background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA4IDgnIHNoYXBlLXJlbmRlcmluZz0nY3Jpc3BFZGdlcyc+PHJlY3Qgd2lkdGg9JzgnIGhlaWdodD0nOCcgZmlsbD0nI2YwZDliNScvPjxwYXRoIGZpbGw9JyNiNTg4NjMnIGQ9J00xIDBoMXYxSDF6TTMgMGgxdjFIM3pNNSAwaDF2MUg1ek03IDBoMXYxSDd6TTAgMWgxdjFIMHpNMiAxaDF2MUgyek00IDFoMXYxSDR6TTYgMWgxdjFINnpNMSAyaDF2MUgxek0zIDJoMXYxSDN6TTUgMmgxdjFINXpNNyAyaDF2MUg3ek0wIDNoMXYxSDB6TTIgM2gxdjFIMnpNNCAzaDF2MUg0ek02IDNoMXYxSDZ6TTEgNGgxdjFIMXpNMyA0aDF2MUgzek01IDRoMXYxSDV6TTcgNGgxdjFIN3pNMCA1aDF2MUgwek0yIDVoMXYxSDJ6TTQgNWgxdjFINHpNNiA1aDF2MUg2ek0xIDZoMXYxSDF6TTMgNmgxdjFIM3pNNSA2aDF2MUg1ek03IDZoMXYxSDd6TTAgN2gxdjFIMHpNMiA3aDF2MUgyek00IDdoMXYxSDR6TTYgN2gxdjFINnonLz48L3N2Zz4=') !important;
+  background-size: cover;
+}
+.board-theme-brown .orientation-white .ranks coord:nth-child(odd),
+.board-theme-brown .orientation-white .files coord:nth-child(odd),
+.board-theme-brown .orientation-black .ranks coord:nth-child(even),
+.board-theme-brown .orientation-black .files coord:nth-child(even) {
+  color: #f0d9b5;
+}
+.board-theme-brown .orientation-white .ranks coord:nth-child(even),
+.board-theme-brown .orientation-white .files coord:nth-child(even),
+.board-theme-brown .orientation-black .ranks coord:nth-child(odd),
+.board-theme-brown .orientation-black .files coord:nth-child(odd) {
+  color: #b58863;
+}
+
+.board-theme-blue cg-board {
+  background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA4IDgnIHNoYXBlLXJlbmRlcmluZz0nY3Jpc3BFZGdlcyc+PHJlY3Qgd2lkdGg9JzgnIGhlaWdodD0nOCcgZmlsbD0nI2RlZTNlNicvPjxwYXRoIGZpbGw9JyM4Y2EyYWQnIGQ9J00xIDBoMXYxSDF6TTMgMGgxdjFIM3pNNSAwaDF2MUg1ek03IDBoMXYxSDd6TTAgMWgxdjFIMHpNMiAxaDF2MUgyek00IDFoMXYxSDR6TTYgMWgxdjFINnpNMSAyaDF2MUgxek0zIDJoMXYxSDN6TTUgMmgxdjFINXpNNyAyaDF2MUg3ek0wIDNoMXYxSDB6TTIgM2gxdjFIMnpNNCAzaDF2MUg0ek02IDNoMXYxSDZ6TTEgNGgxdjFIMXpNMyA0aDF2MUgzek01IDRoMXYxSDV6TTcgNGgxdjFIN3pNMCA1aDF2MUgwek0yIDVoMXYxSDJ6TTQgNWgxdjFINHpNNiA1aDF2MUg2ek0xIDZoMXYxSDF6TTMgNmgxdjFIM3pNNSA2aDF2MUg1ek03IDZoMXYxSDd6TTAgN2gxdjFIMHpNMiA3aDF2MUgyek00IDdoMXYxSDR6TTYgN2gxdjFINnonLz48L3N2Zz4=') !important;
+  background-size: cover;
+}
+.board-theme-blue .orientation-white .ranks coord:nth-child(odd),
+.board-theme-blue .orientation-white .files coord:nth-child(odd),
+.board-theme-blue .orientation-black .ranks coord:nth-child(even),
+.board-theme-blue .orientation-black .files coord:nth-child(even) {
+  color: #dee3e6;
+}
+.board-theme-blue .orientation-white .ranks coord:nth-child(even),
+.board-theme-blue .orientation-white .files coord:nth-child(even),
+.board-theme-blue .orientation-black .ranks coord:nth-child(odd),
+.board-theme-blue .orientation-black .files coord:nth-child(odd) {
+  color: #8ca2ad;
+}
+
+.board-theme-dark cg-board {
+  background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA4IDgnIHNoYXBlLXJlbmRlcmluZz0nY3Jpc3BFZGdlcyc+PHJlY3Qgd2lkdGg9JzgnIGhlaWdodD0nOCcgZmlsbD0nIzhlOTQ5OScvPjxwYXRoIGZpbGw9JyM0YjUzNTgnIGQ9J00xIDBoMXYxSDF6TTMgMGgxdjFIM3pNNSAwaDF2MUg1ek03IDBoMXYxSDd6TTAgMWgxdjFIMHpNMiAxaDF2MUgyek00IDFoMXYxSDR6TTYgMWgxdjFINnpNMSAyaDF2MUgxek0zIDJoMXYxSDN6TTUgMmgxdjFINXpNNyAyaDF2MUg3ek0wIDNoMXYxSDB6TTIgM2gxdjFIMnpNNCAzaDF2MUg0ek02IDNoMXYxSDZ6TTEgNGgxdjFIMXpNMyA0aDF2MUgzek01IDRoMXYxSDV6TTcgNGgxdjFIN3pNMCA1aDF2MUgwek0yIDVoMXYxSDJ6TTQgNWgxdjFINHpNNiA1aDF2MUg2ek0xIDZoMXYxSDF6TTMgNmgxdjFIM3pNNSA2aDF2MUg1ek03IDZoMXYxSDd6TTAgN2gxdjFIMHpNMiA3aDF2MUgyek00IDdoMXYxSDR6TTYgN2gxdjFINnonLz48L3N2Zz4=') !important;
+  background-size: cover;
+}
+.board-theme-dark .orientation-white .ranks coord:nth-child(odd),
+.board-theme-dark .orientation-white .files coord:nth-child(odd),
+.board-theme-dark .orientation-black .ranks coord:nth-child(even),
+.board-theme-dark .orientation-black .files coord:nth-child(even) {
+  color: #8e9499;
+}
+.board-theme-dark .orientation-white .ranks coord:nth-child(even),
+.board-theme-dark .orientation-white .files coord:nth-child(even),
+.board-theme-dark .orientation-black .ranks coord:nth-child(odd),
+.board-theme-dark .orientation-black .files coord:nth-child(odd) {
+  color: #4b5358;
+}
+
+.board-theme-icicle cg-board {
+  background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA4IDgnIHNoYXBlLXJlbmRlcmluZz0nY3Jpc3BFZGdlcyc+PHJlY3Qgd2lkdGg9JzgnIGhlaWdodD0nOCcgZmlsbD0nI2UwZTZlZCcvPjxwYXRoIGZpbGw9JyM1YTdiOTQnIGQ9J00xIDBoMXYxSDF6TTMgMGgxdjFIM3pNNSAwaDF2MUg1ek03IDBoMXYxSDd6TTAgMWgxdjFIMHpNMiAxaDF2MUgyek00IDFoMXYxSDR6TTYgMWgxdjFINnpNMSAyaDF2MUgxek0zIDJoMXYxSDN6TTUgMmgxdjFINXpNNyAyaDF2MUg3ek0wIDNoMXYxSDB6TTIgM2gxdjFIMnpNNCAzaDF2MUg0ek02IDNoMXYxSDZ6TTEgNGgxdjFIMXpNMyA0aDF2MUgzek01IDRoMXYxSDV6TTcgNGgxdjFIN3pNMCA1aDF2MUgwek0yIDVoMXYxSDJ6TTQgNWgxdjFINHpNNiA1aDF2MUg2ek0xIDZoMXYxSDF6TTMgNmgxdjFIM3pNNSA2aDF2MUg1ek03IDZoMXYxSDd6TTAgN2gxdjFIMHpNMiA3aDF2MUgyek00IDdoMXYxSDR6TTYgN2gxdjFINnonLz48L3N2Zz4=') !important;
+  background-size: cover;
+}
+.board-theme-icicle .orientation-white .ranks coord:nth-child(odd),
+.board-theme-icicle .orientation-white .files coord:nth-child(odd),
+.board-theme-icicle .orientation-black .ranks coord:nth-child(even),
+.board-theme-icicle .orientation-black .files coord:nth-child(even) {
+  color: #e0e6ed;
+}
+.board-theme-icicle .orientation-white .ranks coord:nth-child(even),
+.board-theme-icicle .orientation-white .files coord:nth-child(even),
+.board-theme-icicle .orientation-black .ranks coord:nth-child(odd),
+.board-theme-icicle .orientation-black .files coord:nth-child(odd) {
+  color: #5a7b94;
+}
+
+/* Piece Theme: Merida */
+.piece-theme-merida .cg-wrap piece.pawn.white {
+  background-image: url('/pieces/merida/wP.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.knight.white {
+  background-image: url('/pieces/merida/wN.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.bishop.white {
+  background-image: url('/pieces/merida/wB.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.rook.white {
+  background-image: url('/pieces/merida/wR.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.queen.white {
+  background-image: url('/pieces/merida/wQ.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.king.white {
+  background-image: url('/pieces/merida/wK.svg') !important;
+}
+
+.piece-theme-merida .cg-wrap piece.pawn.black {
+  background-image: url('/pieces/merida/bP.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.knight.black {
+  background-image: url('/pieces/merida/bN.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.bishop.black {
+  background-image: url('/pieces/merida/bB.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.rook.black {
+  background-image: url('/pieces/merida/bR.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.queen.black {
+  background-image: url('/pieces/merida/bQ.svg') !important;
+}
+.piece-theme-merida .cg-wrap piece.king.black {
+  background-image: url('/pieces/merida/bK.svg') !important;
+}
+
+/* Piece Theme: Alpha */
+.piece-theme-alpha .cg-wrap piece.pawn.white {
+  background-image: url('/pieces/alpha/wP.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.knight.white {
+  background-image: url('/pieces/alpha/wN.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.bishop.white {
+  background-image: url('/pieces/alpha/wB.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.rook.white {
+  background-image: url('/pieces/alpha/wR.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.queen.white {
+  background-image: url('/pieces/alpha/wQ.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.king.white {
+  background-image: url('/pieces/alpha/wK.svg') !important;
+}
+
+.piece-theme-alpha .cg-wrap piece.pawn.black {
+  background-image: url('/pieces/alpha/bP.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.knight.black {
+  background-image: url('/pieces/alpha/bN.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.bishop.black {
+  background-image: url('/pieces/alpha/bB.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.rook.black {
+  background-image: url('/pieces/alpha/bR.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.queen.black {
+  background-image: url('/pieces/alpha/bQ.svg') !important;
+}
+.piece-theme-alpha .cg-wrap piece.king.black {
+  background-image: url('/pieces/alpha/bK.svg') !important;
+}
+
+/* Print styles for PDF export */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  figure {
+    page-break-inside: avoid;
+  }
+  h1,
+  h2,
+  h3 {
+    page-break-after: avoid;
+  }
+}

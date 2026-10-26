@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plyprose"
+version = "1.0.0"
+description = "PlyProse: Deterministic Stockfish + LLM Chess Narrative Coaching Agent"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [
+    ".git",
+    ".venv",
+    "node_modules",
+    "frontend",
+    "__pycache__",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes (syntax/import/variable errors)
+    "I",      # isort (import ordering)
+    "B",      # flake8-bugbear (common pitfalls)
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade (modern Python 3.11+ idioms)
+    "RUF",    # Ruff-specific clean code rules
+    "PIE",    # flake8-pie
+]
+ignore = [
+    "E501",   # Line length handled cleanly by ruff format
+    "B008",   # FastAPI Depends() / Query() default argument calls
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["src", "api"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "api"]
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = [
+    "chess.*",
+    "weasyprint.*",
+    "cairosvg.*",
+    "markdown.*",
+]
+ignore_missing_imports = true
