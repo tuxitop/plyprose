@@ -105,9 +105,10 @@ export class StockfishService {
     const isWhiteTurn = this.currentFen.split(' ')[1] === 'w';
     let formattedScore = '0.00';
     let scoreCp = rawCp;
+    let mateFromWhite: number | null = null;
 
     if (scoreMate !== null) {
-      const mateFromWhite = isWhiteTurn ? scoreMate : -scoreMate;
+      mateFromWhite = isWhiteTurn ? scoreMate : -scoreMate;
       formattedScore = mateFromWhite > 0 ? `+M${mateFromWhite}` : `-M${Math.abs(mateFromWhite)}`;
     } else if (rawCp !== null) {
       const cpFromWhite = isWhiteTurn ? rawCp : -rawCp;
@@ -155,7 +156,7 @@ export class StockfishService {
       multipv,
       depth,
       scoreCp,
-      scoreMate,
+      scoreMate: mateFromWhite,
       formattedScore,
       pvUci,
       pvSan,

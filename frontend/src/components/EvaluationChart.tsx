@@ -6,9 +6,16 @@ interface EvaluationChartProps {
   currentPly: number;
   onSelectPly: (ply: number) => void;
   plies: GamePly[];
+  liveEval?: string;
 }
 
-export function EvaluationChart({ evals, currentPly, onSelectPly, plies }: EvaluationChartProps) {
+export function EvaluationChart({
+  evals,
+  currentPly,
+  onSelectPly,
+  plies,
+  liveEval,
+}: EvaluationChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredPly, setHoveredPly] = useState<number | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
@@ -19,14 +26,18 @@ export function EvaluationChart({ evals, currentPly, onSelectPly, plies }: Evalu
   // Map centipawns to SVG Y coordinate (White is bottom, Black is top)
   const cpToY = useCallback(
     (cp: number) => {
-      const clampedCp = Math.max(-1000, Math.min(1000, cp));
-      // Standard winning probability sigmoid
-      const winProb = 1 / (1 + Math.exp(-0.00368208 * clampedCp));
-      const topMargin = 4;
-      const usableHeight = height - 8;
-      // winProb = 1 (White winning) -> Y = topMargin (near top)
-      // winProb = 0 (Black winning) -> Y = height - topMargin (near bottom)
-      return topMargin + (1 - winProb) * usableHeight;
+      let winProb: number;
+      if (Math.abs(cp) >= 9000) {
+        // Absolute checkmate / forced mate: completely fill corresponding side
+        winProb = cp > 0 ? 1 : 0;
+      } else {
+        const clampedCp = Math.max(-1500, Math.min(1500, cp));
+        // Standard winning probability sigmoid
+        winProb = 1 / (1 + Math.exp(-0.00368208 * clampedCp));
+      }
+      // winProb = 1 (White winning) -> Y = 0 (top, 100% white fill)
+      // winProb = 0 (Black winning / White checkmated) -> Y = height (bottom, 0% white fill)
+      return (1 - winProb) * height;
     },
     [height],
   );
@@ -61,9 +72,9 @@ export function EvaluationChart({ evals, currentPly, onSelectPly, plies }: Evalu
       const p3 = points[Math.min(points.length - 1, i + 2)];
 
       const cp1x = p1.x + (p2.x - p0.x) / 6;
-      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp1y = Math.max(0, Math.min(height, p1.y + (p2.y - p0.y) / 6));
       const cp2x = p2.x - (p3.x - p1.x) / 6;
-      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      const cp2y = Math.max(0, Math.min(height, p2.y - (p3.y - p1.y) / 6));
 
       d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
     }
@@ -113,16 +124,19 @@ export function EvaluationChart({ evals, currentPly, onSelectPly, plies }: Evalu
 
   // Tooltip data
   const tooltipData = useMemo(() => {
-    const ply = hoveredPly !== null ? hoveredPly : currentPly;
+    const isHovered = hoveredPly !== null;
+    const ply = isHovered ? hoveredPly : currentPly;
     if (ply < 0 || ply >= points.length) return null;
     const pt = points[ply];
     const plyObj = plies[ply];
     const cp = pt.cp;
 
     let evalStr: string;
-    if (Math.abs(cp) >= 9000) {
-      const mate =
-        cp > 0 ? Math.round((10000 - cp) / 10) || 1 : -Math.round((10000 + cp) / 10) || -1;
+    if (!isHovered && liveEval) {
+      evalStr = liveEval;
+    } else if (Math.abs(cp) >= 9000) {
+      const rawMate = cp > 0 ? 10000 - cp : -(10000 + cp);
+      const mate = rawMate === 0 ? (cp > 0 ? 1 : -1) : rawMate;
       evalStr = mate > 0 ? `+M${mate}` : `-M${Math.abs(mate)}`;
     } else {
       const pawn = (cp / 100).toFixed(1);
@@ -136,7 +150,7 @@ export function EvaluationChart({ evals, currentPly, onSelectPly, plies }: Evalu
       san: plyObj?.san || (ply === 0 ? 'Start' : ''),
       evalStr,
     };
-  }, [hoveredPly, currentPly, points, plies]);
+  }, [hoveredPly, currentPly, points, plies, liveEval]);
 
   if (points.length === 0) return null;
 
@@ -226,7 +240,7 @@ export function EvaluationChart({ evals, currentPly, onSelectPly, plies }: Evalu
           <line x1={activeX} y1="0" x2={activeX} y2={height} stroke="#2563eb" strokeWidth="1.75" />
           <circle
             cx={activeX}
-            cy={activeY}
+            cy={Math.max(3.5, Math.min(height - 3.5, activeY))}
             r="3.5"
             fill="#2563eb"
             stroke="#ffffff"

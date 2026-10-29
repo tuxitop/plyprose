@@ -69,7 +69,7 @@ from src.storage import (
     update_analysis_report,
 )
 
-app = FastAPI(title="PlyProse API", version="1.0.0")
+app = FastAPI(title="PlyProse API", version="1.1.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(

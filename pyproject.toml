@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plyprose"
-version = "1.0.0"
+version = "1.1.0"
 description = "PlyProse: Deterministic Stockfish + LLM Chess Narrative Coaching Agent"
 readme = "README.md"
 license = { text = "MIT" }

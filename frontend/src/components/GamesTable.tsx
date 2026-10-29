@@ -33,10 +33,15 @@ function MiniEvalChart({ evals, movesCount }: { evals?: number[]; movesCount?: n
   const n = evals.length;
 
   const points = evals.map((cp, idx) => {
-    const clampedCp = Math.max(-1000, Math.min(1000, cp));
-    const winProb = 1 / (1 + Math.exp(-0.00368208 * clampedCp));
+    let winProb: number;
+    if (Math.abs(cp) >= 9000) {
+      winProb = cp > 0 ? 1 : 0;
+    } else {
+      const clampedCp = Math.max(-1500, Math.min(1500, cp));
+      winProb = 1 / (1 + Math.exp(-0.00368208 * clampedCp));
+    }
     const x = (idx / (n - 1)) * width;
-    const y = 2 + (1 - winProb) * (height - 4);
+    const y = (1 - winProb) * height;
     return { x, y };
   });
 
@@ -48,9 +53,9 @@ function MiniEvalChart({ evals, movesCount }: { evals?: number[]; movesCount?: n
     const p3 = points[Math.min(points.length - 1, i + 2)];
 
     const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp1y = Math.max(0, Math.min(height, p1.y + (p2.y - p0.y) / 6));
     const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    const cp2y = Math.max(0, Math.min(height, p2.y - (p3.y - p1.y) / 6));
 
     d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
   }

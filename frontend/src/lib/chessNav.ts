@@ -42,18 +42,77 @@ export function findPlyByFen(targetFen: string, pgnText: string): number {
   return -1;
 }
 
+export interface MoveNavTarget {
+  type: 'mainline' | 'variation';
+  ply: number; // For mainline: target game ply (1..N). For variation: branchPly (position before the move)
+  variationMoves?: string[]; // Sanitized moves to play in the variation
+  displaySan: string;
+}
+
+function cleanSan(s: string): string {
+  return (s || '').replace(/[!?]/g, '').trim();
+}
+
 /**
- * Resolves clicked text or table cell in report HTML into a game ply (0..N).
- * Returns -1 if text cannot be mapped to a ply.
+ * Splits text into move tokens, extracting any leading move number and color.
+ * e.g. "37. Nxc3! exf4+" -> { moveNum: 37, isBlack: false, moves: ["Nxc3!", "exf4+"] }
+ * e.g. "36... e5?!" -> { moveNum: 36, isBlack: true, moves: ["e5?!"] }
  */
-export function resolveMoveTextToPly(
+function parseMoveTokens(text: string): {
+  moveNum: number | null;
+  isBlack: boolean;
+  moves: string[];
+} {
+  const clean = text.trim().replace(/[`*]/g, '');
+  const tokens = clean.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return { moveNum: null, isBlack: false, moves: [] };
+
+  let moveNum: number | null = null;
+  let isBlack = false;
+  const moves: string[] = [];
+
+  const first = tokens[0];
+  const numMatch = first.match(/^(\d+)\s*(\.{1,3})(.*)$/);
+  let startIndex = 0;
+
+  if (numMatch) {
+    moveNum = parseInt(numMatch[1], 10);
+    isBlack = numMatch[2].length > 1;
+    const remainder = numMatch[3].trim();
+    startIndex = 1;
+    if (remainder) {
+      moves.push(remainder);
+    }
+  }
+
+  for (let i = startIndex; i < tokens.length; i++) {
+    const t = tokens[i];
+    const innerNum = t.match(/^(\d+)\s*(\.{1,3})(.*)$/);
+    if (innerNum) {
+      if (innerNum[3].trim()) {
+        moves.push(innerNum[3].trim());
+      }
+    } else {
+      moves.push(t);
+    }
+  }
+
+  return { moveNum, isBlack, moves };
+}
+
+/**
+ * Classifies a move text string against game PGN.
+ * Accurately determines if it is a mainline game move or an alternative variation.
+ */
+export function classifyReportMove(
   text: string,
-  element: HTMLElement | null,
   pgnText: string,
-): number {
-  if (!pgnText) return -1;
-  const clean = (text || '').trim().replace(/[`*]/g, '');
-  if (!clean) return -1;
+  contextElement?: HTMLElement | null,
+): MoveNavTarget | null {
+  if (!text || !pgnText) return null;
+  const clean = text.trim().replace(/[`*]/g, '');
+  // Ignore FENs, URLs, or non-chess text
+  if (clean.includes('/') || clean.length < 2 || clean.includes('http')) return null;
 
   let history: ReturnType<Chess['history']>;
   try {
@@ -61,83 +120,149 @@ export function resolveMoveTextToPly(
     c.loadPgn(pgnText);
     history = c.history({ verbose: true });
   } catch {
-    return -1;
+    return null;
   }
+  if (!history || history.length === 0) return null;
 
-  if (history.length === 0) return -1;
+  const parsed = parseMoveTokens(clean);
+  let moveNum = parsed.moveNum;
+  let isBlack = parsed.isBlack;
+  const rawMoves = parsed.moves;
 
-  // 1. Direct move number + SAN pattern: e.g. "14... cxd4", "14...cxd4", "14. e4"
-  const fullMoveMatch = clean.match(/^(\d+)\s*(\.{1,3})\s*([A-Za-z0-9+#=-]+)?/);
-  if (fullMoveMatch) {
-    const moveNum = parseInt(fullMoveMatch[1], 10);
-    const isBlack = fullMoveMatch[2].length > 1;
-    const san = fullMoveMatch[3];
-
-    const expectedPly = isBlack ? (moveNum - 1) * 2 + 2 : (moveNum - 1) * 2 + 1;
-    if (expectedPly >= 1 && expectedPly <= history.length) {
-      if (!san || history[expectedPly - 1].san.toLowerCase() === san.toLowerCase()) {
-        return expectedPly;
+  // If move number was not in the text, check contextElement (e.g. table row)
+  if (moveNum === null && contextElement) {
+    const tr = contextElement.closest('tr');
+    if (tr) {
+      const cells = Array.from(tr.querySelectorAll('th, td')).map(el =>
+        (el.textContent || '').trim(),
+      );
+      for (const cell of cells) {
+        const m = cell.match(/^(\d+)\s*(\.{1,3})/);
+        if (m) {
+          moveNum = parseInt(m[1], 10);
+          isBlack = m[2].length > 1;
+          break;
+        }
       }
-      return expectedPly;
     }
   }
 
-  // 2. Table row detection (for Critical Moments table)
-  if (element) {
-    const tr = element.closest('tr');
-    if (tr) {
-      const cells = Array.from(tr.querySelectorAll('th, td')).map(c =>
-        (c.textContent || '').trim(),
-      );
-      // Check if any cell has a move notation like "14..." or a ply number
-      let rowPly = -1;
-      for (const cellText of cells) {
-        // e.g. "14..." or "14."
-        const m = cellText.match(/^(\d+)\s*(\.{1,3})/);
-        if (m) {
-          const mNum = parseInt(m[1], 10);
-          const isB = m[2].length > 1;
-          rowPly = isB ? (mNum - 1) * 2 + 2 : (mNum - 1) * 2 + 1;
+  // 1. With move number:
+  if (moveNum !== null) {
+    const gamePly = isBlack ? (moveNum - 1) * 2 + 2 : (moveNum - 1) * 2 + 1;
+    const branchPly = gamePly - 1;
+
+    // Check if first move matches the played mainline move
+    if (gamePly >= 1 && gamePly <= history.length) {
+      const playedSan = history[gamePly - 1].san;
+      const firstRaw = rawMoves[0] || '';
+      const firstSan = cleanSan(firstRaw);
+
+      if (!firstSan || playedSan.toLowerCase() === firstSan.toLowerCase()) {
+        return {
+          type: 'mainline',
+          ply: gamePly,
+          displaySan: `${moveNum}.${isBlack ? '..' : ''} ${playedSan}`,
+        };
+      }
+    }
+
+    // Does not match played move: test if it is a valid alternative variation from branchPly!
+    if (branchPly >= 0 && branchPly <= history.length && rawMoves.length > 0) {
+      const branchFen = branchPly === 0 ? new Chess().fen() : history[branchPly - 1].after;
+      const sim = new Chess(branchFen);
+      const validMoves: string[] = [];
+
+      for (const rm of rawMoves) {
+        const s = cleanSan(rm);
+        try {
+          const res = sim.move(s);
+          if (res) {
+            validMoves.push(res.san);
+          } else {
+            const res2 = sim.move(s.replace(/[+#]/g, ''));
+            if (res2) validMoves.push(res2.san);
+            else break;
+          }
+        } catch {
           break;
         }
       }
 
-      if (rowPly >= 1 && rowPly <= history.length) {
-        // If user clicked the "Best Move" cell or column, jump to the blunder position (rowPly - 1)
-        // so they can see the board right before the mistake and explore the engine move!
-        const colIndex = Array.from(tr.children).indexOf(element);
-        const table = tr.closest('table');
-        const headerCell =
-          table?.querySelectorAll('th')?.[colIndex]?.textContent?.toLowerCase() || '';
-        if (headerCell.includes('best') || element.textContent?.includes('Best')) {
-          return rowPly - 1;
-        }
-        return rowPly;
+      if (validMoves.length > 0) {
+        return {
+          type: 'variation',
+          ply: branchPly,
+          variationMoves: validMoves,
+          displaySan: `${moveNum}.${isBlack ? '..' : ''} ${validMoves[0]}`,
+        };
       }
     }
   }
 
-  // 3. Standalone SAN move: e.g. "cxd4", "Nf3", "O-O", "Bxf7+", "e4"
-  // Clean punctuation / check / mate suffixes for matching
-  const candidateSan = clean.replace(/[.,;:]/g, '');
-  const matchingPlies = history
-    .map((m, idx) => ({ ply: idx + 1, san: m.san }))
-    .filter(m => m.san.toLowerCase() === candidateSan.toLowerCase());
+  // 2. Standalone SAN move without move number (e.g. "cxd4", "Nf3")
+  if (rawMoves.length > 0) {
+    const candidate = cleanSan(rawMoves[0]).replace(/[.,;:]/g, '');
+    if (!candidate) return null;
 
-  if (matchingPlies.length === 1) {
-    return matchingPlies[0].ply;
-  } else if (matchingPlies.length > 1 && element) {
-    // If multiple occurrences of a move (e.g. "e4" or "Nf3"), check if nearby text has move number
-    const parentText = element.parentElement?.textContent || '';
-    const nearMoveMatch = parentText.match(/(\d+)\s*\.{1,3}/);
-    if (nearMoveMatch) {
-      const nearNum = parseInt(nearMoveMatch[1], 10);
-      const closest = matchingPlies.find(p => Math.floor((p.ply - 1) / 2) + 1 === nearNum);
-      if (closest) return closest.ply;
+    const matches = history
+      .map((m, idx) => ({
+        ply: idx + 1,
+        san: m.san,
+        moveNumber: Math.floor(idx / 2) + 1,
+        color: m.color,
+      }))
+      .filter(m => m.san.toLowerCase() === candidate.toLowerCase());
+
+    if (matches.length === 1) {
+      return {
+        type: 'mainline',
+        ply: matches[0].ply,
+        displaySan: `${matches[0].moveNumber}.${matches[0].color === 'b' ? '..' : ''} ${matches[0].san}`,
+      };
     }
-    // Default to the first match
-    return matchingPlies[0].ply;
   }
 
-  return -1;
+  return null;
+}
+
+/**
+ * Decorates report HTML to visually distinguish played moves from variations
+ * and make all moves interactive with clean accessible button markup.
+ */
+export function decorateReportHtml(html: string, pgnText: string): string {
+  if (!html || !pgnText) return html;
+
+  return html.replace(/<code([^>]*)>([\s\S]*?)<\/code>/gi, (match, _attrs, content) => {
+    const rawText = content.replace(/<[^>]+>/g, '').trim();
+    if (!rawText || rawText.includes('/') || rawText.length < 2) {
+      return match;
+    }
+
+    const target = classifyReportMove(rawText, pgnText);
+    if (!target) {
+      return match;
+    }
+
+    if (target.type === 'mainline') {
+      return `<button type="button" class="chess-move-btn chess-move-mainline group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50/90 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 hover:border-blue-300 dark:hover:border-blue-700 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="mainline" data-ply="${target.ply}" title="Jump to game move ${target.displaySan}"><span class="text-[9px] text-blue-500 opacity-75 group-hover:opacity-100">▶</span>${content}</button>`;
+    } else {
+      const movesJson = encodeURIComponent(JSON.stringify(target.variationMoves || []));
+      const branchMoveNumber = Math.floor((target.ply - 1) / 2) + 1;
+      return `<button type="button" class="chess-move-btn chess-move-variation group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50/90 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 hover:border-purple-400 dark:hover:border-purple-600 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="variation" data-branch-ply="${target.ply}" data-moves="${movesJson}" title="Explore variation: ${rawText} (branches at move ${branchMoveNumber})"><span class="text-[10px] text-purple-500 font-bold opacity-80 group-hover:opacity-100">⑂</span>${content}</button>`;
+    }
+  });
+}
+
+/**
+ * Resolves clicked text or table cell in report HTML into a game ply (0..N).
+ * Kept for backward compatibility.
+ */
+export function resolveMoveTextToPly(
+  text: string,
+  element: HTMLElement | null,
+  pgnText: string,
+): number {
+  const target = classifyReportMove(text, pgnText, element);
+  return target ? target.ply : -1;
 }

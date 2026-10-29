@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   ArrowLeft,
   Download,
@@ -21,8 +21,8 @@ import {
   streamJob,
 } from '../lib/api';
 import { classifyTimeControl, formatTC, formatGameTimeLocal } from '../lib/timeControl';
-import { InteractiveBoard } from '../components/InteractiveBoard';
-import { findPlyByFen, resolveMoveTextToPly } from '../lib/chessNav';
+import { InteractiveBoard, type InteractiveBoardHandle } from '../components/InteractiveBoard';
+import { findPlyByFen, classifyReportMove, decorateReportHtml } from '../lib/chessNav';
 import type { Theme } from '../hooks/useTheme';
 import type { AnalysisRecord } from '../types';
 
@@ -44,6 +44,11 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
     return typeof window !== 'undefined' ? window.innerWidth >= 1200 : false;
   });
   const [currentPly, setCurrentPly] = useState<number>(0);
+  const boardRef = useRef<InteractiveBoardHandle | null>(null);
+  const [initialVariation, setInitialVariation] = useState<{
+    branchPly: number;
+    moves: string[];
+  } | null>(null);
 
   // Resizable sidebar width
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -185,6 +190,11 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
         if (fen) {
           const ply = findPlyByFen(fen, record.pgn_text);
           if (ply !== -1) {
+            if (boardRef.current) {
+              boardRef.current.resetVariation();
+            } else {
+              setInitialVariation(null);
+            }
             setCurrentPly(ply);
           }
           setIsBoardOpen(true);
@@ -192,20 +202,85 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
         }
       }
 
-      // Case 2: Clicked on a <code> element or <td> element containing chess moves
+      // Case 2: Clicked on a decorated move button (.chess-move-btn)
+      const moveBtn = target.closest('.chess-move-btn');
+      if (moveBtn) {
+        const moveType = moveBtn.getAttribute('data-move-type');
+        if (moveType === 'variation') {
+          const branchPlyStr = moveBtn.getAttribute('data-branch-ply');
+          const movesRaw = moveBtn.getAttribute('data-moves');
+          if (branchPlyStr && movesRaw) {
+            const branchPly = parseInt(branchPlyStr, 10);
+            try {
+              const moves = JSON.parse(decodeURIComponent(movesRaw)) as string[];
+              if (Array.isArray(moves) && moves.length > 0) {
+                if (boardRef.current) {
+                  boardRef.current.startVariation(branchPly, moves);
+                } else {
+                  setInitialVariation({ branchPly, moves });
+                }
+                setCurrentPly(branchPly);
+                setIsBoardOpen(true);
+                return;
+              }
+            } catch {
+              // fallback below
+            }
+          }
+        } else if (moveType === 'mainline') {
+          const plyStr = moveBtn.getAttribute('data-ply');
+          if (plyStr) {
+            const ply = parseInt(plyStr, 10);
+            if (!isNaN(ply)) {
+              if (boardRef.current) {
+                boardRef.current.resetVariation();
+              } else {
+                setInitialVariation(null);
+              }
+              setCurrentPly(ply);
+              setIsBoardOpen(true);
+              return;
+            }
+          }
+        }
+      }
+
+      // Case 3: Fallback for any undecorated <code> or <td> element containing chess moves
       const codeOrCell = target.closest('code, td');
       if (codeOrCell) {
         const text = (codeOrCell.textContent || '').trim();
-        const matchedPly = resolveMoveTextToPly(text, codeOrCell as HTMLElement, record.pgn_text);
-        if (matchedPly !== -1) {
-          setCurrentPly(matchedPly);
-          setIsBoardOpen(true);
-          return;
+        const navTarget = classifyReportMove(text, record.pgn_text, codeOrCell as HTMLElement);
+        if (navTarget) {
+          if (navTarget.type === 'variation' && navTarget.variationMoves?.length) {
+            if (boardRef.current) {
+              boardRef.current.startVariation(navTarget.ply, navTarget.variationMoves);
+            } else {
+              setInitialVariation({ branchPly: navTarget.ply, moves: navTarget.variationMoves });
+            }
+            setCurrentPly(navTarget.ply);
+            setIsBoardOpen(true);
+            return;
+          } else {
+            if (boardRef.current) {
+              boardRef.current.resetVariation();
+            } else {
+              setInitialVariation(null);
+            }
+            setCurrentPly(navTarget.ply);
+            setIsBoardOpen(true);
+            return;
+          }
         }
       }
     },
     [record],
   );
+
+  const pgnText = record?.pgn_text;
+  const decoratedReportHtml = useMemo(() => {
+    if (!reportHtml || !pgnText) return reportHtml;
+    return decorateReportHtml(reportHtml, pgnText);
+  }, [reportHtml, pgnText]);
 
   if (loading) {
     return (
@@ -436,6 +511,25 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
           onScroll={handleReportScroll}
         >
           <div className="max-w-[860px] mx-auto px-6 py-8">
+            {/* Interactive Moves Legend */}
+            <div className="flex flex-wrap items-center gap-3 sm:gap-5 text-xs text-slate-500 dark:text-slate-400 pb-2.5 mb-4 border-b border-slate-200 dark:border-slate-800 select-none">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wider">
+                Interactive Moves:
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-[11px] font-mono font-semibold">
+                  <span className="text-[9px] text-blue-500">▶</span> Played Move
+                </span>
+                <span className="text-[11px]">Recorded game move</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[11px] font-mono font-semibold">
+                  <span className="text-[10px] text-purple-500 font-bold">⑂</span> Variation
+                </span>
+                <span className="text-[11px]">Analysis & engine refutation</span>
+              </span>
+            </div>
+
             <div
               className="prose prose-slate dark:prose-invert prose-sm sm:prose-base max-w-none
                 prose-headings:font-semibold
@@ -453,7 +547,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 prose-td:p-2 prose-td:border prose-td:border-slate-200 dark:prose-td:border-slate-700
                 prose-figure:my-6 prose-figure:flex prose-figure:flex-col prose-figure:items-center
                 prose-figcaption:text-center prose-figcaption:text-xs prose-figcaption:text-slate-500 dark:prose-figcaption:text-slate-400 prose-figcaption:mt-2 prose-figcaption:italic"
-              dangerouslySetInnerHTML={{ __html: reportHtml }}
+              dangerouslySetInnerHTML={{ __html: decoratedReportHtml }}
             />
           </div>
         </div>
@@ -475,13 +569,18 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
           </div>
 
           <InteractiveBoard
+            ref={boardRef}
             pgnText={record.pgn_text}
             payloadJson={record.payload_json}
             currentPly={currentPly}
             onSelectPly={setCurrentPly}
-            onClose={() => setIsBoardOpen(false)}
+            onClose={() => {
+              setIsBoardOpen(false);
+              setInitialVariation(null);
+            }}
             userSide={record.side || (record.white_player === 'tuxitop' ? 'white' : 'black')}
             sidebarWidth={sidebarWidth}
+            initialVariation={initialVariation}
           />
         </aside>
       )}
