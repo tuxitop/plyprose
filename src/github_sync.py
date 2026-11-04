@@ -9,6 +9,8 @@ from __future__ import annotations
 import base64
 import datetime
 import re
+import time
+from typing import Any
 
 import httpx
 
@@ -108,6 +110,7 @@ def build_game_repo_files(
     report_md: str,
     pgn_text: str,
     size: int = 400,
+    payload_json: str | None = None,
 ) -> dict[str, str | bytes]:
     """
     Transforms the coaching narrative report and game assets into a dictionary of files
@@ -115,6 +118,7 @@ def build_game_repo_files(
       - report.md: Markdown with diagrams converted to relative SVG links (./assets/diagram_N.svg)
       - report.pdf: Complete PDF export with boards
       - game.pgn: Raw PGN string
+      - payload.json: Optional serialized GameAnalysisPayload facts
       - assets/diagram_N.svg: Standalone SVG boards
     """
     diagram_counter = [0]
@@ -167,6 +171,8 @@ def build_game_repo_files(
         "report.pdf": pdf_bytes,
         **diagram_files,
     }
+    if payload_json and payload_json.strip():
+        files["payload.json"] = payload_json.strip() + "\n"
     return files
 
 
@@ -303,9 +309,11 @@ class GitHubSyncClient:
         folder_path: str,
         files: dict[str, str | bytes],
         commit_message: str | None = None,
+        max_retries: int = 3,
     ) -> str:
         """
         Commits all files under folder_path atomically.
+        Includes automatic retry for concurrent fast-forward update conflicts (HTTP 422).
         Returns the new commit SHA.
         """
         clean_folder = folder_path.strip().strip("/")
@@ -313,19 +321,7 @@ class GitHubSyncClient:
             commit_message = f"Add analysis: {clean_folder}"
 
         with self._get_client() as c:
-            latest_commit_sha = self._ensure_branch_exists(c)
-
-            # Get base tree
-            commit_data_resp = c.get(
-                f"{self.base_url}/git/commits/{latest_commit_sha}", headers=self.headers
-            )
-            if commit_data_resp.status_code != 200:
-                raise GitHubSyncError(
-                    f"Failed to fetch commit {latest_commit_sha}: {commit_data_resp.text[:200]}"
-                )
-            base_tree_sha = commit_data_resp.json()["tree"]["sha"]
-
-            # Create blobs for all files
+            # Create blobs first (content-addressed and immutable by SHA)
             tree_entries: list[dict[str, str]] = []
             for rel_path, content in files.items():
                 blob_sha = self._create_blob(c, content)
@@ -338,51 +334,73 @@ class GitHubSyncClient:
                     }
                 )
 
-            # Create tree with base_tree
-            tree_resp = c.post(
-                f"{self.base_url}/git/trees",
-                json={"base_tree": base_tree_sha, "tree": tree_entries},
-                headers=self.headers,
-            )
-            if tree_resp.status_code not in (200, 201):
-                raise GitHubSyncError(
-                    f"Failed to create tree: {tree_resp.status_code} {tree_resp.text[:200]}"
-                )
-            new_tree_sha = tree_resp.json()["sha"]
+            # Commit and update branch ref with retry loop for concurrent pushes
+            for attempt in range(max_retries):
+                latest_commit_sha = self._ensure_branch_exists(c)
 
-            # Create commit
-            commit_resp = c.post(
-                f"{self.base_url}/git/commits",
-                json={
-                    "message": commit_message,
-                    "tree": new_tree_sha,
-                    "parents": [latest_commit_sha],
-                },
-                headers=self.headers,
-            )
-            if commit_resp.status_code not in (200, 201):
-                raise GitHubSyncError(
-                    f"Failed to create commit: {commit_resp.status_code} {commit_resp.text[:200]}"
+                # Get base tree
+                commit_data_resp = c.get(
+                    f"{self.base_url}/git/commits/{latest_commit_sha}", headers=self.headers
                 )
-            new_commit_sha = commit_resp.json()["sha"]
+                if commit_data_resp.status_code != 200:
+                    raise GitHubSyncError(
+                        f"Failed to fetch commit {latest_commit_sha}: {commit_data_resp.text[:200]}"
+                    )
+                base_tree_sha = commit_data_resp.json()["tree"]["sha"]
 
-            # Update branch ref
-            ref_resp = c.patch(
-                f"{self.base_url}/git/refs/heads/{self.branch}",
-                json={"sha": new_commit_sha, "force": False},
-                headers=self.headers,
-            )
-            if ref_resp.status_code != 200:
+                # Create tree with base_tree
+                tree_resp = c.post(
+                    f"{self.base_url}/git/trees",
+                    json={"base_tree": base_tree_sha, "tree": tree_entries},
+                    headers=self.headers,
+                )
+                if tree_resp.status_code not in (200, 201):
+                    raise GitHubSyncError(
+                        f"Failed to create tree: {tree_resp.status_code} {tree_resp.text[:200]}"
+                    )
+                new_tree_sha = tree_resp.json()["sha"]
+
+                # Create commit
+                commit_resp = c.post(
+                    f"{self.base_url}/git/commits",
+                    json={
+                        "message": commit_message,
+                        "tree": new_tree_sha,
+                        "parents": [latest_commit_sha],
+                    },
+                    headers=self.headers,
+                )
+                if commit_resp.status_code not in (200, 201):
+                    raise GitHubSyncError(
+                        f"Failed to create commit: {commit_resp.status_code} {commit_resp.text[:200]}"
+                    )
+                new_commit_sha = commit_resp.json()["sha"]
+
+                # Update branch ref
+                ref_resp = c.patch(
+                    f"{self.base_url}/git/refs/heads/{self.branch}",
+                    json={"sha": new_commit_sha, "force": False},
+                    headers=self.headers,
+                )
+                if ref_resp.status_code == 200:
+                    return str(new_commit_sha)
+
+                # Fast-forward race condition retry: another instance pushed concurrently
+                if ref_resp.status_code == 422 and attempt < max_retries - 1:
+                    time.sleep(0.3 * (attempt + 1))
+                    continue
+
                 raise GitHubSyncError(
                     f"Failed to update ref '{self.branch}': {ref_resp.status_code} {ref_resp.text[:200]}"
                 )
 
-            return str(new_commit_sha)
+            raise GitHubSyncError(f"Failed to sync game after {max_retries} attempts.")
 
     def delete_game(
         self,
         folder_path: str,
         commit_message: str | None = None,
+        max_retries: int = 3,
     ) -> bool:
         """
         Removes all files under folder_path from the repository.
@@ -393,70 +411,147 @@ class GitHubSyncClient:
             commit_message = f"Remove analysis: {clean_folder}"
 
         with self._get_client() as c:
-            # Check if branch exists
+            for attempt in range(max_retries):
+                # Check if branch exists
+                ref_url = f"{self.base_url}/git/ref/heads/{self.branch}"
+                ref_resp = c.get(ref_url, headers=self.headers)
+                if ref_resp.status_code != 200:
+                    return True
+
+                latest_commit_sha = str(ref_resp.json()["object"]["sha"])
+
+                # Fetch recursive tree
+                tree_url = f"{self.base_url}/git/trees/{latest_commit_sha}?recursive=1"
+                tree_resp = c.get(tree_url, headers=self.headers)
+                if tree_resp.status_code != 200:
+                    return True
+
+                all_entries = tree_resp.json().get("tree", [])
+                prefix = f"{clean_folder}/"
+                remaining = [
+                    e
+                    for e in all_entries
+                    if not e["path"].startswith(prefix)
+                    and e["path"] != clean_folder
+                    and e["type"] == "blob"
+                ]
+
+                blob_count_before = len([e for e in all_entries if e["type"] == "blob"])
+                if len(remaining) == blob_count_before:
+                    # Folder is not present in repo
+                    return True
+
+                # Create replacement tree without the deleted items (no base_tree)
+                new_tree_entries = [
+                    {"path": e["path"], "mode": e["mode"], "type": "blob", "sha": e["sha"]}
+                    for e in remaining
+                ]
+                new_tree_resp = c.post(
+                    f"{self.base_url}/git/trees",
+                    json={"tree": new_tree_entries},
+                    headers=self.headers,
+                )
+                if new_tree_resp.status_code not in (200, 201):
+                    raise GitHubSyncError(
+                        f"Failed to create deletion tree: {new_tree_resp.text[:200]}"
+                    )
+                new_tree_sha = new_tree_resp.json()["sha"]
+
+                # Create commit
+                commit_resp = c.post(
+                    f"{self.base_url}/git/commits",
+                    json={
+                        "message": commit_message,
+                        "tree": new_tree_sha,
+                        "parents": [latest_commit_sha],
+                    },
+                    headers=self.headers,
+                )
+                if commit_resp.status_code not in (200, 201):
+                    raise GitHubSyncError(
+                        f"Failed to create deletion commit: {commit_resp.status_code} {commit_resp.text[:200]}"
+                    )
+                new_commit_sha = commit_resp.json()["sha"]
+
+                # Update ref
+                ref_patch = c.patch(
+                    f"{self.base_url}/git/refs/heads/{self.branch}",
+                    json={"sha": new_commit_sha, "force": False},
+                    headers=self.headers,
+                )
+                if ref_patch.status_code == 200:
+                    return True
+
+                if ref_patch.status_code == 422 and attempt < max_retries - 1:
+                    time.sleep(0.3 * (attempt + 1))
+                    continue
+
+                return False
+
+            return False
+
+    def get_blob_text(self, sha: str) -> str:
+        """
+        Fetches the text content of a Git blob from GitHub.
+        """
+        with self._get_client() as c:
+            resp = c.get(f"{self.base_url}/git/blobs/{sha}", headers=self.headers)
+            if resp.status_code != 200:
+                raise GitHubSyncError(
+                    f"Failed to fetch blob {sha}: {resp.status_code} {resp.text[:200]}"
+                )
+            data = resp.json()
+            encoding = data.get("encoding", "utf-8")
+            content = data.get("content", "")
+            if encoding == "base64":
+                return base64.b64decode(content).decode("utf-8")
+            return str(content)
+
+    def list_remote_games_summary(self) -> list[dict[str, Any]]:
+        """
+        Scans the remote repository tree recursively and identifies all game folders.
+        Returns a list of dictionaries with:
+          - folder: str
+          - report_blob_sha: str
+          - pgn_blob_sha: str
+          - payload_blob_sha: str | None
+        """
+        with self._get_client() as c:
             ref_url = f"{self.base_url}/git/ref/heads/{self.branch}"
             ref_resp = c.get(ref_url, headers=self.headers)
             if ref_resp.status_code != 200:
-                return True
-
+                return []
             latest_commit_sha = str(ref_resp.json()["object"]["sha"])
 
-            # Fetch recursive tree
             tree_url = f"{self.base_url}/git/trees/{latest_commit_sha}?recursive=1"
             tree_resp = c.get(tree_url, headers=self.headers)
             if tree_resp.status_code != 200:
-                return True
+                return []
 
-            all_entries = tree_resp.json().get("tree", [])
-            prefix = f"{clean_folder}/"
-            remaining = [
-                e
-                for e in all_entries
-                if not e["path"].startswith(prefix)
-                and e["path"] != clean_folder
-                and e["type"] == "blob"
-            ]
+            entries = tree_resp.json().get("tree", [])
+            folders: dict[str, dict[str, str]] = {}
+            for e in entries:
+                if e.get("type") != "blob":
+                    continue
+                path = str(e.get("path", ""))
+                if "/" not in path:
+                    continue
+                folder, filename = path.rsplit("/", 1)
+                if filename in ("report.md", "game.pgn", "payload.json"):
+                    folders.setdefault(folder, {})[filename] = str(e.get("sha", ""))
 
-            blob_count_before = len([e for e in all_entries if e["type"] == "blob"])
-            if len(remaining) == blob_count_before:
-                # Folder is not present in repo
-                return True
-
-            # Create replacement tree without the deleted items (no base_tree)
-            new_tree_entries = [
-                {"path": e["path"], "mode": e["mode"], "type": "blob", "sha": e["sha"]}
-                for e in remaining
-            ]
-            new_tree_resp = c.post(
-                f"{self.base_url}/git/trees",
-                json={"tree": new_tree_entries},
-                headers=self.headers,
-            )
-            if new_tree_resp.status_code not in (200, 201):
-                raise GitHubSyncError(f"Failed to create deletion tree: {new_tree_resp.text[:200]}")
-            new_tree_sha = new_tree_resp.json()["sha"]
-
-            # Create commit
-            commit_resp = c.post(
-                f"{self.base_url}/git/commits",
-                json={
-                    "message": commit_message,
-                    "tree": new_tree_sha,
-                    "parents": [latest_commit_sha],
-                },
-                headers=self.headers,
-            )
-            if commit_resp.status_code not in (200, 201):
-                raise GitHubSyncError(f"Failed to create deletion commit: {commit_resp.text[:200]}")
-            new_commit_sha = commit_resp.json()["sha"]
-
-            # Update ref
-            ref_patch = c.patch(
-                f"{self.base_url}/git/refs/heads/{self.branch}",
-                json={"sha": new_commit_sha, "force": False},
-                headers=self.headers,
-            )
-            return ref_patch.status_code == 200
+            results: list[dict[str, Any]] = []
+            for folder, files in sorted(folders.items()):
+                if "report.md" in files and "game.pgn" in files:
+                    results.append(
+                        {
+                            "folder": folder,
+                            "report_blob_sha": files["report.md"],
+                            "pgn_blob_sha": files["game.pgn"],
+                            "payload_blob_sha": files.get("payload.json"),
+                        }
+                    )
+            return results
 
 
 __all__ = [

@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Zap,
   Clock,
+  Download,
   Eye,
   EyeOff,
   Github,
@@ -17,6 +18,7 @@ import {
   getDetectedRatings,
   getSettings,
   listModels,
+  pullFromGitHub,
   syncAllToGitHub,
   testConnection,
   testGitHubConnection,
@@ -64,6 +66,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [testingGhConn, setTestingGhConn] = useState(false);
   const [syncingAllGh, setSyncingAllGh] = useState(false);
   const [syncAllResult, setSyncAllResult] = useState<StatusPill>({ ok: null, message: '' });
+  const [pullingGh, setPullingGh] = useState(false);
+  const [pullResult, setPullResult] = useState<StatusPill>({ ok: null, message: '' });
 
   const providers = ['openai-compat', 'gemini'];
 
@@ -210,6 +214,32 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       setSyncAllResult({ ok: false, message: msg });
     } finally {
       setSyncingAllGh(false);
+    }
+  };
+
+  const handlePullGitHub = async () => {
+    if (!settings) return;
+    setPullingGh(true);
+    setPullResult({ ok: null, message: 'Pulling analyzed games from GitHub…' });
+    try {
+      await updateSettings(settings);
+      const res = await pullFromGitHub();
+      if (res.ok) {
+        setPullResult({
+          ok: true,
+          message: res.message || `Successfully pulled from GitHub!`,
+        });
+      } else {
+        setPullResult({
+          ok: false,
+          message: `Pull failed: ${res.errors?.join('; ') || res.message}`,
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Pull failed';
+      setPullResult({ ok: false, message: msg });
+    } finally {
+      setPullingGh(false);
     }
   };
 
@@ -905,25 +935,55 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               )}
             </div>
 
-            <div className="flex items-center gap-3 flex-wrap">
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={syncingAllGh}
-                disabled={!settings.github_token || !settings.github_repo}
-                icon={<RefreshCw size={12} />}
-                onClick={handleSyncAllGitHub}
-              >
-                Sync All Analyzed Games Now
-              </Button>
-              {syncAllResult.ok !== null && (
-                <span
-                  className={`text-xs flex items-center gap-1 ${syncAllResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}
+            <div className="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={pullingGh}
+                  disabled={!settings.github_token || !settings.github_repo}
+                  icon={<Download size={12} />}
+                  onClick={handlePullGitHub}
+                  title="Pull analyzed games from GitHub into this instance"
                 >
-                  {syncAllResult.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                  {syncAllResult.message}
-                </span>
-              )}
+                  Pull Analyses from GitHub
+                </Button>
+                {pullResult.ok !== null && (
+                  <span
+                    className={`text-xs flex items-center gap-1 ${pullResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}
+                  >
+                    {pullResult.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
+                    {pullResult.message}
+                  </span>
+                )}
+                {pullResult.ok === null && pullResult.message && (
+                  <span className="text-xs text-slate-400 dark:text-slate-500">
+                    {pullResult.message}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={syncingAllGh}
+                  disabled={!settings.github_token || !settings.github_repo}
+                  icon={<RefreshCw size={12} />}
+                  onClick={handleSyncAllGitHub}
+                  title="Push all local analyzed games to your GitHub repository"
+                >
+                  Sync All Analyzed Games Now
+                </Button>
+                {syncAllResult.ok !== null && (
+                  <span
+                    className={`text-xs flex items-center gap-1 ${syncAllResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}
+                  >
+                    {syncAllResult.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
+                    {syncAllResult.message}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>

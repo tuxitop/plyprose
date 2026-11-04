@@ -225,6 +225,17 @@ export interface GitHubSyncAllResult {
   errors?: string[];
 }
 
+export interface GitHubPullResult {
+  ok: boolean;
+  imported_count: number;
+  updated_count: number;
+  skipped_count: number;
+  purged_pending_count: number;
+  total_remote: number;
+  errors?: string[];
+  message: string;
+}
+
 export type Platform = 'all' | 'chesscom' | 'lichess' | 'manual';
 export type ResultFilter = 'all' | 'win' | 'loss' | 'draw';
 export type StatusFilter = 'all' | 'analyzed' | 'unanalyzed';

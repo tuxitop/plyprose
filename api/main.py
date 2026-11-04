@@ -68,12 +68,14 @@ from src.models import (
     AskMoveRequest,
     AskMoveResponse,
     GameAnalysisPayload,
+    GitHubPullResult,
 )
 from src.openai_agent import list_openai_compat_models, probe_openai_compat_connection
 from src.storage import (
     compute_analysis_hash,
     delete_analysis,
     find_analysis,
+    find_analysis_by_github_path,
     get_all_analyses,
     get_analysis_by_id,
     save_analysis,
@@ -82,7 +84,7 @@ from src.storage import (
     update_analysis_report,
 )
 
-app = FastAPI(title="PlyProse API", version="1.2.0")
+app = FastAPI(title="PlyProse API", version="1.3.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -209,6 +211,7 @@ def api_github_sync_game(analysis_id: int, force: bool = Query(False)) -> dict:
     files = build_game_repo_files(
         report_md=report_md,
         pgn_text=pgn_text,
+        payload_json=payload_json,
     )
 
     gh = GitHubSyncClient(token=token, repo=repo, branch=branch)
@@ -288,6 +291,7 @@ def api_github_sync_all(force: bool = Query(False)) -> dict:
             files = build_game_repo_files(
                 report_md=report_md,
                 pgn_text=pgn_text,
+                payload_json=payload_json,
             )
             gh.sync_game(
                 folder_path=folder,
@@ -315,6 +319,191 @@ def api_github_sync_all(force: bool = Query(False)) -> dict:
         "errors": errors[:5],
         "message": msg,
     }
+
+
+@app.post("/api/github/pull", response_model=GitHubPullResult)
+def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
+    """
+    Pulls analyzed games from the remote GitHub repository into the local SQLite database.
+    - If a remote game already exists locally with the same hash, skips it without downloading blobs.
+    - If a remote game was sitting in pending_games, cleans it up from pending_games and saves it to analyses.
+    - If a remote game is completely new, imports it directly.
+    """
+    settings = get_settings()
+    token = settings.get("github_token", "").strip()
+    repo = settings.get("github_repo", "").strip()
+    branch = settings.get("github_branch", "main").strip() or "main"
+
+    if not token or not repo:
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub token and repository must be configured in settings.",
+        )
+
+    gh = GitHubSyncClient(token=token, repo=repo, branch=branch)
+    try:
+        remote_games = gh.list_remote_games_summary()
+    except Exception as e:
+        logger.exception("Error listing remote GitHub games: %s", e)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to query GitHub repository: {e}"
+        ) from e
+
+    if not remote_games:
+        return GitHubPullResult(
+            ok=True,
+            imported_count=0,
+            updated_count=0,
+            skipped_count=0,
+            purged_pending_count=0,
+            total_remote=0,
+            message="No game analyses found in remote repository.",
+        )
+
+    imported = 0
+    updated = 0
+    skipped = 0
+    purged_pending = 0
+    errors: list[str] = []
+
+    for rg in remote_games:
+        folder = rg["folder"]
+        try:
+            # 1. Fast check: already analyzed and tracked by github_path locally
+            existing_by_path = find_analysis_by_github_path(folder)
+            if existing_by_path and not force:
+                skipped += 1
+                continue
+
+            # 2. Fetch PGN, Report, and optional Payload blobs
+            pgn_text = gh.get_blob_text(rg["pgn_blob_sha"]).strip()
+            report_md = gh.get_blob_text(rg["report_blob_sha"]).strip()
+            payload_json: str | None = None
+            if rg.get("payload_blob_sha"):
+                try:
+                    payload_json = gh.get_blob_text(rg["payload_blob_sha"])
+                except Exception:
+                    payload_json = None
+
+            current_hash = compute_analysis_hash(report_md, pgn_text)
+            meta = parse_raw_pgn_metadata(pgn_text)
+            ext_id = meta.get("id")
+
+            # 3. If matched by folder and force is True:
+            if existing_by_path:
+                if existing_by_path.get("github_synced_hash") == current_hash and not force:
+                    skipped += 1
+                    continue
+                update_analysis_report(
+                    existing_by_path["id"],
+                    report_md,
+                    existing_by_path.get("model_name", "github-sync"),
+                )
+                update_analysis_github_sync(existing_by_path["id"], folder, current_hash)
+                updated += 1
+                continue
+
+            # 4. Check if game already exists by external_id or PGN (analyzed locally prior to sync)
+            match_analysis = find_analysis(external_id=ext_id, pgn_text=pgn_text)
+            if match_analysis:
+                update_analysis_github_sync(match_analysis["id"], folder, current_hash)
+                if force:
+                    update_analysis_report(
+                        match_analysis["id"],
+                        report_md,
+                        match_analysis.get("model_name", "github-sync"),
+                    )
+                updated += 1
+                continue
+
+            # 5. Clean up duplicate pending records for this game
+            purged = delete_pending_game_by_external_id_or_pgn(
+                external_id=ext_id, pgn_text=pgn_text
+            )
+            purged_pending += purged
+
+            # 6. Reconstruct payload
+            payload: GameAnalysisPayload | None = None
+            if payload_json and payload_json.strip():
+                try:
+                    payload = GameAnalysisPayload.model_validate_json(payload_json)
+                except Exception:
+                    payload = None
+
+            if payload is None:
+                white_p = meta.get("white") or "White"
+                black_p = meta.get("black") or "Black"
+                tc = meta.get("time_control") or "unknown"
+                res = meta.get("result") or "*"
+                total_plies = 2
+                opening_name = None
+                try:
+                    parsed_game = chess.pgn.read_game(io.StringIO(pgn_text))
+                    if parsed_game:
+                        opening_name = parsed_game.headers.get("Opening")
+                        moves = list(parsed_game.mainline_moves())
+                        if moves:
+                            total_plies = len(moves)
+                except Exception:
+                    pass
+
+                payload = GameAnalysisPayload(
+                    white_player=white_p,
+                    black_player=black_p,
+                    user_color="White",
+                    result=res,
+                    time_control=tc,
+                    pgn_moves_summary=f"{white_p} vs {black_p}",
+                    total_plies=total_plies,
+                    critical_moments=[],
+                    opening_name=opening_name,
+                )
+
+            # 7. Save analysis to local SQLite database
+            plat = meta.get("platform") or "manual"
+            save_analysis(
+                pgn_text=pgn_text,
+                payload=payload,
+                report_md=report_md,
+                model_name="github-sync",
+                platform=plat,
+                external_id=ext_id,
+                played_at=meta.get("played_at"),
+                github_path=folder,
+                github_synced_hash=current_hash,
+            )
+            imported += 1
+
+        except Exception as exc:
+            logger.exception("Error pulling remote game folder '%s': %s", folder, exc)
+            errors.append(f"{folder}: {exc}")
+
+    msg_parts: list[str] = []
+    if imported > 0:
+        msg_parts.append(f"Imported {imported} new game{'s' if imported != 1 else ''}")
+    if updated > 0:
+        msg_parts.append(f"updated {updated}")
+    if skipped > 0:
+        msg_parts.append(f"{skipped} already up to date")
+    if purged_pending > 0:
+        msg_parts.append(
+            f"cleared {purged_pending} pending duplicate{'s' if purged_pending != 1 else ''}"
+        )
+
+    summary_msg = ", ".join(msg_parts) + "." if msg_parts else "All remote games are up to date."
+    if errors:
+        summary_msg += f" Encountered {len(errors)} error(s)."
+
+    return GitHubPullResult(
+        ok=len(errors) == 0,
+        imported_count=imported,
+        updated_count=updated,
+        skipped_count=skipped,
+        purged_pending_count=purged_pending,
+        total_remote=len(remote_games),
+        errors=errors[:5],
+        message=summary_msg,
+    )
 
 
 @app.post("/api/settings/test-connection")

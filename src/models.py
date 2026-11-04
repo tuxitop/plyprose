@@ -108,6 +108,17 @@ class AppendQAResponse(BaseModel):
     section_heading: str
 
 
+class GitHubPullResult(BaseModel):
+    ok: bool
+    imported_count: int
+    updated_count: int
+    skipped_count: int
+    purged_pending_count: int
+    total_remote: int
+    errors: list[str] = Field(default_factory=list)
+    message: str
+
+
 # Alias for compatibility with GEMINI.md naming
 AnalysisPayload = GameAnalysisPayload
 
@@ -120,6 +131,7 @@ __all__ = [
     "CriticalMoment",
     "GameAnalysisPayload",
     "GameData",
+    "GitHubPullResult",
     "PieceInteraction",
     "TacticalFacts",
 ]

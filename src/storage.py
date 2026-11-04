@@ -284,6 +284,27 @@ def find_analysis(
     return None
 
 
+def find_analysis_by_github_path(
+    github_path: str,
+    db_path: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Checks if a game has already been analyzed in game_analyses by its github_path.
+    """
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
+    init_db(db_path)
+    clean_path = github_path.strip().strip("/")
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM game_analyses WHERE github_path = ?;",
+            (clean_path,),
+        ).fetchone()
+        if row:
+            return dict(row)
+    return None
+
+
 def get_all_analyses(db_path: str | None = None) -> list[dict[str, Any]]:
     """
     Fetches lightweight summaries of all saved analyses, ordered newest first by played time.
@@ -507,6 +528,7 @@ __all__ = [
     "compute_analysis_hash",
     "delete_analysis",
     "find_analysis",
+    "find_analysis_by_github_path",
     "get_all_analyses",
     "get_analysis_by_id",
     "init_db",

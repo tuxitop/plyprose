@@ -204,3 +204,139 @@ def test_github_client_delete_game_flow():
     # Only the game for 26-1100 should remain in the tree!
     assert len(new_tree["tree"]) == 1
     assert "26-1100" in new_tree["tree"][0]["path"]
+
+
+def test_build_game_repo_files_with_payload():
+    report_md = "# Report"
+    pgn_text = "1. e4 e5"
+    payload_json = '{"total_plies": 2, "critical_moments": []}'
+
+    files = build_game_repo_files(report_md=report_md, pgn_text=pgn_text, payload_json=payload_json)
+    assert "payload.json" in files
+    assert files["payload.json"].strip() == payload_json
+
+
+def test_github_client_sync_game_retry_on_422():
+    patch_attempt = 0
+
+    def sync_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal patch_attempt
+        url_str = str(request.url)
+        method = request.method
+
+        if method == "GET" and url_str.endswith("/git/ref/heads/main"):
+            return httpx.Response(200, json={"object": {"sha": f"commit_sha_{patch_attempt}"}})
+        elif method == "GET" and "/git/commits/" in url_str:
+            return httpx.Response(200, json={"tree": {"sha": "base_tree_sha"}})
+        elif method == "POST" and url_str.endswith("/git/blobs"):
+            return httpx.Response(201, json={"sha": "blob_sha_xyz"})
+        elif method == "POST" and url_str.endswith("/git/trees"):
+            return httpx.Response(201, json={"sha": "new_tree_sha"})
+        elif method == "POST" and url_str.endswith("/git/commits"):
+            return httpx.Response(201, json={"sha": f"new_commit_sha_{patch_attempt}"})
+        elif method == "PATCH" and url_str.endswith("/git/refs/heads/main"):
+            patch_attempt += 1
+            if patch_attempt == 1:
+                # First attempt fails with 422 non-fast-forward conflict
+                return httpx.Response(
+                    422, json={"message": "Reference cannot be updated", "status": "422"}
+                )
+            # Second attempt succeeds
+            return httpx.Response(200, json={"object": {"sha": "new_commit_sha_retry_success"}})
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(sync_handler))
+    gh = GitHubSyncClient(token="ghp_test", repo="alice/chess", branch="main", client=client)
+
+    files = {"report.md": "# Analysis", "game.pgn": "1. e4 e5 *"}
+    commit_sha = gh.sync_game(folder_path="chess.com/blitz/2026-10/25-0930-a-b-white", files=files)
+    assert commit_sha == "new_commit_sha_1"
+    assert patch_attempt == 2
+
+
+def test_github_client_get_blob_text():
+    import base64
+
+    raw_text = "# Sample Chess Report\nMove 1: e4"
+    b64_content = base64.b64encode(raw_text.encode("utf-8")).decode("ascii")
+
+    def blob_handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if request.method == "GET" and url_str.endswith("/git/blobs/blob_123"):
+            return httpx.Response(200, json={"content": b64_content, "encoding": "base64"})
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(blob_handler))
+    gh = GitHubSyncClient(token="ghp_test", repo="alice/chess", branch="main", client=client)
+
+    text = gh.get_blob_text("blob_123")
+    assert text == raw_text
+
+
+def test_github_client_list_remote_games_summary():
+    tree_items = [
+        {
+            "path": "chess.com/blitz/2026-10/25-0930-a-b-white/report.md",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "sha_report_1",
+        },
+        {
+            "path": "chess.com/blitz/2026-10/25-0930-a-b-white/game.pgn",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "sha_pgn_1",
+        },
+        {
+            "path": "chess.com/blitz/2026-10/25-0930-a-b-white/payload.json",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "sha_payload_1",
+        },
+        {
+            "path": "chess.com/blitz/2026-10/25-0930-a-b-white/assets/diagram_1.svg",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "sha_svg_1",
+        },
+        {
+            "path": "lichess.org/rapid/2026-09/04-1415-c-d-draw/report.md",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "sha_report_2",
+        },
+        {
+            "path": "lichess.org/rapid/2026-09/04-1415-c-d-draw/game.pgn",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "sha_pgn_2",
+        },
+    ]
+
+    def tree_handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if request.method == "GET" and url_str.endswith("/git/ref/heads/main"):
+            return httpx.Response(200, json={"object": {"sha": "commit_123"}})
+        elif request.method == "GET" and "recursive=1" in url_str:
+            return httpx.Response(200, json={"tree": tree_items})
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(tree_handler))
+    gh = GitHubSyncClient(token="ghp_test", repo="alice/chess", branch="main", client=client)
+
+    summaries = gh.list_remote_games_summary()
+    assert len(summaries) == 2
+
+    by_folder = {item["folder"]: item for item in summaries}
+
+    folder1 = "chess.com/blitz/2026-10/25-0930-a-b-white"
+    assert folder1 in by_folder
+    assert by_folder[folder1]["report_blob_sha"] == "sha_report_1"
+    assert by_folder[folder1]["pgn_blob_sha"] == "sha_pgn_1"
+    assert by_folder[folder1]["payload_blob_sha"] == "sha_payload_1"
+
+    folder2 = "lichess.org/rapid/2026-09/04-1415-c-d-draw"
+    assert folder2 in by_folder
+    assert by_folder[folder2]["report_blob_sha"] == "sha_report_2"
+    assert by_folder[folder2]["pgn_blob_sha"] == "sha_pgn_2"
+    assert by_folder[folder2]["payload_blob_sha"] is None

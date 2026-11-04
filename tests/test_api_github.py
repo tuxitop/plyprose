@@ -459,3 +459,183 @@ def test_enrich_github_sync_status(test_setup):
     games = res.json()["games"]
     g = next(item for item in games if item["id"] == aid)
     assert g["github_sync_status"] == "modified"
+
+
+def test_github_pull_endpoint(test_setup):
+    client, test_db = test_setup
+
+    from api.games_db import find_pending_game, save_pending_game
+    from src.github_sync import GitHubSyncClient
+    from src.storage import find_analysis_by_github_path
+
+    # 1. Missing settings -> 400
+    res = client.post("/api/github/pull")
+    assert res.status_code == 400
+    assert "GitHub token and repository must be configured" in res.json()["detail"]
+
+    # 2. Configure GitHub settings
+    client.put(
+        "/api/settings",
+        json={
+            "github_enabled": True,
+            "github_token": "ghp_pull_test",
+            "github_repo": "alice/chess-repo",
+            "github_branch": "main",
+        },
+    )
+
+    # 3. Remote has no analyses
+    with patch.object(GitHubSyncClient, "list_remote_games_summary", return_value=[]):
+        res = client.post("/api/github/pull")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ok"] is True
+        assert data["imported_count"] == 0
+        assert data["total_remote"] == 0
+
+    # 4. Remote has an analyzed game that is also currently sitting in pending_games
+    pgn_text = (
+        '[Event "Live Chess"]\n'
+        '[Site "Chess.com"]\n'
+        '[Date "2026.10.25"]\n'
+        '[White "Alice"]\n'
+        '[Black "Bob"]\n'
+        '[Result "1-0"]\n\n'
+        "1. e4 e5 1-0"
+    )
+    save_pending_game(
+        pgn_text=pgn_text,
+        platform="chesscom",
+        white="Alice",
+        black="Bob",
+        result="1-0",
+        db_path=test_db,
+    )
+    assert find_pending_game(pgn_text=pgn_text, db_path=test_db) is not None
+
+    folder_path = "chess.com/blitz/2026-10/25-0930-alice-bob-white"
+    payload_obj = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="180+2",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+    )
+    remote_games = [
+        {
+            "folder": folder_path,
+            "report_blob_sha": "rep_sha_1",
+            "pgn_blob_sha": "pgn_sha_1",
+            "payload_blob_sha": "pay_sha_1",
+        }
+    ]
+
+    def fake_get_blob_text(sha: str) -> str:
+        if sha == "rep_sha_1":
+            return "## Remote Analysis Report\nStrong opening play."
+        elif sha == "pgn_sha_1":
+            return pgn_text
+        elif sha == "pay_sha_1":
+            return payload_obj.model_dump_json()
+        return ""
+
+    with (
+        patch.object(GitHubSyncClient, "list_remote_games_summary", return_value=remote_games),
+        patch.object(GitHubSyncClient, "get_blob_text", side_effect=fake_get_blob_text),
+    ):
+        # Pull from remote
+        res = client.post("/api/github/pull")
+        assert res.status_code == 200
+        pull_data = res.json()
+        assert pull_data["ok"] is True
+        assert pull_data["imported_count"] == 1
+        assert pull_data["purged_pending_count"] == 1
+
+        # Assert pending game was purged
+        assert find_pending_game(pgn_text=pgn_text, db_path=test_db) is None
+
+        # Assert game was imported into game_analyses
+        imported_rec = find_analysis_by_github_path(folder_path, db_path=test_db)
+        assert imported_rec is not None
+        assert imported_rec["white_player"] == "Alice"
+        assert imported_rec["github_path"] == folder_path
+
+        # 5. Immediate second pull -> skips because already synced locally
+        res2 = client.post("/api/github/pull")
+        assert res2.status_code == 200
+        data2 = res2.json()
+        assert data2["imported_count"] == 0
+        assert data2["skipped_count"] == 1
+
+        # 6. Force pull -> updates existing game
+        res3 = client.post("/api/github/pull?force=true")
+        assert res3.status_code == 200
+        data3 = res3.json()
+        assert data3["updated_count"] == 1
+
+
+def test_github_pull_without_payload_json(test_setup):
+    client, test_db = test_setup
+
+    from src.github_sync import GitHubSyncClient
+    from src.storage import find_analysis_by_github_path
+
+    client.put(
+        "/api/settings",
+        json={
+            "github_enabled": True,
+            "github_token": "ghp_pull_test",
+            "github_repo": "alice/chess-repo",
+            "github_branch": "main",
+        },
+    )
+
+    folder_path = "lichess.org/rapid/2026-09/04-1415-charlie-dana-draw"
+    pgn_text = (
+        '[Event "Rated Rapid game"]\n'
+        '[Site "https://lichess.org/abcd1234"]\n'
+        '[Date "2026.09.04"]\n'
+        '[White "Charlie"]\n'
+        '[Black "Dana"]\n'
+        '[Result "1/2-1/2"]\n'
+        '[TimeControl "600+0"]\n'
+        '[Opening "Sicilian Defense"]\n\n'
+        "1. e4 c5 1/2-1/2"
+    )
+
+    remote_games = [
+        {
+            "folder": folder_path,
+            "report_blob_sha": "rep_sha_2",
+            "pgn_blob_sha": "pgn_sha_2",
+            "payload_blob_sha": None,
+        }
+    ]
+
+    def fake_get_blob_text(sha: str) -> str:
+        if sha == "rep_sha_2":
+            return "# Coach Analysis Report for Charlie vs Dana"
+        elif sha == "pgn_sha_2":
+            return pgn_text
+        return ""
+
+    with (
+        patch.object(GitHubSyncClient, "list_remote_games_summary", return_value=remote_games),
+        patch.object(GitHubSyncClient, "get_blob_text", side_effect=fake_get_blob_text),
+    ):
+        res = client.post("/api/github/pull")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ok"] is True
+        assert data["imported_count"] == 1
+
+        rec = find_analysis_by_github_path(folder_path, db_path=test_db)
+        assert rec is not None
+        assert rec["white_player"] == "Charlie"
+        assert rec["black_player"] == "Dana"
+        assert rec["result"] == "1/2-1/2"
+        assert rec["time_control"] == "600+0"
+        assert rec["opening_name"] == "Sicilian Defense"

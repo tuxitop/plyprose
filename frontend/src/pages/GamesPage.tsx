@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Upload, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Download, Upload, ChevronLeft, ChevronRight, Trash2, Github } from 'lucide-react';
 import { Button } from '../components/Button';
 import { FilterBar } from '../components/FilterBar';
 import { GamesTable } from '../components/GamesTable';
 import { ImportModal } from '../components/ImportModal';
 import { Modal } from '../components/Modal';
 import { PlatformImportModal } from '../components/PlatformImportModal';
-import { deleteGame, getGames, startAnalysis, streamJob, syncGameToGitHub } from '../lib/api';
+import {
+  deleteGame,
+  getGames,
+  pullFromGitHub,
+  startAnalysis,
+  streamJob,
+  syncGameToGitHub,
+} from '../lib/api';
 import type { CategoryFilter, GameRecord, Platform, ResultFilter, StatusFilter } from '../types';
 
 interface GamesPageProps {
@@ -38,6 +45,7 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
   const [gameToDelete, setGameToDelete] = useState<GameRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [syncingGameId, setSyncingGameId] = useState<number | null>(null);
+  const [pullingGh, setPullingGh] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ text: string; isError?: boolean } | null>(null);
 
   const fetchGames = useCallback(async () => {
@@ -194,11 +202,45 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
     }
   };
 
+  const handlePullFromGitHub = async () => {
+    setPullingGh(true);
+    setSyncMessage(null);
+    try {
+      const res = await pullFromGitHub();
+      if (res.ok) {
+        setSyncMessage({
+          text: res.message || `Successfully pulled from GitHub (${res.imported_count} imported).`,
+        });
+        await fetchGames();
+      } else {
+        setSyncMessage({
+          text: res.message || 'GitHub pull failed.',
+          isError: true,
+        });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'GitHub pull failed.';
+      setSyncMessage({ text: msg, isError: true });
+    } finally {
+      setPullingGh(false);
+      setTimeout(() => setSyncMessage(null), 5000);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4 p-6 max-w-7xl mx-auto w-full">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">My Games</h1>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="secondary"
+            icon={<Github size={13} />}
+            loading={pullingGh}
+            onClick={handlePullFromGitHub}
+            title="Pull analyzed games from GitHub repository into this instance"
+          >
+            Pull from GitHub
+          </Button>
           <Button
             variant="secondary"
             icon={<Download size={13} />}
