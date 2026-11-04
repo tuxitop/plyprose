@@ -147,6 +147,8 @@ const TAG_LABELS: Record<string, string> = {
   'tactic:missed-back-rank': 'Missed Back-Rank',
   'tactic:missed-deflection': 'Missed Deflection',
   'tactic:missed-zwischenzug': 'Missed Zwischenzug',
+  'tactic:hung-piece': 'Left Piece Hanging',
+  'tactic:blundered-piece': 'Blundered Piece',
   'tactic:found-fork': 'Fork Executed',
   'tactic:found-pin': 'Pin Applied',
   'tactic:found-skewer': 'Skewer Executed',

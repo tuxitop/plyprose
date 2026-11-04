@@ -200,9 +200,17 @@ _(Repeat for each chapter — every chapter MUST include at least one diagram)_
 
 # 4. Critical Moments
 
-| Move            | Player | Position / FEN Context     | What Happened | Why It Mattered | Evidence / Engine Delta     |
-| --------------- | ------ | -------------------------- | ------------- | --------------- | --------------------------- |
-| e.g., 18...Nxe4 | Black  | Critical tactical exchange | ...           | ...             | Engine / Board verification |
+Review each pivotal inflection point from the payload. As the narrative coach, **YOU have final editorial authority to approve, refine, or demote move classifications** based on the real human narrative context of the position:
+- **Brilliant & Great Moves:** Did a move execute a genuine tactical sacrifice or critical turning point? If you endorse it, classify it as `Brilliant` or `Great Move`. If an engine heuristic labeled a move "Great Move" or "Brilliant" but in human context it was an obvious forced recapture, trade, or routine check, demote it to `Good Move` or `Best Move` so it does not get an unearned badge on the board!
+- **Missed Tactics & Missed Wins:** If an inaccuracy or mistake actually overlooked a decisive tactical blow, classify it as `Missed Tactic` or `Missed Win`.
+- **Blunders & Mistakes:** Confirm blunders and mistakes that altered the game balance.
+
+Format the Critical Moments table with your approved classifications:
+| Move | Player | Classification | What Happened | Why It Mattered | Tactical / Strategic Context |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| e.g., `20... Ne3` | Black | Great Move | Discovered knight fork attacking Q and R | Forced win of material | Tactics verified |
+| e.g., `32... Rae8` | Black | Blunder | Left bishop on f3 hanging | Allowed White 33. Qxf3 | Allowed recapture |
+| e.g., `39... Re1#` | Black | Checkmate | Delivered back-rank mate | Ended the game | Board verified |
 
 _(Include an annotated `:::board` block below the table for the single most consequential move of the match if not already diagrammed above)._
 
@@ -218,16 +226,22 @@ Recommend up to 3 targeted study or training priorities specifically for the coa
 
 # 7. Game Tags & Tactical Patterns
 
-Select between 2 and 5 standardized coaching tags from the verified taxonomy below that best summarize the core themes, decisive tactics, time management, and strategic lessons of this game.
-- **MANDATORY GROUNDING & JUSTIFICATION:** For every single tag you select, you MUST provide a concrete 1–2 sentence justification explicitly citing the exact move number(s) (e.g. `20... Ne3`, `39... Re1#`) or clock/board dynamic that justifies it.
-- **ZERO-HALLUCINATION RULE:** If you cannot point to an explicit move number or verified board fact from the payload that justifies a tag, **DO NOT INCLUDE THAT TAG**. Discard any tag that lacks concrete, verifiable evidence in the game.
-- **CO-EXISTENCE OF PATTERNS:** Positive and negative patterns are not mutually exclusive. If the game featured both an executed tactic (e.g., finding a winning fork on move 20) and a missed opportunity (e.g., missing a fork on move 12), include both tags and cite their respective move numbers.
+**CRITICAL COACHING RULE — 1-TO-1 TAG EXPLANATION:**
+EVERY SINGLE TAG THAT IS ASSIGNED TO THIS GAME MUST BE LISTED AND EXPLAINED BY YOU IN THIS SECTION.
+Any tag that you do not explicitly list and explain here will NOT be assigned to the game. Discard any candidate tag that you do not approve or cannot justify with concrete game evidence.
+
+- **Mandatory Justifications:** For every tag you select, you MUST provide a concrete 1-2 sentence explanation citing the exact move number(s) (e.g. `20... Ne3`, `32... Rae8`, `39... Re1#`) or clock/board dynamic.
+- **Hung Piece vs Missed Free Piece (Do NOT confuse them):**
+  - Use `tactic:hung-piece` (**Left Piece Hanging**) when a player moves and inadvertently leaves their OWN piece undefended and hanging to be taken (e.g. `32... Rae8` leaving the bishop on f3 hanging).
+  - Use `tactic:missed-hanging-piece` (**Missed Free Piece**) when the OPPONENT left a piece undefended and the player failed to capture it.
+  - Use `tactic:hanging-piece-punished` (**Captured Free Piece**) when the player spotted and captured the opponent's free piece.
+- **Co-Existence of Patterns:** Positive and negative patterns are not mutually exclusive. If the game featured both an executed tactic (e.g. finding a fork on move 20) and a missed opportunity (e.g. missing a fork on move 12), include both tags and explain each with its respective move number.
 - Format each tag as a bullet in this exact format:
   - `category:tag-slug` (**Tag Label**): Concrete justification citing move numbers and tactical or positional dynamics.
 
 Standard taxonomy categories:
 - **Tactics (Found):** `tactic:found-mate` (Checkmate Delivered), `tactic:found-fork` (Fork Executed), `tactic:found-pin` (Pin Applied), `tactic:found-sacrifice` (Tactical Sacrifice), `tactic:hanging-piece-punished` (Captured Free Piece)
-- **Tactics (Missed):** `tactic:missed-fork`, `tactic:missed-pin`, `tactic:missed-skewer`, `tactic:missed-discovery`, `tactic:missed-mate`, `tactic:missed-win`, `tactic:missed-hanging-piece`
+- **Tactics (Blunders & Misses):** `tactic:hung-piece` (Left Piece Hanging), `tactic:missed-hanging-piece` (Missed Free Piece), `tactic:missed-fork`, `tactic:missed-pin`, `tactic:missed-skewer`, `tactic:missed-discovery`, `tactic:missed-mate`, `tactic:missed-win`
 - **Time Management:** `time:clutch-play` (Clutch Time Scramble under < 30s), `time:trouble-blunder` (Time Pressure Blunder with < 30s), `time:rushed-blunder` (Rushed Move Blunder < 3s), `time:time-advantage` (Clock Advantage)
 - **Opening:** `opening:king-in-center`, `opening:failed-to-castle`, `opening:early-queen`, `opening:development-lead`, `opening:development-lag`
 - **Endgame:** `endgame:king-centralization` (Active Endgame King on c3-f6), `endgame:passed-pawn-created`, `endgame:active-rook`

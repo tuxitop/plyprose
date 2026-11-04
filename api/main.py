@@ -85,7 +85,7 @@ from src.storage import (
     update_analysis_platform,
     update_analysis_report,
 )
-from src.tags import resolve_game_tags
+from src.tags import reconcile_move_classifications, resolve_game_tags
 
 app = FastAPI(title="PlyProse API", version="1.5.0")
 logger = logging.getLogger(__name__)
@@ -1484,6 +1484,7 @@ async def _run_analysis_job(
             re.IGNORECASE,
         )
         payload.tags = resolve_game_tags(ai_tags, payload, report_md=report)
+        reconcile_move_classifications(payload, report_md=report)
 
         if existing_id:
             update_analysis_payload(

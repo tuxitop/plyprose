@@ -30,6 +30,9 @@ ALLOWED_TAGS: dict[str, str] = {
     "tactic:missed-back-rank": "Missed Back-Rank Tactic",
     "tactic:missed-deflection": "Missed Deflection",
     "tactic:missed-zwischenzug": "Missed In-Between Move",
+    # ── Tactics: Blunders & Hanging Pieces ────────────────────────────────────
+    "tactic:hung-piece": "Left Piece Hanging",
+    "tactic:blundered-piece": "Blundered Piece",
     # ── Tactics: Found & Executed ─────────────────────────────────────────────
     "tactic:found-fork": "Fork Executed",
     "tactic:found-pin": "Pin Applied",
@@ -93,8 +96,14 @@ TAG_ALIASES: dict[str, str] = {
     "missed-win": "tactic:missed-win",
     "missed-tactic": "tactic:missed-tactic",
     "missed-hanging-piece": "tactic:missed-hanging-piece",
-    "hanging-piece": "tactic:missed-hanging-piece",
-    "blundered-piece": "tactic:missed-hanging-piece",
+    "missed-free-piece": "tactic:missed-hanging-piece",
+    "hung-piece": "tactic:hung-piece",
+    "hanged-piece": "tactic:hung-piece",
+    "hanging-piece": "tactic:hung-piece",
+    "left-piece-hanging": "tactic:hung-piece",
+    "blundered-piece": "tactic:hung-piece",
+    "captured-free-piece": "tactic:hanging-piece-punished",
+    "free-piece-captured": "tactic:hanging-piece-punished",
     "back-rank": "tactic:missed-back-rank",
     "back-rank-weakness": "tactic:missed-back-rank",
     "fork": "tactic:found-fork",
@@ -218,9 +227,24 @@ def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
         elif played_has_fork and cls_lower in ("great move", "brilliant", "checkmate", "best move"):
             tags.add("tactic:found-fork")
 
-        # Hanging pieces blundered or allowed
-        if played_facts.hanging_pieces:
-            tags.add("tactic:missed-hanging-piece")
+        # Hanging pieces: distinguish between hanging your own piece vs missing opponent's free piece
+        own_hanging = any(
+            p.lower().startswith(cm.color.lower()) for p in played_facts.hanging_pieces
+        )
+        if own_hanging and any(
+            w in cls_lower for w in ("blunder", "mistake", "inaccuracy", "miss")
+        ):
+            tags.add("tactic:hung-piece")
+
+        opp_color_str = "Black" if cm.color == "White" else "White"
+        opp_hanging_before = any(
+            p.lower().startswith(opp_color_str.lower()) for p in cm.facts_before_move.hanging_pieces
+        )
+        if opp_hanging_before:
+            if any(w in cls_lower for w in ("blunder", "mistake", "inaccuracy", "miss")):
+                tags.add("tactic:missed-hanging-piece")
+            elif cls_lower in ("great move", "brilliant", "checkmate", "best move"):
+                tags.add("tactic:hanging-piece-punished")
 
         # Check early opening mistakes (castling rights surrendered)
         if cm.move_number <= 10:
@@ -340,6 +364,110 @@ def parse_tags_with_justifications(report_md: str) -> dict[str, str]:
     return justified_tags
 
 
+VALID_MOVE_CLASSES: dict[str, str] = {
+    "checkmate": "Checkmate",
+    "mate": "Checkmate",
+    "brilliant": "Brilliant",
+    "great move": "Great Move",
+    "great": "Great Move",
+    "missed win": "Missed Win",
+    "missed tactic": "Missed Tactic",
+    "missed": "Missed Tactic",
+    "blunder": "Blunder",
+    "mistake": "Mistake",
+    "inaccuracy": "Inaccuracy",
+    "good move": "Good Move",
+    "best move": "Best Move",
+}
+
+
+def parse_move_classifications_from_table(report_md: str) -> dict[str, str]:
+    """
+    Parses approved move classifications from Section 4's Critical Moments markdown table.
+    Returns mapping of move string (e.g. '20... Ne3') to approved classification (e.g. 'Great Move').
+    """
+    classifications: dict[str, str] = {}
+    if not report_md:
+        return classifications
+
+    in_critical_moments = False
+    for line in report_md.splitlines():
+        line_clean = line.strip()
+        if re.match(r"^#+\s*(?:\d+\.\s*)?Critical Moments", line_clean, re.IGNORECASE):
+            in_critical_moments = True
+            continue
+        elif in_critical_moments and re.match(r"^#+\s*(?:\d+\.\s*)?[A-Za-z]", line_clean):
+            in_critical_moments = False
+
+        if in_critical_moments and "|" in line_clean:
+            parts = [p.strip() for p in line_clean.split("|")[1:-1]]
+            if len(parts) >= 3 and not all(c == "-" or c == ":" for c in parts[0].replace(" ", "")):
+                move_candidate = parts[0].replace("`", "").strip()
+                if move_candidate.lower() in ("move", "moves", "e.g., 18...nxe4", "e.g. 18...nxe4"):
+                    continue
+
+                for col in parts[1:]:
+                    clean_col = col.replace("`", "").replace("*", "").strip().lower()
+                    if clean_col in VALID_MOVE_CLASSES:
+                        classifications[move_candidate] = VALID_MOVE_CLASSES[clean_col]
+                        break
+
+    return classifications
+
+
+def reconcile_move_classifications(
+    payload: GameAnalysisPayload,
+    report_md: str,
+) -> None:
+    """
+    Reconciles move classifications with the AI coach's editorial verdict in Section 4.
+    Ensures that every celebratory badge (Brilliant, Great Move) and missed tactic is approved
+    by the AI coach. Any unapproved engine heuristic classification is discarded or normalized.
+    """
+    if not report_md or not payload.critical_moments:
+        return
+
+    approved_map = parse_move_classifications_from_table(report_md)
+
+    for cm in payload.critical_moments:
+        move_key_candidates = [
+            f"{cm.move_number}... {cm.move_played_san}",
+            f"{cm.move_number}. {cm.move_played_san}",
+            f"{cm.move_number}...{cm.move_played_san}",
+            f"{cm.move_number}.{cm.move_played_san}",
+            cm.move_played_san,
+        ]
+
+        matched_class: str | None = None
+        for cand in move_key_candidates:
+            if cand in approved_map:
+                matched_class = approved_map[cand]
+                break
+
+        if not matched_class:
+            for key, cls_val in approved_map.items():
+                m = re.search(r"\b(\d+)(?:\.{1,3}|\s+)([a-zA-Z0-9#+=x\-]+)", key)
+                if m:
+                    mn = int(m.group(1))
+                    san = m.group(2)
+                    if mn == cm.move_number and (
+                        san == cm.move_played_san or san in cm.move_played_san
+                    ):
+                        matched_class = cls_val
+                        break
+
+        if matched_class:
+            cm.classification = matched_class
+        else:
+            # If the engine tentatively flagged the move as Brilliant or Great Move,
+            # but the AI coach did not approve it in Section 4, demote/discard it!
+            if cm.classification in ("Brilliant", "Great Move"):
+                if "#" in cm.move_played_san or "checkmate" in (cm.classification or "").lower():
+                    cm.classification = "Checkmate"
+                else:
+                    cm.classification = "Best Move"
+
+
 def resolve_game_tags(
     ai_tags: list[str] | None,
     payload: GameAnalysisPayload,
@@ -348,44 +476,34 @@ def resolve_game_tags(
 ) -> list[str]:
     """
     Reconciles AI-suggested tags with deterministic ground truth tags.
-    If report_md is provided with a Game Tags section, validates that AI tags have grounded justifications,
-    discarding any tags that the AI coach cannot substantiate.
+    When report_md is provided, EVERY tag assigned to the game MUST be explained by the AI coach
+    in Section 7. Any tag not explained and approved by the coach is discarded.
     """
     resolved: list[str] = []
     seen: set[str] = set()
 
-    # 1. Parse validated AI tags with justifications if report_md is available
-    valid_ai_tags: list[str] = []
-    has_tags_section = bool(
-        report_md and re.search(r"#+\s*(?:\d+\.\s*)?Game Tags", report_md, re.IGNORECASE)
-    )
-
-    if has_tags_section and report_md:
-        tag_justifications = parse_tags_with_justifications(report_md)
-        valid_ai_tags = list(tag_justifications.keys())
-    elif report_md:
+    # 1. When report_md is provided, every assigned tag MUST have an explanation in Section 7
+    if report_md:
         tag_justifications = parse_tags_with_justifications(report_md)
         if tag_justifications:
-            valid_ai_tags = list(tag_justifications.keys())
-        elif ai_tags:
-            for t in ai_tags:
-                norm = normalize_tag(t)
-                if norm and norm in ALLOWED_TAGS:
-                    valid_ai_tags.append(norm)
-    elif ai_tags:
+            for t in tag_justifications.keys():
+                if t not in seen:
+                    resolved.append(t)
+                    seen.add(t)
+                    if len(resolved) >= max_tags:
+                        return resolved
+            return resolved
+
+    # 2. Fallback only when no report or no justified tags are present (e.g. offline/mock tests)
+    if ai_tags:
         for t in ai_tags:
             norm = normalize_tag(t)
-            if norm and norm in ALLOWED_TAGS:
-                valid_ai_tags.append(norm)
+            if norm and norm in ALLOWED_TAGS and norm not in seen:
+                resolved.append(norm)
+                seen.add(norm)
+                if len(resolved) >= max_tags:
+                    return resolved
 
-    for t in valid_ai_tags:
-        if t not in seen:
-            resolved.append(t)
-            seen.add(t)
-            if len(resolved) >= max_tags:
-                return resolved
-
-    # 2. Include existing payload tags (e.g. from analyze_pgn)
     for pt in payload.tags or []:
         norm_pt = normalize_tag(pt)
         if norm_pt and norm_pt in ALLOWED_TAGS and norm_pt not in seen:
@@ -394,13 +512,13 @@ def resolve_game_tags(
             if len(resolved) >= max_tags:
                 return resolved
 
-    # 3. Supplement with deterministic tags if AI missed key tactical or time insights
-    det_tags = extract_deterministic_tags(payload)
-    for dt in det_tags:
-        if dt not in seen:
-            resolved.append(dt)
-            seen.add(dt)
-            if len(resolved) >= max_tags:
-                break
+    if not resolved:
+        det_tags = extract_deterministic_tags(payload)
+        for dt in det_tags:
+            if dt not in seen:
+                resolved.append(dt)
+                seen.add(dt)
+                if len(resolved) >= max_tags:
+                    break
 
     return resolved
