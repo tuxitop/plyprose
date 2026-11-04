@@ -39,7 +39,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { askMoveQuestion, appendQAToReport } from '../lib/api';
-import { formatPlyEval, getClassificationBadge } from '../lib/badges';
+import { formatPlyEval, formatSecondsToClock, getClassificationBadge } from '../lib/badges';
 import { classifyReportMove } from '../lib/chessNav';
 import { getQuickQuestions, renderCoachAnswerHtml } from '../lib/coachFormat';
 import type { AskMoveResponse } from '../types';
@@ -66,6 +66,8 @@ export interface CriticalMomentData {
   narrative?: string;
   pv_san?: string[];
   refutation_san?: string[];
+  clock_seconds_remaining?: number | null;
+  time_spent_seconds?: number | null;
 }
 
 export interface GamePly {
@@ -77,6 +79,8 @@ export interface GamePly {
   from?: Key;
   to?: Key;
   criticalMoment?: CriticalMomentData;
+  clockSecondsRemaining?: number | null;
+  timeSpentSeconds?: number | null;
 }
 
 export interface VariationPly {
@@ -278,9 +282,16 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         try {
           c.loadPgn(pgnText);
           const history = c.history({ verbose: true });
+          const plyClocks = parsedPayload?.ply_clocks;
+          const plyTimes = parsedPayload?.ply_times_spent;
+
           history.forEach((m, idx) => {
             const plyNum = idx + 1;
             const moveNum = Math.floor(idx / 2) + 1;
+            const cm = cmMap.get(plyNum);
+            const clk = cm?.clock_seconds_remaining ?? (plyClocks ? plyClocks[plyNum] : undefined);
+            const spent = cm?.time_spent_seconds ?? (plyTimes ? plyTimes[plyNum] : undefined);
+
             gamePlies.push({
               ply: plyNum,
               fen: m.after,
@@ -289,7 +300,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               color: m.color,
               from: m.from as Key,
               to: m.to as Key,
-              criticalMoment: cmMap.get(plyNum),
+              criticalMoment: cm,
+              clockSecondsRemaining: clk,
+              timeSpentSeconds: spent,
             });
           });
         } catch (err) {
@@ -2278,6 +2291,18 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                   </span>
                 </div>
               )}
+              {currentPlyData.timeSpentSeconds !== undefined &&
+                currentPlyData.timeSpentSeconds !== null && (
+                  <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-mono">
+                    <span>⏱️ Spent: {currentPlyData.timeSpentSeconds}s</span>
+                    {currentPlyData.clockSecondsRemaining !== undefined &&
+                      currentPlyData.clockSecondsRemaining !== null && (
+                        <span className="text-slate-400 dark:text-slate-500">
+                          · Clock: {formatSecondsToClock(currentPlyData.clockSecondsRemaining)}
+                        </span>
+                      )}
+                  </div>
+                )}
             </div>
 
             {/* Suggested quick questions */}

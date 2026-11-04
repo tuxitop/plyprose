@@ -43,6 +43,8 @@ class CriticalMoment(BaseModel):
     facts_after_played_move: TacticalFacts
     facts_after_best_move: TacticalFacts
     facts_at_end_of_pv: TacticalFacts
+    clock_seconds_remaining: float | None = None  # Time remaining on player's clock after move
+    time_spent_seconds: float | None = None  # Seconds spent calculating this move
 
 
 class GameAnalysisPayload(BaseModel):
@@ -62,6 +64,8 @@ class GameAnalysisPayload(BaseModel):
     time_control_category: str | None = None
     game_url: str | None = None
     ply_evals: list[int | None] | None = None
+    ply_clocks: list[float | None] | None = None  # Clock seconds remaining after each ply
+    ply_times_spent: list[float | None] | None = None  # Seconds spent on each ply
     tags: list[str] = Field(default_factory=list)
 
 

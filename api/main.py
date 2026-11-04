@@ -87,7 +87,7 @@ from src.storage import (
 )
 from src.tags import resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.4.1")
+app = FastAPI(title="PlyProse API", version="1.5.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -1479,11 +1479,11 @@ async def _run_analysis_job(
 
         # Resolve standardized coaching tags
         ai_tags = re.findall(
-            r"\b(?:tactic|opening|strategy|endgame|general):[a-z0-9\-]+\b",
+            r"\b(?:tactic|opening|strategy|endgame|general|time):[a-z0-9\-]+\b",
             report,
             re.IGNORECASE,
         )
-        payload.tags = resolve_game_tags(ai_tags, payload)
+        payload.tags = resolve_game_tags(ai_tags, payload, report_md=report)
 
         if existing_id:
             update_analysis_payload(

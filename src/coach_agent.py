@@ -148,7 +148,9 @@ def build_coach_user_prompt(payload: GameAnalysisPayload) -> str:
         "that is not already explicitly expanded in `pv_san`, you MUST call the `verify_variation_tool(fen, san_moves)` "
         "tool to verify move legality and check resulting attackers and defenders before writing about it.\n"
         "6. CONCRETE TACTICAL REFUTATIONS OVER OPENING PLATITUDES: When explaining inaccuracies, mistakes, or blunders, use `refutation_san` from the payload to explain the opponent's concrete threat or reply. NEVER recite generic opening rules (like 'blocks the c-pawn' or 'develop bishop before second knight') without checking `piece_placement` to confirm the pieces actually exist on the board!\n"
-        "7. Ensure all sections of the Required Report Structure are fully generated with concrete analysis tailored to the coached player."
+        "7. TIME MANAGEMENT COACHING: If clock data (`clock_seconds_remaining`, `time_spent_seconds`) is present in the payload, analyze time bottlenecks, rushed moves (< 3s), and time scrambles (< 30s) in the narrative, lessons, and tags.\n"
+        "8. GROUNDED TAG BREAKDOWN: In Section 7 'Game Tags & Tactical Patterns', select 2-5 standardized tags from the taxonomy and justify each with a 1-2 sentence explanation citing exact move numbers and clock/board dynamics. If you cannot ground a tag with concrete moves, discard it!\n"
+        "9. Ensure all sections of the Required Report Structure are fully generated with concrete analysis tailored to the coached player."
     )
 
 

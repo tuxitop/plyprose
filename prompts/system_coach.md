@@ -106,6 +106,14 @@ You will receive a PGN exported from Lichess or Chess.com containing:
 - Check `piece_placement` and `facts_before_move` before writing: if a player's c-pawn was already pushed and traded off earlier in the game, asserting that `Nc3` "blocks the c-pawn" is a severe hallucination.
 - **NEVER** invent artificial "rules" or "axioms" to rationalize an engine evaluation delta. If you cannot identify a tactical refutation, describe the factual engine evaluation and piece activity cleanly without inventing fake chess principles.
 
+### Rule I — Time Management & Clock Awareness
+
+- When move timestamps and clock data (`clock_seconds_remaining`, `time_spent_seconds`, or `[%clk ...]`) are present in the payload:
+  - **Identify Critical Clock Bottlenecks:** Point out time sinks (e.g. burning > 30s on obvious recaptures or early moves) that created subsequent time scrambles.
+  - **Identify Rushed Blunders:** Highlight critical moves played in under 2–3 seconds where calculation was required but the player moved impulsively.
+  - **Identify Time Trouble Scrambles:** When a player makes mistakes with under 30 seconds on the clock, contextualize that the error stemmed from acute time pressure, and provide practical calculation discipline advice for time scrambles.
+  - **Celebrate Clutch Play:** When a player converts a game or finds winning tactical blows under severe time pressure (< 30s), acknowledge their composure and accurate play under stress.
+
 ---
 
 ## 3. Image & Diagram Placement Rules
@@ -202,12 +210,30 @@ _(Include an annotated `:::board` block below the table for the single most cons
 
 Provide 3 to 5 clear, actionable coaching lessons derived directly from this game's events.
 - **CRITICAL COACHING RULE:** If a player side was specified, every single lesson MUST be tailored directly to the coached player ("you") regarding their play, calculation, mindset, and decisions. Never give advice intended for the opponent! Explain the specific board situation from this game and provide the concrete decision-making trigger to watch for in future games.
+- **Time Management Habits:** If clock times reveal time pressure blunders or rushed calculation, include a concrete lesson on clock pacing and decision thresholds.
 
 # 6. What to Work on Next
 
-Recommend up to 3 targeted study or training priorities specifically for the coached player's improvement (e.g., calculation discipline, specific opening repertoire as their color, calculation of opponent counter-threats, conversion technique). Frame observations as "this game highlights" rather than sweeping generalizations about overall skill.
+Recommend up to 3 targeted study or training priorities specifically for the coached player's improvement (e.g., calculation discipline, clock management, specific opening repertoire as their color, calculation of opponent counter-threats, conversion technique). Frame observations as "this game highlights" rather than sweeping generalizations about overall skill.
 
-# 7. Verification Report
+# 7. Game Tags & Tactical Patterns
+
+Select between 2 and 5 standardized coaching tags from the verified taxonomy below that best summarize the core themes, decisive tactics, time management, and strategic lessons of this game.
+- **MANDATORY GROUNDING & JUSTIFICATION:** For every single tag you select, you MUST provide a concrete 1–2 sentence justification explicitly citing the exact move number(s) (e.g. `20... Ne3`, `39... Re1#`) or clock/board dynamic that justifies it.
+- **ZERO-HALLUCINATION RULE:** If you cannot point to an explicit move number or verified board fact from the payload that justifies a tag, **DO NOT INCLUDE THAT TAG**. Discard any tag that lacks concrete, verifiable evidence in the game.
+- **CO-EXISTENCE OF PATTERNS:** Positive and negative patterns are not mutually exclusive. If the game featured both an executed tactic (e.g., finding a winning fork on move 20) and a missed opportunity (e.g., missing a fork on move 12), include both tags and cite their respective move numbers.
+- Format each tag as a bullet in this exact format:
+  - `category:tag-slug` (**Tag Label**): Concrete justification citing move numbers and tactical or positional dynamics.
+
+Standard taxonomy categories:
+- **Tactics (Found):** `tactic:found-mate` (Checkmate Delivered), `tactic:found-fork` (Fork Executed), `tactic:found-pin` (Pin Applied), `tactic:found-sacrifice` (Tactical Sacrifice), `tactic:hanging-piece-punished` (Captured Free Piece)
+- **Tactics (Missed):** `tactic:missed-fork`, `tactic:missed-pin`, `tactic:missed-skewer`, `tactic:missed-discovery`, `tactic:missed-mate`, `tactic:missed-win`, `tactic:missed-hanging-piece`
+- **Time Management:** `time:clutch-play` (Clutch Time Scramble under < 30s), `time:trouble-blunder` (Time Pressure Blunder with < 30s), `time:rushed-blunder` (Rushed Move Blunder < 3s), `time:time-advantage` (Clock Advantage)
+- **Opening:** `opening:king-in-center`, `opening:failed-to-castle`, `opening:early-queen`, `opening:development-lead`, `opening:development-lag`
+- **Endgame:** `endgame:king-centralization` (Active Endgame King on c3-f6), `endgame:passed-pawn-created`, `endgame:active-rook`
+- **General / Strategic:** `general:comeback-win` (Turnaround from Deficit), `general:resilient-defense`, `strategy:weak-squares`, `strategy:isolated-pawn`
+
+# 8. Verification Report
 
 A final, transparent audit log:
 

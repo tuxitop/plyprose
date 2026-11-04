@@ -31,11 +31,30 @@ export function getQuickQuestions(plyData?: CoachPlyContext): string[] {
     if (bestMove) {
       questions.push(`Why is ${bestMove} better than ${moveStr}?`);
     }
+    if (
+      cm.time_spent_seconds !== null &&
+      cm.time_spent_seconds !== undefined &&
+      cm.time_spent_seconds < 3.0
+    ) {
+      questions.push(`Did rushing this move in ${cm.time_spent_seconds}s lead to this error?`);
+    } else if (
+      cm.clock_seconds_remaining !== null &&
+      cm.clock_seconds_remaining !== undefined &&
+      cm.clock_seconds_remaining <= 30.0
+    ) {
+      questions.push(`How should I better handle the clock and time pressure here?`);
+    } else if (
+      cm.time_spent_seconds !== null &&
+      cm.time_spent_seconds !== undefined &&
+      cm.time_spent_seconds > 45.0
+    ) {
+      questions.push(`Was spending ${cm.time_spent_seconds}s on this move necessary?`);
+    }
     questions.push(
-      `What tactical pattern or calculation motif did I miss here?`,
+      `What tactical pattern or calculation motif applies here?`,
       `How should I calculate this position next time to avoid this?`,
     );
-    return questions;
+    return questions.slice(0, 4);
   }
 
   return [

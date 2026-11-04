@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 
 import chess
 import chess.engine
@@ -11,6 +12,32 @@ from src.fetcher import extract_game_url
 from src.inspector import extract_tactical_facts
 from src.models import CriticalMoment, GameAnalysisPayload
 from src.tags import extract_deterministic_tags
+
+
+def _parse_clock_seconds(comment: str) -> float | None:
+    """Extracts remaining clock seconds from a PGN comment like [%clk 0:05:04.4]."""
+    if not comment:
+        return None
+    m = re.search(r"\[%clk\s+(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)\]", comment)
+    if not m:
+        return None
+    hours = int(m.group(1)) if m.group(1) else 0
+    minutes = int(m.group(2))
+    seconds = float(m.group(3))
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _parse_time_control(time_control_str: str | None) -> tuple[float | None, float]:
+    """Parses base time seconds and increment seconds from a TimeControl string (e.g. '300+5')."""
+    if not time_control_str:
+        return None, 0.0
+    parts = time_control_str.strip().split("+")
+    try:
+        base = float(parts[0])
+        inc = float(parts[1]) if len(parts) > 1 else 0.0
+        return base, inc
+    except ValueError:
+        return None, 0.0
 
 
 def _compute_loss_and_mate_change(
@@ -71,11 +98,15 @@ def _classify_swing(
     ):
         return "Missed Win"
 
-    # 2. Missed Tactic: tactical opportunity available in best line but missed
-    if had_tactical_motif and loss_cp >= 100:
+    # 2. Any move that changes forced mate status against the player is a Blunder
+    if forced_mate_status_changed:
+        return "Blunder"
+
+    # 3. Missed Tactic: tactical opportunity available in best line but missed
+    if had_tactical_motif and 100 <= loss_cp < 300:
         return "Missed Tactic"
 
-    if loss_cp >= 300 or forced_mate_status_changed:
+    if loss_cp >= 300:
         return "Blunder"
     elif loss_cp >= 150:
         return "Mistake"
@@ -182,7 +213,8 @@ def analyze_pgn(
     else:
         opening_name = None
 
-    moves = list(game.mainline_moves())
+    mainline_nodes = list(game.mainline())
+    moves = [node.move for node in mainline_nodes]
     total_plies = len(moves)
     pgn_moves_summary = str(game.mainline()) if moves else ""
 
@@ -217,6 +249,8 @@ def analyze_pgn(
                 time_control_category=tc_category,
                 game_url=game_url,
                 ply_evals=[20],
+                ply_clocks=[None],
+                ply_times_spent=[None],
             )
 
         board = game.board()
@@ -227,12 +261,31 @@ def analyze_pgn(
         score_0 = current_info["score"].white()
         ply_evals: list[int | None] = [score_0.score(mate_score=10000)]
 
-        for ply_idx, move in enumerate(moves, start=1):
+        base_time, inc_time = _parse_time_control(time_control)
+        prev_clock: dict[chess.Color, float | None] = {
+            chess.WHITE: base_time,
+            chess.BLACK: base_time,
+        }
+        ply_clocks: list[float | None] = [base_time]
+        ply_times_spent: list[float | None] = [None]
+
+        for ply_idx, node in enumerate(mainline_nodes, start=1):
+            move = node.move
             board_before = board.copy()
             turn = board_before.turn
             color_str = "White" if turn == chess.WHITE else "Black"
             move_num = board_before.fullmove_number
             san_played = board_before.san(move)
+
+            clk = _parse_clock_seconds(node.comment)
+            time_spent = None
+            turn_prev_clk = prev_clock[turn]
+            if clk is not None:
+                if turn_prev_clk is not None:
+                    time_spent = max(0.0, round(turn_prev_clk + inc_time - clk, 1))
+                prev_clock[turn] = clk
+            ply_clocks.append(clk)
+            ply_times_spent.append(time_spent)
 
             # Push move to reach played position
             board.push(move)
@@ -252,13 +305,51 @@ def analyze_pgn(
                 loss_cp, mate_changed = _compute_loss_and_mate_change(
                     score_before_white, score_after_white, turn
                 )
+                sw_before = score_before_white.score(mate_score=10000)
+                sw_after = score_after_white.score(mate_score=10000)
+                pov_before = sw_before if turn == chess.WHITE else -sw_before
+                pov_after = sw_after if turn == chess.WHITE else -sw_after
 
-                if loss_cp >= swing_threshold_cp or mate_changed:
-                    sw_before = score_before_white.score(mate_score=10000)
-                    sw_after = score_after_white.score(mate_score=10000)
-                    pov_before = sw_before if turn == chess.WHITE else -sw_before
-                    pov_after = sw_after if turn == chess.WHITE else -sw_after
+                is_checkmate = board.is_checkmate() or "#" in san_played
+                is_negative_swing = loss_cp >= swing_threshold_cp or mate_changed
 
+                # Check for positive / celebratory critical moves (Checkmate, Brilliant, Great Move)
+                is_positive_shot = False
+                positive_classification = ""
+
+                if is_checkmate:
+                    is_positive_shot = True
+                    positive_classification = "Checkmate"
+                elif loss_cp <= 10:
+                    # Check for brilliant sacrifice: moved piece into attack without equal recapture, keeping decisive advantage
+                    if pov_after >= 150:
+                        piece_moved = board_before.piece_at(move.from_square)
+                        if piece_moved and piece_moved.piece_type in (
+                            chess.KNIGHT,
+                            chess.BISHOP,
+                            chess.ROOK,
+                            chess.QUEEN,
+                        ):
+                            opp_color = not turn
+                            is_attacked = board_before.is_attacked_by(opp_color, move.to_square)
+                            captured = board_before.piece_at(move.to_square)
+                            if is_attacked and (
+                                not captured or captured.piece_type < piece_moved.piece_type
+                            ):
+                                is_positive_shot = True
+                                positive_classification = "Brilliant"
+
+                    if not is_positive_shot:
+                        # Great move: major turnaround or decisive saving resource under pressure
+                        if (
+                            pov_before <= -150
+                            and (pov_after - pov_before) >= 150
+                            and pov_after >= 0
+                        ):
+                            is_positive_shot = True
+                            positive_classification = "Great Move"
+
+                if is_negative_swing or is_positive_shot:
                     pv_moves = current_info.get("pv", [])
                     if pv_moves:
                         best_move = pv_moves[0]
@@ -287,40 +378,45 @@ def analyze_pgn(
                     facts_before_move = extract_tactical_facts(board_before)
                     facts_after_played_move = extract_tactical_facts(board)
 
-                    best_has_pins = any(
-                        p.is_pinned for p in facts_after_best_move.attacked_or_pinned_pieces
-                    ) or any(p.is_pinned for p in facts_at_end_of_pv.attacked_or_pinned_pieces)
-                    played_has_pins = any(
-                        p.is_pinned for p in facts_after_played_move.attacked_or_pinned_pieces
-                    )
-
-                    best_has_fork = any(
-                        len(p.attackers) >= 2
-                        for p in facts_after_best_move.attacked_or_pinned_pieces
-                    ) or any(
-                        len(p.attackers) >= 2 for p in facts_at_end_of_pv.attacked_or_pinned_pieces
-                    )
-                    played_has_fork = any(
-                        len(p.attackers) >= 2
-                        for p in facts_after_played_move.attacked_or_pinned_pieces
-                    )
-
-                    had_tactical_motif = bool(
-                        (best_has_pins and not played_has_pins)
-                        or (best_has_fork and not played_has_fork)
-                        or (
-                            facts_after_played_move.hanging_pieces
-                            and not facts_after_best_move.hanging_pieces
+                    if is_positive_shot:
+                        best_move_san = san_played
+                        classification = positive_classification
+                    else:
+                        best_has_pins = any(
+                            p.is_pinned for p in facts_after_best_move.attacked_or_pinned_pieces
+                        ) or any(p.is_pinned for p in facts_at_end_of_pv.attacked_or_pinned_pieces)
+                        played_has_pins = any(
+                            p.is_pinned for p in facts_after_played_move.attacked_or_pinned_pieces
                         )
-                    )
 
-                    classification = _classify_swing(
-                        loss_cp=loss_cp,
-                        forced_mate_status_changed=mate_changed,
-                        pov_before=pov_before,
-                        pov_after=pov_after,
-                        had_tactical_motif=had_tactical_motif,
-                    )
+                        best_has_fork = any(
+                            len(p.attackers) >= 2
+                            for p in facts_after_best_move.attacked_or_pinned_pieces
+                        ) or any(
+                            len(p.attackers) >= 2
+                            for p in facts_at_end_of_pv.attacked_or_pinned_pieces
+                        )
+                        played_has_fork = any(
+                            len(p.attackers) >= 2
+                            for p in facts_after_played_move.attacked_or_pinned_pieces
+                        )
+
+                        had_tactical_motif = bool(
+                            (best_has_pins and not played_has_pins)
+                            or (best_has_fork and not played_has_fork)
+                            or (
+                                facts_after_played_move.hanging_pieces
+                                and not facts_after_best_move.hanging_pieces
+                            )
+                        )
+
+                        classification = _classify_swing(
+                            loss_cp=loss_cp,
+                            forced_mate_status_changed=mate_changed,
+                            pov_before=pov_before,
+                            pov_after=pov_after,
+                            had_tactical_motif=had_tactical_motif,
+                        )
 
                     # Extract opponent's best refutation continuation after the played move
                     ref_moves = next_info.get("pv", [])
@@ -351,6 +447,8 @@ def analyze_pgn(
                         facts_after_played_move=facts_after_played_move,
                         facts_after_best_move=facts_after_best_move,
                         facts_at_end_of_pv=facts_at_end_of_pv,
+                        clock_seconds_remaining=clk,
+                        time_spent_seconds=time_spent,
                     )
                     critical_moments.append(moment)
 
@@ -374,6 +472,8 @@ def analyze_pgn(
             time_control_category=tc_category,
             game_url=game_url,
             ply_evals=ply_evals,
+            ply_clocks=ply_clocks,
+            ply_times_spent=ply_times_spent,
         )
         payload.tags = extract_deterministic_tags(payload)
         return payload

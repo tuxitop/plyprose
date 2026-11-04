@@ -97,6 +97,9 @@ export function formatPlyEval(evalCp: number | null | undefined): string | null 
 export function getClassificationBadge(classification?: string) {
   if (!classification) return null;
   const lower = classification.toLowerCase();
+  if (lower.includes('checkmate') || classification.includes('#')) {
+    return { symbol: '#', label: 'Checkmate', bgClass: 'bg-emerald-600' };
+  }
   if (lower.includes('missed win') || lower.includes('missed tactic') || lower.includes('miss')) {
     return { symbol: '❌', label: classification, bgClass: 'bg-rose-700' };
   }
@@ -118,11 +121,18 @@ export function getClassificationBadge(classification?: string) {
   return null;
 }
 
+export function formatSecondsToClock(seconds: number | null | undefined): string | null {
+  if (seconds === null || seconds === undefined || isNaN(seconds)) return null;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 export interface TagBadgeConfig {
   label: string;
   bgClass: string;
   textClass: string;
-  category: 'tactic' | 'opening' | 'strategy' | 'endgame' | 'general';
+  category: 'tactic' | 'opening' | 'strategy' | 'endgame' | 'general' | 'time';
 }
 
 const TAG_LABELS: Record<string, string> = {
@@ -145,6 +155,11 @@ const TAG_LABELS: Record<string, string> = {
   'tactic:found-sacrifice': 'Tactical Sacrifice',
   'tactic:hanging-piece-punished': 'Captured Free Piece',
   'tactic:back-rank-punished': 'Back-Rank Mate',
+
+  'time:clutch-play': 'Clutch Time Scramble',
+  'time:trouble-blunder': 'Time Pressure Blunder',
+  'time:rushed-blunder': 'Rushed Move Blunder',
+  'time:time-advantage': 'Clock Advantage',
 
   'opening:development-lead': 'Lead in Development',
   'opening:development-lag': 'Lag in Development',
@@ -224,6 +239,20 @@ export function getTagBadge(tag: string): TagBadgeConfig {
       bgClass: 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800',
       textClass: 'text-emerald-700 dark:text-emerald-300',
       category: 'endgame',
+    };
+  }
+
+  if (norm.startsWith('time:')) {
+    const isTrouble = norm.includes('blunder') || norm.includes('trouble');
+    return {
+      label,
+      bgClass: isTrouble
+        ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800'
+        : 'bg-cyan-50 dark:bg-cyan-950/40 border-cyan-200 dark:border-cyan-800',
+      textClass: isTrouble
+        ? 'text-rose-700 dark:text-rose-300'
+        : 'text-cyan-700 dark:text-cyan-300',
+      category: 'time',
     };
   }
 

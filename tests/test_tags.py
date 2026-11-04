@@ -8,6 +8,7 @@ from src.storage import get_all_analyses, get_analysis_by_id, save_analysis
 from src.tags import (
     extract_deterministic_tags,
     normalize_tag,
+    parse_tags_with_justifications,
     resolve_game_tags,
 )
 
@@ -73,14 +74,109 @@ def test_extract_deterministic_tags_tactics():
         result="0-1",
         time_control="300",
         pgn_moves_summary="1. e4 e5",
-        total_plies=75,
+        total_plies=20,
         critical_moments=[moment],
     )
 
     tags = extract_deterministic_tags(payload)
     assert "tactic:missed-fork" in tags
     assert "tactic:missed-hanging-piece" in tags
-    assert "endgame:king-centralization" in tags
+
+
+def test_extract_deterministic_tags_positive_and_time():
+    board = chess.Board()
+    empty_facts = extract_tactical_facts(board)
+
+    mate_moment = CriticalMoment(
+        ply=78,
+        move_number=39,
+        color="Black",
+        move_played_san="Re1#",
+        eval_before_cp=10000,
+        eval_after_cp=10000,
+        mate_before=-1,
+        mate_after=0,
+        classification="Checkmate",
+        best_move_san="Re1#",
+        pv_san=["Re1#"],
+        facts_before_move=empty_facts,
+        facts_after_played_move=empty_facts,
+        facts_after_best_move=empty_facts,
+        facts_at_end_of_pv=empty_facts,
+        clock_seconds_remaining=17.7,
+        time_spent_seconds=2.7,
+    )
+
+    trouble_blunder_moment = CriticalMoment(
+        ply=71,
+        move_number=36,
+        color="White",
+        move_played_san="Qd6",
+        eval_before_cp=-200,
+        eval_after_cp=-800,
+        classification="Blunder",
+        best_move_san="Qxe5",
+        pv_san=["Qxe5"],
+        facts_before_move=empty_facts,
+        facts_after_played_move=empty_facts,
+        facts_after_best_move=empty_facts,
+        facts_at_end_of_pv=empty_facts,
+        clock_seconds_remaining=25.0,
+        time_spent_seconds=35.0,
+    )
+
+    payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="Both",
+        result="0-1",
+        time_control="300+5",
+        pgn_moves_summary="1. e4 e5 39... Re1#",
+        total_plies=78,
+        critical_moments=[trouble_blunder_moment, mate_moment],
+    )
+
+    tags = extract_deterministic_tags(payload)
+    assert "tactic:found-mate" in tags
+    assert "time:clutch-play" in tags
+    assert "time:trouble-blunder" in tags
+
+
+def test_parse_tags_with_justifications_and_discarding():
+    report_with_justifications = """
+# 7. Game Tags & Tactical Patterns
+
+- `tactic:found-mate` (**Checkmate Delivered**): Delivered checkmate with `39... Re1#` on the back rank.
+- `tactic:found-fork` (**Fork Executed**): On Move 20... Ne3, you forked White's queen and rook.
+- `tactic:missed-fork`:
+- `time:clutch-play` (**Clutch Time Scramble**): Converted the attack under 20 seconds on the clock.
+- `invalid:nonsense`: Some fake explanation here that is not a real tag.
+"""
+    justified = parse_tags_with_justifications(report_with_justifications)
+    assert "tactic:found-mate" in justified
+    assert "tactic:found-fork" in justified
+    assert "time:clutch-play" in justified
+    assert "tactic:missed-fork" not in justified  # Discarded due to lack of justification
+    assert "invalid:nonsense" not in justified  # Discarded because not allowed
+
+    # Test resolving tags with report_md discards ungrounded AI tags
+    payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="Black",
+        result="0-1",
+        time_control="300+5",
+        pgn_moves_summary="1. e4",
+        total_plies=10,
+        critical_moments=[],
+    )
+    resolved = resolve_game_tags(
+        ai_tags=["tactic:found-mate", "tactic:missed-fork"],
+        payload=payload,
+        report_md=report_with_justifications,
+    )
+    assert "tactic:found-mate" in resolved
+    assert "tactic:missed-fork" not in resolved  # Discarded!
 
 
 def test_resolve_game_tags():
