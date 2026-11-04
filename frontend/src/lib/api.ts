@@ -1,5 +1,9 @@
 import type {
   AnalysisRecord,
+  AppendQARequest,
+  AppendQAResponse,
+  AskMoveRequest,
+  AskMoveResponse,
   BatchImportGameItem,
   BatchImportResponse,
   ConnectionTestResult,
@@ -137,6 +141,18 @@ export const getReportHtml = (id: number) =>
 
 export const exportPdfUrl = (id: number) => `${BASE}/analysis/${id}/export/pdf`;
 export const exportZipUrl = (id: number) => `${BASE}/analysis/${id}/export/zip`;
+
+export const askMoveQuestion = (analysisId: number, data: AskMoveRequest) =>
+  req<AskMoveResponse>(`/analysis/${analysisId}/ask-move`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const appendQAToReport = (analysisId: number, data: AppendQARequest) =>
+  req<AppendQAResponse>(`/analysis/${analysisId}/append-qa`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 
 // ── Job SSE stream ─────────────────────────────────────────────────────────────
 export function streamJob(

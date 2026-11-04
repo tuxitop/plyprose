@@ -30,7 +30,18 @@ import {
   Maximize2,
   Zap,
   Activity,
+  Sparkles,
+  List,
+  Send,
+  Check,
+  Plus,
+  HelpCircle,
+  ExternalLink,
 } from 'lucide-react';
+import { askMoveQuestion, appendQAToReport } from '../lib/api';
+import { classifyReportMove } from '../lib/chessNav';
+import { getQuickQuestions, renderCoachAnswerHtml } from '../lib/coachFormat';
+import type { AskMoveResponse } from '../types';
 import { StockfishService, type EngineLine } from '../lib/stockfishService';
 import { EvaluationChart } from './EvaluationChart';
 
@@ -94,6 +105,9 @@ export interface InteractiveBoardProps {
     branchPly: number;
     moves: string[];
   } | null;
+  analysisId?: number;
+  onReportUpdated?: (reportHtml: string, reportMd: string) => void;
+  onScrollToSection?: (sectionName: string) => void;
 }
 
 // Classification badge configuration for moves that stand out
@@ -132,6 +146,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       userSide,
       sidebarWidth = 420,
       initialVariation,
+      analysisId,
+      onReportUpdated,
+      onScrollToSection,
     }: InteractiveBoardProps,
     ref,
   ) {
@@ -801,13 +818,16 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     };
 
     // Navigation handlers
-    const handleGoToPly = (ply: number) => {
-      setIsFreePlay(false);
-      setFreeChess(null);
-      setVariationPlies([]);
-      setCurrentVarIndex(-1);
-      onSelectPly(Math.max(0, Math.min(ply, plies.length - 1)));
-    };
+    const handleGoToPly = useCallback(
+      (ply: number) => {
+        setIsFreePlay(false);
+        setFreeChess(null);
+        setVariationPlies([]);
+        setCurrentVarIndex(-1);
+        onSelectPly(Math.max(0, Math.min(ply, plies.length - 1)));
+      },
+      [onSelectPly, plies.length],
+    );
 
     const handleGoToVariationPly = (vIdx: number) => {
       if (variationPlies[vIdx]) {
@@ -891,6 +911,134 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       setBoardSize(size);
       localStorage.setItem('chess_board_size', String(size));
     };
+
+    // ── Ask Coach Feature State & Handlers ───────────────────────────────────
+    const [activeSidebarTab, setActiveSidebarTab] = useState<'moves' | 'coach'>('moves');
+    const [userQuestion, setUserQuestion] = useState('');
+    const [isAskingCoach, setIsAskingCoach] = useState(false);
+    const [coachAnswer, setCoachAnswer] = useState<AskMoveResponse | null>(null);
+    const [coachError, setCoachError] = useState<string | null>(null);
+    const [isAppendingQA, setIsAppendingQA] = useState(false);
+    const [appendedSuccess, setAppendedSuccess] = useState(false);
+
+    const quickQuestions = useMemo(() => {
+      return getQuickQuestions(currentPlyData);
+    }, [currentPlyData]);
+
+    const coachAnswerHtml = useMemo(() => {
+      if (!coachAnswer?.answer_markdown) return '';
+      return renderCoachAnswerHtml(coachAnswer.answer_markdown, pgnText);
+    }, [coachAnswer, pgnText]);
+
+    const handleAskCoach = useCallback(
+      async (overrideQuestion?: string) => {
+        const q = (overrideQuestion ?? userQuestion).trim();
+        if (!q || !analysisId) return;
+
+        setIsAskingCoach(true);
+        setCoachError(null);
+        setAppendedSuccess(false);
+
+        const ply = safePly;
+        const moveNumber = currentPlyData?.moveNumber ?? 1;
+        const color = currentPlyData?.color === 'w' ? 'White' : 'Black';
+
+        try {
+          const res = await askMoveQuestion(analysisId, {
+            question: q,
+            ply,
+            move_number: moveNumber,
+            color,
+          });
+          setCoachAnswer(res);
+          setUserQuestion('');
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Failed to consult coach';
+          setCoachError(msg);
+        } finally {
+          setIsAskingCoach(false);
+        }
+      },
+      [analysisId, userQuestion, safePly, currentPlyData],
+    );
+
+    const handleAppendQA = useCallback(async () => {
+      if (!analysisId || !coachAnswer) return;
+
+      setIsAppendingQA(true);
+      try {
+        const res = await appendQAToReport(analysisId, {
+          formal_question: coachAnswer.formal_question,
+          answer_markdown: coachAnswer.answer_markdown,
+          move_context: coachAnswer.move_context,
+          ply: coachAnswer.ply,
+        });
+        if (res.ok) {
+          setAppendedSuccess(true);
+          onReportUpdated?.(res.report_html, res.report_md);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to add Q&A to review';
+        alert(msg);
+      } finally {
+        setIsAppendingQA(false);
+      }
+    }, [analysisId, coachAnswer, onReportUpdated]);
+
+    const handleCoachAnswerClick = useCallback(
+      (e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement;
+        if (!target) return;
+
+        const moveBtn = target.closest('.chess-move-btn');
+        if (moveBtn) {
+          const moveType = moveBtn.getAttribute('data-move-type');
+          if (moveType === 'variation') {
+            const branchPlyStr = moveBtn.getAttribute('data-branch-ply');
+            const movesRaw = moveBtn.getAttribute('data-moves');
+            if (branchPlyStr && movesRaw) {
+              const branch = parseInt(branchPlyStr, 10);
+              try {
+                const moves = JSON.parse(decodeURIComponent(movesRaw)) as string[];
+                if (Array.isArray(moves) && moves.length > 0) {
+                  startVariation(branch, moves);
+                  return;
+                }
+              } catch {
+                // ignore
+              }
+            }
+          } else if (moveType === 'mainline') {
+            const plyStr = moveBtn.getAttribute('data-ply');
+            if (plyStr) {
+              const ply = parseInt(plyStr, 10);
+              if (!isNaN(ply)) {
+                resetVariation();
+                handleGoToPly(ply);
+                return;
+              }
+            }
+          }
+        }
+
+        const codeOrCell = target.closest('code');
+        if (codeOrCell) {
+          const text = (codeOrCell.textContent || '').trim();
+          const navTarget = classifyReportMove(text, pgnText, codeOrCell as HTMLElement);
+          if (navTarget) {
+            if (navTarget.type === 'variation' && navTarget.variationMoves?.length) {
+              startVariation(navTarget.ply, navTarget.variationMoves);
+              return;
+            } else {
+              resetVariation();
+              handleGoToPly(navTarget.ply);
+              return;
+            }
+          }
+        }
+      },
+      [startVariation, resetVariation, handleGoToPly, pgnText],
+    );
 
     // Keyboard navigation
     useEffect(() => {
@@ -1713,187 +1861,481 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           <div className="w-10 h-0.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-blue-500 group-active:bg-blue-600 transition-colors" />
         </div>
 
-        {/* Move Timeline List (Header removed to maximize vertical space) */}
-        <div
-          className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-slate-900"
-          ref={moveListRef}
-        >
-          <div className="p-1.5 text-xs">
-            <table className="w-full text-xs">
-              <tbody>
-                {/* Branch variation at starting position (before move 1) */}
-                {isFreePlay && branchPly === 0 && variationPlies.length > 0 && (
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
-                    <td
-                      colSpan={3}
-                      className="py-1.5 px-2.5 bg-amber-500/10 dark:bg-amber-500/15 border-l-2 border-amber-500"
-                    >
-                      <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
-                        <span className="text-amber-700 dark:text-amber-400 font-sans font-semibold text-[10px] uppercase tracking-wider mr-1">
-                          Var:
-                        </span>
-                        <span className="text-slate-400 dark:text-slate-500 font-sans">(</span>
-                        {variationPlies.map((vm, vIdx) => {
-                          const isActive = currentVarIndex === vIdx;
-                          return (
-                            <button
-                              key={vIdx}
-                              onClick={e => {
-                                e.currentTarget.blur();
-                                handleGoToVariationPly(vIdx);
-                              }}
-                              className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                isActive
-                                  ? 'bg-amber-600 text-white font-bold shadow-xs'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                              }`}
-                            >
-                              {vm.color === 'w'
-                                ? `${vm.moveNumber}. `
-                                : vIdx === 0
-                                  ? `${vm.moveNumber}... `
-                                  : ''}
-                              {vm.san}
-                            </button>
-                          );
-                        })}
-                        <span className="text-slate-400 dark:text-slate-500 font-sans">)</span>
-                      </div>
-                    </td>
-                  </tr>
+        {/* Lower Sidebar Tabs: Move Timeline vs. Ask Coach */}
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 px-2 py-1 text-xs shrink-0 select-none">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setActiveSidebarTab('moves')}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                activeSidebarTab === 'moves'
+                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <List size={13} />
+              <span>Moves</span>
+            </button>
+            <button
+              onClick={() => setActiveSidebarTab('coach')}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                activeSidebarTab === 'coach'
+                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Sparkles size={13} className="text-amber-500" />
+              <span>Ask Coach</span>
+              {currentPlyData.criticalMoment && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              )}
+            </button>
+          </div>
+
+          <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1 pr-1">
+            {safePly > 0 ? (
+              <>
+                <span>
+                  {currentPlyData.moveNumber}.{currentPlyData.color === 'b' ? '..' : ''}{' '}
+                  {currentPlyData.san}
+                </span>
+                {activeBadge && (
+                  <span
+                    className={`text-[8px] font-black px-1 rounded text-white ${activeBadge.bgClass}`}
+                    title={activeBadge.label}
+                  >
+                    {activeBadge.symbol}
+                  </span>
                 )}
-
-                {movePairs.map(pair => {
-                  const whiteActive = pair.white && safePly === pair.white.ply && !isFreePlay;
-                  const blackActive = pair.black && safePly === pair.black.ply && !isFreePlay;
-
-                  const whiteBadge = pair.white
-                    ? getClassificationBadge(pair.white.criticalMoment?.classification)
-                    : null;
-                  const blackBadge = pair.black
-                    ? getClassificationBadge(pair.black.criticalMoment?.classification)
-                    : null;
-
-                  // Check if this move is where the current exploration variation branched off
-                  const isBranchRow =
-                    isFreePlay && pair.moveNumber === Math.floor((branchPly - 1) / 2) + 1;
-
-                  return (
-                    <Fragment key={pair.moveNumber}>
-                      <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="w-8 py-1 px-1.5 font-mono text-slate-400 text-right select-none font-medium">
-                          {pair.moveNumber}.
-                        </td>
-
-                        {/* White move */}
-                        <td className="w-[45%] py-0.5 px-0.5">
-                          {pair.white && (
-                            <button
-                              data-ply={pair.white.ply}
-                              onClick={e => {
-                                e.currentTarget.blur();
-                                handleGoToPly(pair.white!.ply);
-                              }}
-                              className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                whiteActive
-                                  ? 'bg-blue-600 text-white font-bold shadow-xs'
-                                  : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                              }`}
-                            >
-                              <span>{pair.white.san}</span>
-                              {whiteBadge && (
-                                <span
-                                  className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white ${whiteBadge.bgClass}`}
-                                  title={whiteBadge.label}
-                                >
-                                  {whiteBadge.symbol}
-                                </span>
-                              )}
-                            </button>
-                          )}
-                        </td>
-
-                        {/* Black move */}
-                        <td className="w-[45%] py-0.5 px-0.5">
-                          {pair.black && (
-                            <button
-                              data-ply={pair.black.ply}
-                              onClick={e => {
-                                e.currentTarget.blur();
-                                handleGoToPly(pair.black!.ply);
-                              }}
-                              className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                blackActive
-                                  ? 'bg-blue-600 text-white font-bold shadow-xs'
-                                  : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                              }`}
-                            >
-                              <span>{pair.black.san}</span>
-                              {blackBadge && (
-                                <span
-                                  className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white ${blackBadge.bgClass}`}
-                                  title={blackBadge.label}
-                                >
-                                  {blackBadge.symbol}
-                                </span>
-                              )}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-
-                      {/* Lichess-Style Inline Variation Row directly beneath the move pair row */}
-                      {isBranchRow && variationPlies.length > 0 && (
-                        <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
-                          <td
-                            colSpan={3}
-                            className="py-1.5 px-2.5 bg-amber-500/10 dark:bg-amber-500/15 border-l-2 border-amber-500"
-                          >
-                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
-                              <span className="text-amber-700 dark:text-amber-400 font-sans font-semibold text-[10px] uppercase tracking-wider mr-1">
-                                Var:
-                              </span>
-                              <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                (
-                              </span>
-                              {variationPlies.map((vm, vIdx) => {
-                                const isActive = currentVarIndex === vIdx;
-                                return (
-                                  <button
-                                    key={vIdx}
-                                    onClick={e => {
-                                      e.currentTarget.blur();
-                                      handleGoToVariationPly(vIdx);
-                                    }}
-                                    className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                      isActive
-                                        ? 'bg-amber-600 text-white font-bold shadow-xs'
-                                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                    }`}
-                                  >
-                                    {vm.color === 'w'
-                                      ? `${vm.moveNumber}. `
-                                      : vIdx === 0
-                                        ? `${vm.moveNumber}... `
-                                        : ''}
-                                    {vm.san}
-                                  </button>
-                                );
-                              })}
-                              <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                )
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+              </>
+            ) : (
+              <span className="text-[10px] text-slate-400">Start</span>
+            )}
           </div>
         </div>
+
+        {activeSidebarTab === 'moves' ? (
+          /* Move Timeline List (Header removed to maximize vertical space) */
+          <div
+            className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-slate-900"
+            ref={moveListRef}
+          >
+            <div className="p-1.5 text-xs">
+              <table className="w-full text-xs">
+                <tbody>
+                  {/* Branch variation at starting position (before move 1) */}
+                  {isFreePlay && branchPly === 0 && variationPlies.length > 0 && (
+                    <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
+                      <td
+                        colSpan={3}
+                        className="py-1.5 px-2.5 bg-amber-500/10 dark:bg-amber-500/15 border-l-2 border-amber-500"
+                      >
+                        <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
+                          <span className="text-amber-700 dark:text-amber-400 font-sans font-semibold text-[10px] uppercase tracking-wider mr-1">
+                            Var:
+                          </span>
+                          <span className="text-slate-400 dark:text-slate-500 font-sans">(</span>
+                          {variationPlies.map((vm, vIdx) => {
+                            const isActive = currentVarIndex === vIdx;
+                            return (
+                              <button
+                                key={vIdx}
+                                onClick={e => {
+                                  e.currentTarget.blur();
+                                  handleGoToVariationPly(vIdx);
+                                }}
+                                className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                  isActive
+                                    ? 'bg-amber-600 text-white font-bold shadow-xs'
+                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                              >
+                                {vm.color === 'w'
+                                  ? `${vm.moveNumber}. `
+                                  : vIdx === 0
+                                    ? `${vm.moveNumber}... `
+                                    : ''}
+                                {vm.san}
+                              </button>
+                            );
+                          })}
+                          <span className="text-slate-400 dark:text-slate-500 font-sans">)</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+
+                  {movePairs.map(pair => {
+                    const whiteActive = pair.white && safePly === pair.white.ply && !isFreePlay;
+                    const blackActive = pair.black && safePly === pair.black.ply && !isFreePlay;
+
+                    const whiteBadge = pair.white
+                      ? getClassificationBadge(pair.white.criticalMoment?.classification)
+                      : null;
+                    const blackBadge = pair.black
+                      ? getClassificationBadge(pair.black.criticalMoment?.classification)
+                      : null;
+
+                    // Check if this move is where the current exploration variation branched off
+                    const isBranchRow =
+                      isFreePlay && pair.moveNumber === Math.floor((branchPly - 1) / 2) + 1;
+
+                    return (
+                      <Fragment key={pair.moveNumber}>
+                        <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="w-8 py-1 px-1.5 font-mono text-slate-400 text-right select-none font-medium">
+                            {pair.moveNumber}.
+                          </td>
+
+                          {/* White move */}
+                          <td className="w-[45%] py-0.5 px-0.5">
+                            {pair.white && (
+                              <button
+                                data-ply={pair.white.ply}
+                                onClick={e => {
+                                  e.currentTarget.blur();
+                                  handleGoToPly(pair.white!.ply);
+                                }}
+                                className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                  whiteActive
+                                    ? 'bg-blue-600 text-white font-bold shadow-xs'
+                                    : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                                }`}
+                              >
+                                <span>{pair.white.san}</span>
+                                {whiteBadge && (
+                                  <span
+                                    className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white ${whiteBadge.bgClass}`}
+                                    title={whiteBadge.label}
+                                  >
+                                    {whiteBadge.symbol}
+                                  </span>
+                                )}
+                              </button>
+                            )}
+                          </td>
+
+                          {/* Black move */}
+                          <td className="w-[45%] py-0.5 px-0.5">
+                            {pair.black && (
+                              <button
+                                data-ply={pair.black.ply}
+                                onClick={e => {
+                                  e.currentTarget.blur();
+                                  handleGoToPly(pair.black!.ply);
+                                }}
+                                className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                  blackActive
+                                    ? 'bg-blue-600 text-white font-bold shadow-xs'
+                                    : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                                }`}
+                              >
+                                <span>{pair.black.san}</span>
+                                {blackBadge && (
+                                  <span
+                                    className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white ${blackBadge.bgClass}`}
+                                    title={blackBadge.label}
+                                  >
+                                    {blackBadge.symbol}
+                                  </span>
+                                )}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+
+                        {/* Lichess-Style Inline Variation Row directly beneath the move pair row */}
+                        {isBranchRow && variationPlies.length > 0 && (
+                          <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
+                            <td
+                              colSpan={3}
+                              className="py-1.5 px-2.5 bg-amber-500/10 dark:bg-amber-500/15 border-l-2 border-amber-500"
+                            >
+                              <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
+                                <span className="text-amber-700 dark:text-amber-400 font-sans font-semibold text-[10px] uppercase tracking-wider mr-1">
+                                  Var:
+                                </span>
+                                <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                  (
+                                </span>
+                                {variationPlies.map((vm, vIdx) => {
+                                  const isActive = currentVarIndex === vIdx;
+                                  return (
+                                    <button
+                                      key={vIdx}
+                                      onClick={e => {
+                                        e.currentTarget.blur();
+                                        handleGoToVariationPly(vIdx);
+                                      }}
+                                      className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                        isActive
+                                          ? 'bg-amber-600 text-white font-bold shadow-xs'
+                                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                      }`}
+                                    >
+                                      {vm.color === 'w'
+                                        ? `${vm.moveNumber}. `
+                                        : vIdx === 0
+                                          ? `${vm.moveNumber}... `
+                                          : ''}
+                                      {vm.san}
+                                    </button>
+                                  );
+                                })}
+                                <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                  )
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-slate-900 flex flex-col text-xs">
+            {/* Context Header */}
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 shrink-0">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <span className="text-slate-500 font-normal">Analyzing:</span>
+                  <span className="font-mono bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800 font-bold">
+                    {safePly > 0
+                      ? `${currentPlyData.moveNumber}.${currentPlyData.color === 'b' ? '..' : ''} ${currentPlyData.san}`
+                      : 'Starting Position'}
+                  </span>
+                  {safePly > 0 && (
+                    <span className="text-slate-400 text-[11px]">
+                      ({currentPlyData.color === 'w' ? 'White' : 'Black'})
+                    </span>
+                  )}
+                </span>
+                {currentPlyData.criticalMoment && (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${activeBadge?.bgClass ?? 'bg-amber-600'}`}
+                  >
+                    {currentPlyData.criticalMoment.classification}
+                  </span>
+                )}
+              </div>
+              {currentPlyData.criticalMoment?.best_move_san && (
+                <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                  <span>Engine alternative:</span>
+                  <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                    {currentPlyData.criticalMoment.best_move_san}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Suggested quick questions */}
+            <div className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1.5 flex items-center gap-1">
+                <HelpCircle size={11} />
+                <span>Suggested Questions</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {quickQuestions.map((q, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setUserQuestion(q);
+                      void handleAskCoach(q);
+                    }}
+                    disabled={isAskingCoach}
+                    className="text-left text-[11px] px-2 py-1.5 rounded bg-slate-50 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 dark:bg-slate-800/60 dark:hover:bg-blue-950/50 dark:hover:text-blue-300 border border-slate-200/80 dark:border-slate-700/80 transition-colors text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Question Input Form */}
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                void handleAskCoach();
+              }}
+              className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/30 flex flex-col gap-2 shrink-0"
+            >
+              <textarea
+                value={userQuestion}
+                onChange={e => setUserQuestion(e.target.value)}
+                placeholder={`Ask Coach anything about ${safePly > 0 ? `${currentPlyData.moveNumber}.${currentPlyData.san}` : 'this position'}...`}
+                rows={2}
+                className="w-full text-xs p-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void handleAskCoach();
+                  }
+                }}
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-400">Press Enter to ask</span>
+                <button
+                  type="submit"
+                  disabled={isAskingCoach || !userQuestion.trim()}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {isAskingCoach ? (
+                    <>
+                      <svg
+                        className="animate-spin h-3 w-3 text-white"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                      <span>Analyzing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={12} />
+                      <span>Ask Coach</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+
+            {/* Answer Display */}
+            <div className="p-3 flex-1">
+              {isAskingCoach && (
+                <div className="p-6 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
+                  <svg
+                    className="animate-spin h-5 w-5 text-blue-600"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                  <span>Consulting coach and calculating tactical facts…</span>
+                </div>
+              )}
+
+              {coachError && (
+                <div className="p-3 rounded-md bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs">
+                  <p className="font-semibold mb-1">Could not get coaching answer</p>
+                  <p>{coachError}</p>
+                </div>
+              )}
+
+              {coachAnswer && !isAskingCoach && (
+                <div className="flex flex-col gap-3">
+                  {/* Formal Question Title */}
+                  <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-md border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
+                      Coaching Question
+                    </div>
+                    <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs leading-snug">
+                      {coachAnswer.formal_question}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      {coachAnswer.move_context}
+                    </div>
+                  </div>
+
+                  {/* Formatted Answer with Interactive Clickable Moves */}
+                  <div
+                    className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto"
+                    onClick={handleCoachAnswerClick}
+                    dangerouslySetInnerHTML={{ __html: coachAnswerHtml }}
+                  />
+
+                  {/* Add to Review Action */}
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                    {appendedSuccess ? (
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+                          <Check size={14} />
+                          <span>Added to Game Review!</span>
+                        </span>
+                        {onScrollToSection && (
+                          <button
+                            onClick={() => onScrollToSection('Follow-up Coaching & Deep Dives')}
+                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>View in Review</span>
+                            <ExternalLink size={11} />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handleAppendQA}
+                        disabled={isAppendingQA}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium transition-colors cursor-pointer shadow-xs"
+                        title="Append this Q&A into the official game review document"
+                      >
+                        {isAppendingQA ? (
+                          <>
+                            <svg
+                              className="animate-spin h-3 w-3 text-white"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8v8z"
+                              />
+                            </svg>
+                            <span>Updating Review...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus size={13} />
+                            <span>Add to Review</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setCoachAnswer(null);
+                        setUserQuestion('');
+                        setAppendedSuccess(false);
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline cursor-pointer"
+                    >
+                      Ask another
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   },

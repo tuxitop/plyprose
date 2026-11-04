@@ -9,12 +9,15 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from src.coach_agent import (
+    _parse_qa_json_block,
     build_coach_user_prompt,
+    build_move_qa_prompt,
+    generate_deterministic_move_answer,
     generate_deterministic_summary,
     get_system_prompt,
 )
 from src.inspector import inspect_square, verify_variation_tool
-from src.models import GameAnalysisPayload
+from src.models import AskMoveResponse, GameAnalysisPayload
 
 load_dotenv()
 
@@ -516,12 +519,46 @@ def probe_openai_compat_connection(
         return False, f"{type(exc).__name__}: {exc}"
 
 
+def ask_move_question_openai(
+    context: dict[str, Any],
+    user_question: str,
+    base_url: str | None = None,
+    model_name: str = DEFAULT_OPENAI_COMPAT_MODEL,
+    api_key: str | None = None,
+    client: OpenAI | None = None,
+) -> AskMoveResponse:
+    prompt = build_move_qa_prompt(context, user_question)
+    client = _build_client(base_url=base_url, api_key=api_key, client=client)
+    system_prompt = get_system_prompt()
+
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+
+    try:
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=messages,  # type: ignore[arg-type]
+            temperature=0.2,
+        )
+        if completion.choices:
+            raw_text = completion.choices[0].message.content or ""
+            if raw_text.strip():
+                return _parse_qa_json_block(raw_text, context, user_question)
+    except Exception as exc:
+        logger.warning("OpenAI-compatible move Q&A call failed: %s", exc)
+
+    return generate_deterministic_move_answer(context, user_question)
+
+
 __all__ = [
     "DEFAULT_OPENAI_COMPAT_BASE_URL",
     "DEFAULT_OPENAI_COMPAT_MODEL",
     "OPENAI_COMPAT_TOOLS",
     "PROVIDER_NAME",
     "TOOL_REGISTRY",
+    "ask_move_question_openai",
     "generate_narrative_report",
     "list_openai_compat_models",
     "probe_openai_compat_connection",

@@ -95,6 +95,28 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
   // Auto-hiding header on scroll
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const lastScrollTop = useRef(0);
+  const reportContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const handleReportUpdated = useCallback((newHtml: string, newMd: string) => {
+    setReportHtml(newHtml);
+    setRecord(prev => (prev ? { ...prev, report_md: newMd } : null));
+  }, []);
+
+  const handleScrollToSection = useCallback((sectionName: string) => {
+    const container = reportContainerRef.current;
+    if (!container) return;
+    const headings = container.querySelectorAll('h1, h2, h3, h4');
+    for (const h of headings) {
+      if (h.textContent?.toLowerCase().includes(sectionName.toLowerCase())) {
+        h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        h.classList.add('bg-amber-100', 'dark:bg-amber-900/40', 'transition-colors');
+        setTimeout(() => {
+          h.classList.remove('bg-amber-100', 'dark:bg-amber-900/40');
+        }, 2500);
+        break;
+      }
+    }
+  }, []);
 
   const handleReportScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
@@ -506,6 +528,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
 
         {/* Report document body */}
         <div
+          ref={reportContainerRef}
           className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950"
           onClick={handleReportClick}
           onScroll={handleReportScroll}
@@ -581,6 +604,9 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
             userSide={record.side || (record.white_player === 'tuxitop' ? 'white' : 'black')}
             sidebarWidth={sidebarWidth}
             initialVariation={initialVariation}
+            analysisId={analysisId}
+            onReportUpdated={handleReportUpdated}
+            onScrollToSection={handleScrollToSection}
           />
         </aside>
       )}

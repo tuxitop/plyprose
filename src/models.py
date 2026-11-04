@@ -76,11 +76,47 @@ class GameData(BaseModel):
     source: str | None = None
 
 
+class AskMoveRequest(BaseModel):
+    ply: int | None = None
+    move_number: int | None = None
+    color: str | None = None
+    question: str
+    provider: str | None = None
+    model_name: str | None = None
+
+
+class AskMoveResponse(BaseModel):
+    formal_question: str
+    answer_markdown: str
+    move_context: str
+    ply: int
+    move_number: int
+    color: str
+
+
+class AppendQARequest(BaseModel):
+    formal_question: str
+    answer_markdown: str
+    move_context: str
+    ply: int | None = None
+
+
+class AppendQAResponse(BaseModel):
+    ok: bool
+    report_html: str
+    report_md: str
+    section_heading: str
+
+
 # Alias for compatibility with GEMINI.md naming
 AnalysisPayload = GameAnalysisPayload
 
 __all__ = [
     "AnalysisPayload",
+    "AppendQARequest",
+    "AppendQAResponse",
+    "AskMoveRequest",
+    "AskMoveResponse",
     "CriticalMoment",
     "GameAnalysisPayload",
     "GameData",

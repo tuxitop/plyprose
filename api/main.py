@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -54,8 +55,20 @@ from src.github_sync import (
     build_game_repo_files,
     format_game_folder_path,
 )
-from src.llm import generate_deterministic_summary, generate_narrative_report, model_label
-from src.models import GameAnalysisPayload
+from src.llm import (
+    PROVIDER_GEMINI,
+    ask_move_question,
+    generate_deterministic_summary,
+    generate_narrative_report,
+    model_label,
+)
+from src.models import (
+    AppendQARequest,
+    AppendQAResponse,
+    AskMoveRequest,
+    AskMoveResponse,
+    GameAnalysisPayload,
+)
 from src.openai_agent import list_openai_compat_models, probe_openai_compat_connection
 from src.storage import (
     compute_analysis_hash,
@@ -69,7 +82,7 @@ from src.storage import (
     update_analysis_report,
 )
 
-app = FastAPI(title="PlyProse API", version="1.1.1")
+app = FastAPI(title="PlyProse API", version="1.2.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -1386,6 +1399,128 @@ def api_get_report_html(analysis_id: int) -> dict:
         extensions=["extra", "tables", "fenced_code", "toc"],
     )
     return {"report_html": report_html, "report_md": report_md}
+
+
+def append_qa_to_report_markdown(
+    report_md: str,
+    formal_question: str,
+    answer_markdown: str,
+    move_context: str,
+) -> str:
+    """
+    Appends or creates a 'Follow-up Coaching & Deep Dives' section in report_md.
+    """
+    qa_block = (
+        f"### Q: {formal_question.strip()}\n"
+        f"**Context:** {move_context.strip()}\n\n"
+        f"{answer_markdown.strip()}\n"
+    )
+
+    section_pattern = re.compile(
+        r"(#+\s*(?:\d+\.\s*)?Follow-up Coaching & Deep Dives[\s\S]*?)(?=(?:\n---|\n#+\s*(?:\d+\.\s*)?Verification Report|$))",
+        re.IGNORECASE,
+    )
+    match = section_pattern.search(report_md)
+    if match:
+        existing_section = match.group(1)
+        updated_section = existing_section.rstrip() + "\n\n" + qa_block
+        return report_md[: match.start(1)] + updated_section + report_md[match.end(1) :]
+
+    # Find Verification Report to insert right before it
+    verif_pattern = re.compile(
+        r"(?:\n---\s*)?\n(#+\s*(?:\d+\.\s*)?Verification Report[\s\S]*)$", re.IGNORECASE
+    )
+    verif_match = verif_pattern.search(report_md)
+    if verif_match:
+        verif_part = verif_match.group(1)
+        insertion = f"\n---\n\n# Follow-up Coaching & Deep Dives\n\n{qa_block}\n---\n\n"
+        return report_md[: verif_match.start()] + insertion + verif_part
+
+    # Fallback: append at the end
+    return report_md.rstrip() + "\n\n---\n\n# Follow-up Coaching & Deep Dives\n\n" + qa_block
+
+
+@app.post("/api/analysis/{analysis_id}/ask-move", response_model=AskMoveResponse)
+def api_ask_move(analysis_id: int, req: AskMoveRequest) -> AskMoveResponse:
+    rec = get_analysis_by_id(analysis_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    pgn_text = rec.get("pgn_text", "")
+    payload_json = rec.get("payload_json")
+    payload = None
+    if payload_json:
+        try:
+            payload = GameAnalysisPayload.model_validate_json(payload_json)
+        except Exception:
+            pass
+
+    settings = get_settings()
+    provider = req.provider or settings.get("provider", PROVIDER_GEMINI)
+    model_name = req.model_name or settings.get("model_name", "gemini-2.5-pro")
+
+    gemini_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
+    openai_key = settings.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
+    openai_url = settings.get("openai_base_url")
+
+    api_key = gemini_key if provider == PROVIDER_GEMINI else openai_key
+
+    try:
+        ans = ask_move_question(
+            pgn_text=pgn_text,
+            payload=payload,
+            question=req.question,
+            ply=req.ply,
+            move_number=req.move_number,
+            color=req.color,
+            provider=provider,
+            model_name=model_name,
+            api_key=api_key,
+            base_url=openai_url,
+        )
+        return ans
+    except Exception as exc:
+        logger.exception("Error in api_ask_move: %s", exc)
+        raise HTTPException(status_code=400, detail=f"Failed to generate answer: {exc}") from exc
+
+
+@app.post("/api/analysis/{analysis_id}/append-qa", response_model=AppendQAResponse)
+def api_append_qa(analysis_id: int, req: AppendQARequest) -> AppendQAResponse:
+    rec = get_analysis_by_id(analysis_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    report_md = rec.get("report_md", "")
+    model_name = rec.get("model_name", "gemini-2.5-pro")
+
+    new_report_md = append_qa_to_report_markdown(
+        report_md=report_md,
+        formal_question=req.formal_question,
+        answer_markdown=req.answer_markdown,
+        move_context=req.move_context,
+    )
+
+    # Re-render HTML with board tags and reconcile FENs
+    pgn_text = rec.get("pgn_text", "")
+    payload_json = rec.get("payload_json")
+    if pgn_text or payload_json:
+        new_report_md = reconcile_report_fens(
+            new_report_md, pgn_text=pgn_text, payload=payload_json
+        )
+
+    update_analysis_report(analysis_id, new_report_md, model_name)
+    md_with_boards = replace_board_tags_with_html(new_report_md, size=380)
+    report_html = _md.markdown(
+        md_with_boards,
+        extensions=["extra", "tables", "fenced_code", "toc"],
+    )
+
+    return AppendQAResponse(
+        ok=True,
+        report_html=report_html,
+        report_md=new_report_md,
+        section_heading="Follow-up Coaching & Deep Dives",
+    )
 
 
 @app.get("/api/analysis/{analysis_id}/export/pdf")

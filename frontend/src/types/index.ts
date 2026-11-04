@@ -230,3 +230,35 @@ export type ResultFilter = 'all' | 'win' | 'loss' | 'draw';
 export type StatusFilter = 'all' | 'analyzed' | 'unanalyzed';
 export type CategoryFilter =
   'all' | 'UltraBullet' | 'Bullet' | 'Blitz' | 'Rapid' | 'Classical' | 'Daily';
+
+export interface AskMoveRequest {
+  ply?: number;
+  move_number?: number;
+  color?: 'White' | 'Black';
+  question: string;
+  provider?: string;
+  model_name?: string;
+}
+
+export interface AskMoveResponse {
+  formal_question: string;
+  answer_markdown: string;
+  move_context: string;
+  ply: number;
+  move_number: number;
+  color: string;
+}
+
+export interface AppendQARequest {
+  formal_question: string;
+  answer_markdown: string;
+  move_context: string;
+  ply?: number;
+}
+
+export interface AppendQAResponse {
+  ok: boolean;
+  report_html: string;
+  report_md: string;
+  section_heading: string;
+}

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import io
+import json
 import os
+import re
+from typing import Any
 
+import chess.pgn
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-from src.inspector import verify_variation_tool
-from src.models import GameAnalysisPayload
+from src.inspector import extract_tactical_facts, verify_variation_tool
+from src.models import AskMoveResponse, CriticalMoment, GameAnalysisPayload, TacticalFacts
 
 load_dotenv()
 
@@ -467,10 +472,277 @@ def get_available_gemini_models(
         return list(DEFAULT_GEMINI_MODELS)
 
 
+def extract_move_qa_context(
+    pgn_text: str,
+    payload: GameAnalysisPayload | None,
+    ply: int | None = None,
+    move_number: int | None = None,
+    color: str | None = None,
+) -> dict[str, Any]:
+    """
+    Extracts deterministic board facts, engine critical moments, and context
+    for any move in a chess game.
+    """
+    if not pgn_text.strip():
+        raise ValueError("PGN text is empty")
+
+    game = chess.pgn.read_game(io.StringIO(pgn_text))
+    if not game:
+        raise ValueError("Could not parse PGN text")
+
+    if ply is not None and ply > 0:
+        target_ply = ply
+        calc_move_num = (target_ply + 1) // 2
+        calc_color = "White" if (target_ply % 2 != 0) else "Black"
+    elif move_number is not None and move_number > 0:
+        norm_color = (color or "White").strip().capitalize()
+        target_ply = (move_number - 1) * 2 + (2 if norm_color == "Black" else 1)
+        calc_move_num = move_number
+        calc_color = norm_color
+    else:
+        raise ValueError("Either ply or move_number must be provided")
+
+    board = game.board()
+    board_before = board.copy()
+    current_ply = 0
+    move_played_san = ""
+    target_move = None
+
+    for move in game.mainline_moves():
+        current_ply += 1
+        if current_ply == target_ply:
+            board_before = board.copy()
+            move_played_san = board_before.san(move)
+            target_move = move
+            board.push(move)
+            break
+        board.push(move)
+
+    if target_move is None or current_ply != target_ply:
+        raise ValueError(f"Move at ply {target_ply} does not exist in this game")
+
+    facts_before = extract_tactical_facts(board_before)
+    facts_after = extract_tactical_facts(board)
+
+    matched_cm: CriticalMoment | None = None
+    if payload and payload.critical_moments:
+        for cm in payload.critical_moments:
+            if cm.ply == target_ply or (cm.move_number == calc_move_num and cm.color == calc_color):
+                matched_cm = cm
+                break
+
+    student_color = (payload.user_color if payload else "Both") or "Both"
+    if student_color == "White":
+        student_name = payload.white_player if payload else "You"
+        opponent_name = payload.black_player if payload else "Opponent"
+    elif student_color == "Black":
+        student_name = payload.black_player if payload else "You"
+        opponent_name = payload.white_player if payload else "Opponent"
+    else:
+        student_name = "You"
+        opponent_name = "Opponent"
+
+    dot_str = "." if calc_color == "White" else "..."
+    move_context = (
+        f"Move {calc_move_num} ({calc_move_num}{dot_str} {move_played_san}) · {calc_color} to play"
+    )
+
+    return {
+        "ply": target_ply,
+        "move_number": calc_move_num,
+        "color": calc_color,
+        "move_played_san": move_played_san,
+        "move_context": move_context,
+        "fen_before": board_before.fen(),
+        "fen_after": board.fen(),
+        "facts_before": facts_before,
+        "facts_after": facts_after,
+        "critical_moment": matched_cm,
+        "student_color": student_color,
+        "student_name": student_name,
+        "opponent_name": opponent_name,
+    }
+
+
+def build_move_qa_prompt(context: dict[str, Any], user_question: str) -> str:
+    move_num = context["move_number"]
+    color = context["color"]
+    played_san = context["move_played_san"]
+    dot_str = "." if color == "White" else "..."
+    cm: CriticalMoment | None = context.get("critical_moment")
+    facts_before: TacticalFacts = context["facts_before"]
+    facts_after: TacticalFacts = context["facts_after"]
+
+    cm_details = ""
+    if cm:
+        cm_details = (
+            f"- Move Classification: {cm.classification}\n"
+            f"- Evaluation shift: {cm.eval_before_cp} -> {cm.eval_after_cp} centipawns\n"
+            f"- Engine Best Move: {cm.best_move_san}\n"
+            f"- Engine Recommended Continuation (PV): {' '.join(cm.pv_san)}\n"
+            f"- Opponent Refutation: {' '.join(cm.refutation_san)}\n"
+        )
+
+    return (
+        f"You are the verified chess coach analyzing a student's game. Student: {context['student_name']} ({context['student_color']}).\n"
+        f"The student is examining Move {move_num}{dot_str} {played_san} and asking for coaching clarification.\n\n"
+        f"### GROUND TRUTH POSITION FACTS:\n"
+        f"- Move Examined: {move_num}{dot_str} {played_san} ({color})\n"
+        f"- FEN Before Move: {context['fen_before']}\n"
+        f"- FEN After Move: {context['fen_after']}\n"
+        f"{cm_details}"
+        f"- Hanging pieces before move: {', '.join(facts_before.hanging_pieces) or 'None'}\n"
+        f"- Hanging pieces after move: {', '.join(facts_after.hanging_pieces) or 'None'}\n\n"
+        f"### STUDENT'S QUESTION:\n"
+        f'"{user_question}"\n\n'
+        f"### COACHING DIRECTIVES:\n"
+        f"1. Address the student directly as 'you' / 'your'. Explain what happened concretely on the board.\n"
+        f"2. MANDATORY RULE F: ALWAYS include move numbers in backticks for EVERY move mentioned (e.g. `{move_num}{dot_str} {played_san}`, `{move_num}{dot_str} ...`). NEVER write bare moves without move numbers. Do NOT wrap bare squares in backticks (write 'the e5 square', 'on d4'). Use standard ASCII dots and O-O castling.\n"
+        f"3. Generate an educational question title in `formal_question` that concisely phrases the question for coaching notes.\n"
+        f"4. Provide the thorough coaching answer in `answer_markdown` with clear bullet points explaining the tactical mechanism, the better alternative, and the key calculation/pattern takeaway for future games.\n"
+        f"5. RETURN ONLY A VALID JSON OBJECT with these exact keys:\n"
+        f'{{\n  "formal_question": "...",\n  "answer_markdown": "..."\n}}'
+    )
+
+
+def _parse_qa_json_block(
+    raw_text: str, context: dict[str, Any], user_question: str
+) -> AskMoveResponse:
+    cleaned = raw_text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = cleaned.strip()
+
+    try:
+        data = json.loads(cleaned)
+        formal_q = str(data.get("formal_question") or "").strip()
+        answer = str(data.get("answer_markdown") or "").strip()
+        if formal_q and answer:
+            return AskMoveResponse(
+                formal_question=formal_q,
+                answer_markdown=answer,
+                move_context=context["move_context"],
+                ply=context["ply"],
+                move_number=context["move_number"],
+                color=context["color"],
+            )
+    except Exception:
+        pass
+
+    return generate_deterministic_move_answer(context, user_question)
+
+
+def generate_deterministic_move_answer(
+    context: dict[str, Any],
+    user_question: str,
+) -> AskMoveResponse:
+    move_num = context["move_number"]
+    color = context["color"]
+    played_san = context["move_played_san"]
+    dot_str = "." if color == "White" else "..."
+    move_prefix = f"`{move_num}{dot_str} {played_san}`"
+    cm: CriticalMoment | None = context.get("critical_moment")
+    facts_before: TacticalFacts = context["facts_before"]
+    facts_after: TacticalFacts = context["facts_after"]
+
+    if cm and cm.best_move_san:
+        classification = cm.classification or "Suboptimal"
+        formal_question = (
+            f"Why is {move_num}{dot_str} {played_san} considered a {classification.lower()} "
+            f"instead of {cm.best_move_san}, and what pattern applies?"
+        )
+    else:
+        formal_question = f"What are the key tactical and positional considerations behind {move_num}{dot_str} {played_san}?"
+
+    lines: list[str] = []
+    if cm:
+        before_eval = f"{cm.eval_before_cp / 100:+.2f}" if cm.eval_before_cp is not None else "even"
+        after_eval = f"{cm.eval_after_cp / 100:+.2f}" if cm.eval_after_cp is not None else "even"
+        lines.append(
+            f"- **Tactical Reality of the Move:** You played {move_prefix}, shifting the engine evaluation "
+            f"from `{before_eval}` to `{after_eval}` ({cm.classification})."
+        )
+        if cm.best_move_san:
+            pv_continuation = f" (continuation: `{' '.join(cm.pv_san[:4])}`)" if cm.pv_san else ""
+            lines.append(
+                f"- **The Recommended Alternative:** Stockfish prefers `{cm.move_number}{dot_str} {cm.best_move_san}`{pv_continuation}."
+            )
+        if cm.refutation_san:
+            lines.append(
+                f"- **Opponent's Tactical Punishment:** The played move allowed the opponent to respond with "
+                f"`{' '.join(cm.refutation_san[:3])}`, seizing tactical counterplay."
+            )
+    else:
+        lines.append(f"- **Move Overview:** {move_prefix} was played from `{facts_before.fen}`.")
+
+    if facts_before.hanging_pieces:
+        lines.append(f"- **Hanging Pieces Before Move:** {', '.join(facts_before.hanging_pieces)}.")
+    if facts_after.hanging_pieces:
+        lines.append(
+            f"- **Hanging Pieces Created After Move:** {', '.join(facts_after.hanging_pieces)}."
+        )
+
+    lines.append(
+        "- **Key Principle for Next Time:** When under tactical tension, look to resolve threats against your pieces first, "
+        "and calculate forcing checks, captures, and opponent removals of the guard before playing committing pawn moves or piece trades."
+    )
+
+    answer_markdown = "\n\n".join(lines)
+
+    return AskMoveResponse(
+        formal_question=formal_question,
+        answer_markdown=answer_markdown,
+        move_context=context["move_context"],
+        ply=context["ply"],
+        move_number=move_num,
+        color=color,
+    )
+
+
+def ask_move_question_gemini(
+    context: dict[str, Any],
+    user_question: str,
+    model_name: str = "gemini-2.5-pro",
+    api_key: str | None = None,
+    client: object | None = None,
+) -> AskMoveResponse:
+    """
+    Answers a question about a specific move using Gemini with ground-truth facts.
+    """
+    prompt = build_move_qa_prompt(context, user_question)
+
+    if client is None:
+        key = api_key or os.environ.get("GEMINI_API_KEY")
+        if not key:
+            return generate_deterministic_move_answer(context, user_question)
+        client = genai.Client(api_key=key)
+
+    try:
+        config = get_coach_config()
+        if hasattr(client, "models") and hasattr(client.models, "generate_content"):
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config,
+            )
+            raw_text = getattr(response, "text", None) or ""
+            if raw_text.strip():
+                return _parse_qa_json_block(raw_text, context, user_question)
+    except Exception:
+        pass
+
+    return generate_deterministic_move_answer(context, user_question)
+
+
 __all__ = [
     "DEFAULT_GEMINI_MODELS",
     "PRIORITY_GEMINI_MODELS",
+    "ask_move_question_gemini",
     "build_coach_user_prompt",
+    "build_move_qa_prompt",
+    "extract_move_qa_context",
+    "generate_deterministic_move_answer",
     "generate_deterministic_summary",
     "generate_narrative_report",
     "get_available_gemini_models",
