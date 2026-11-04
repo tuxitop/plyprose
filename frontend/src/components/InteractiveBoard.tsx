@@ -1807,6 +1807,32 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
           <div className="flex items-center gap-1">
             <button
+              onClick={() => setActiveSidebarTab(t => (t === 'moves' ? 'coach' : 'moves'))}
+              title={
+                activeSidebarTab === 'coach'
+                  ? 'Switch to Move List'
+                  : safePly > 0
+                    ? `Ask Coach about ${currentPlyData.moveNumber}.${currentPlyData.san}`
+                    : 'Ask Coach'
+              }
+              className={`p-1.5 rounded transition-colors cursor-pointer relative ${
+                activeSidebarTab === 'coach'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {activeSidebarTab === 'coach' ? (
+                <List size={14} />
+              ) : (
+                <>
+                  <Sparkles size={14} className="text-amber-500" />
+                  {currentPlyData.criticalMoment && (
+                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  )}
+                </>
+              )}
+            </button>
+            <button
               onClick={handleFlip}
               title="Flip Board Orientation (F)"
               className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
@@ -1859,58 +1885,6 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           title="Drag up or down to resize chessboard and gain more move list space (Double-click to reset)"
         >
           <div className="w-10 h-0.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-blue-500 group-active:bg-blue-600 transition-colors" />
-        </div>
-
-        {/* Lower Sidebar Tabs: Move Timeline vs. Ask Coach */}
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 px-2 py-1 text-xs shrink-0 select-none">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setActiveSidebarTab('moves')}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                activeSidebarTab === 'moves'
-                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <List size={13} />
-              <span>Moves</span>
-            </button>
-            <button
-              onClick={() => setActiveSidebarTab('coach')}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                activeSidebarTab === 'coach'
-                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <Sparkles size={13} className="text-amber-500" />
-              <span>Ask Coach</span>
-              {currentPlyData.criticalMoment && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              )}
-            </button>
-          </div>
-
-          <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1 pr-1">
-            {safePly > 0 ? (
-              <>
-                <span>
-                  {currentPlyData.moveNumber}.{currentPlyData.color === 'b' ? '..' : ''}{' '}
-                  {currentPlyData.san}
-                </span>
-                {activeBadge && (
-                  <span
-                    className={`text-[8px] font-black px-1 rounded text-white ${activeBadge.bgClass}`}
-                    title={activeBadge.label}
-                  >
-                    {activeBadge.symbol}
-                  </span>
-                )}
-              </>
-            ) : (
-              <span className="text-[10px] text-slate-400">Start</span>
-            )}
-          </div>
         </div>
 
         {activeSidebarTab === 'moves' ? (
@@ -2113,13 +2087,22 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                     </span>
                   )}
                 </span>
-                {currentPlyData.criticalMoment && (
-                  <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${activeBadge?.bgClass ?? 'bg-amber-600'}`}
+                <div className="flex items-center gap-1.5">
+                  {currentPlyData.criticalMoment && (
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${activeBadge?.bgClass ?? 'bg-amber-600'}`}
+                    >
+                      {currentPlyData.criticalMoment.classification}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setActiveSidebarTab('moves')}
+                    title="Switch back to move list"
+                    className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                   >
-                    {currentPlyData.criticalMoment.classification}
-                  </span>
-                )}
+                    <List size={13} />
+                  </button>
+                </div>
               </div>
               {currentPlyData.criticalMoment?.best_move_san && (
                 <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
