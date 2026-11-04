@@ -446,6 +446,20 @@ def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
                 pass
 
             if payload is None:
+                sf_path = settings.get("stockfish_path", "/usr/sbin/stockfish")
+                if os.path.exists(sf_path) and os.access(sf_path, os.X_OK):
+                    try:
+                        payload = analyze_pgn(
+                            pgn_str=pgn_text,
+                            stockfish_path=sf_path,
+                            time_per_move=0.03,
+                            filter_by_user_color=False,
+                        )
+                    except Exception as sf_err:
+                        logger.warning("Could not run Stockfish on pulled game: %s", sf_err)
+                        payload = None
+
+            if payload is None:
                 white_p = meta.get("white") or "White"
                 black_p = meta.get("black") or "Black"
                 tc = meta.get("time_control") or "unknown"
