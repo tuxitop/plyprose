@@ -10,6 +10,7 @@ import chess.pgn
 from src.fetcher import extract_game_url
 from src.inspector import extract_tactical_facts
 from src.models import CriticalMoment, GameAnalysisPayload
+from src.tags import extract_deterministic_tags
 
 
 def _compute_loss_and_mate_change(
@@ -47,13 +48,33 @@ def _compute_loss_and_mate_change(
     return loss_cp, forced_mate_status_changed
 
 
-def _classify_swing(loss_cp: int, forced_mate_status_changed: bool) -> str:
+def _classify_swing(
+    loss_cp: int,
+    forced_mate_status_changed: bool,
+    pov_before: int = 0,
+    pov_after: int = 0,
+    had_tactical_motif: bool = False,
+) -> str:
     """
-    Classifies the move swing based on loss in centipawns:
+    Classifies the move swing based on loss in centipawns and tactical context:
+    - Missed Win: moving player had clear winning advantage (>= 200 cp or mate) and threw it away
+    - Missed Tactic: tactical motif was available in best move but missed in played move
     - Blunder: >= 300 cp (or forced mate status changed)
     - Mistake: >= 150 cp
     - Inaccuracy: >= 80 cp
     """
+    # 1. Missed Win: player was winning (>= +2.0 or forced mate) and dropped to <= +0.5
+    if (
+        (pov_before >= 200 or (forced_mate_status_changed and pov_before >= 9000))
+        and pov_after <= 50
+        and loss_cp >= 150
+    ):
+        return "Missed Win"
+
+    # 2. Missed Tactic: tactical opportunity available in best line but missed
+    if had_tactical_motif and loss_cp >= 100:
+        return "Missed Tactic"
+
     if loss_cp >= 300 or forced_mate_status_changed:
         return "Blunder"
     elif loss_cp >= 150:
@@ -71,6 +92,7 @@ def analyze_pgn(
     engine: chess.engine.SimpleEngine | None = None,
     swing_threshold_cp: int = 80,
     platform: str | None = None,
+    filter_by_user_color: bool = True,
 ) -> GameAnalysisPayload:
     """
     Replays a PGN move-by-move, evaluates each position with Stockfish,
@@ -220,7 +242,11 @@ def analyze_pgn(
             ply_evals.append(score_after_white.score(mate_score=10000))
 
             # Check if this player's color should be analyzed
-            should_analyze_color = norm_user_color == "Both" or norm_user_color == color_str
+            should_analyze_color = (
+                not filter_by_user_color
+                or norm_user_color == "Both"
+                or norm_user_color == color_str
+            )
 
             if should_analyze_color:
                 loss_cp, mate_changed = _compute_loss_and_mate_change(
@@ -228,7 +254,10 @@ def analyze_pgn(
                 )
 
                 if loss_cp >= swing_threshold_cp or mate_changed:
-                    classification = _classify_swing(loss_cp, mate_changed)
+                    sw_before = score_before_white.score(mate_score=10000)
+                    sw_after = score_after_white.score(mate_score=10000)
+                    pov_before = sw_before if turn == chess.WHITE else -sw_before
+                    pov_after = sw_after if turn == chess.WHITE else -sw_after
 
                     pv_moves = current_info.get("pv", [])
                     if pv_moves:
@@ -257,6 +286,41 @@ def analyze_pgn(
 
                     facts_before_move = extract_tactical_facts(board_before)
                     facts_after_played_move = extract_tactical_facts(board)
+
+                    best_has_pins = any(
+                        p.is_pinned for p in facts_after_best_move.attacked_or_pinned_pieces
+                    ) or any(p.is_pinned for p in facts_at_end_of_pv.attacked_or_pinned_pieces)
+                    played_has_pins = any(
+                        p.is_pinned for p in facts_after_played_move.attacked_or_pinned_pieces
+                    )
+
+                    best_has_fork = any(
+                        len(p.attackers) >= 2
+                        for p in facts_after_best_move.attacked_or_pinned_pieces
+                    ) or any(
+                        len(p.attackers) >= 2 for p in facts_at_end_of_pv.attacked_or_pinned_pieces
+                    )
+                    played_has_fork = any(
+                        len(p.attackers) >= 2
+                        for p in facts_after_played_move.attacked_or_pinned_pieces
+                    )
+
+                    had_tactical_motif = bool(
+                        (best_has_pins and not played_has_pins)
+                        or (best_has_fork and not played_has_fork)
+                        or (
+                            facts_after_played_move.hanging_pieces
+                            and not facts_after_best_move.hanging_pieces
+                        )
+                    )
+
+                    classification = _classify_swing(
+                        loss_cp=loss_cp,
+                        forced_mate_status_changed=mate_changed,
+                        pov_before=pov_before,
+                        pov_after=pov_after,
+                        had_tactical_motif=had_tactical_motif,
+                    )
 
                     # Extract opponent's best refutation continuation after the played move
                     ref_moves = next_info.get("pv", [])
@@ -293,7 +357,7 @@ def analyze_pgn(
             # Advance current_info to next position
             current_info = next_info
 
-        return GameAnalysisPayload(
+        payload = GameAnalysisPayload(
             white_player=white_player,
             black_player=black_player,
             user_color=norm_user_color,
@@ -311,6 +375,8 @@ def analyze_pgn(
             game_url=game_url,
             ply_evals=ply_evals,
         )
+        payload.tags = extract_deterministic_tags(payload)
+        return payload
 
     finally:
         if should_close_engine and active_engine is not None:

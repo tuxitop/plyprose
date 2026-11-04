@@ -83,8 +83,9 @@ from src.storage import (
     update_analysis_platform,
     update_analysis_report,
 )
+from src.tags import resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.3.0")
+app = FastAPI(title="PlyProse API", version="1.4.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -1307,6 +1308,7 @@ async def _run_analysis_job(
                 user_color=user_color,
                 time_per_move=float(settings.get("stockfish_time", 0.15)),
                 platform=resolved_platform,
+                filter_by_user_color=False,
             ),
         )
 
@@ -1398,6 +1400,14 @@ async def _run_analysis_job(
                 resolved_platform = "chesscom"
             elif "lichess.org" in pgn_low:
                 resolved_platform = "lichess"
+
+        # Resolve standardized coaching tags
+        ai_tags = re.findall(
+            r"\b(?:tactic|opening|strategy|endgame|general):[a-z0-9\-]+\b",
+            report,
+            re.IGNORECASE,
+        )
+        payload.tags = resolve_game_tags(ai_tags, payload)
 
         if existing_id:
             update_analysis_report(existing_id, report, active_model)

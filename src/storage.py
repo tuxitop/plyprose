@@ -59,7 +59,8 @@ def init_db(db_path: str | None = None) -> None:
                 platform TEXT NOT NULL DEFAULT 'manual',
                 external_id TEXT,
                 github_path TEXT,
-                github_synced_hash TEXT
+                github_synced_hash TEXT,
+                tags TEXT
             );
             """
         )
@@ -78,6 +79,8 @@ def init_db(db_path: str | None = None) -> None:
             conn.execute("ALTER TABLE game_analyses ADD COLUMN github_path TEXT;")
         if "github_synced_hash" not in columns:
             conn.execute("ALTER TABLE game_analyses ADD COLUMN github_synced_hash TEXT;")
+        if "tags" not in columns:
+            conn.execute("ALTER TABLE game_analyses ADD COLUMN tags TEXT;")
 
         # Backfill platform and external_id for existing rows if needed
         rows = conn.execute(
@@ -187,8 +190,9 @@ def save_analysis(
                 platform,
                 external_id,
                 github_path,
-                github_synced_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                github_synced_hash,
+                tags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 created_at,
@@ -208,6 +212,7 @@ def save_analysis(
                 external_id,
                 github_path,
                 github_synced_hash,
+                json.dumps(payload.tags if payload.tags else []),
             ),
         )
         conn.commit()
@@ -337,7 +342,9 @@ def get_all_analyses(db_path: str | None = None) -> list[dict[str, Any]]:
                 external_id,
                 github_path,
                 github_synced_hash,
-                json_extract(payload_json, '$.ply_evals') as ply_evals_json
+                tags,
+                json_extract(payload_json, '$.ply_evals') as ply_evals_json,
+                json_extract(payload_json, '$.tags') as tags_json
             FROM game_analyses;
             """
         )
@@ -355,6 +362,23 @@ def get_all_analyses(db_path: str | None = None) -> list[dict[str, Any]]:
                     rec["ply_evals"] = None
             else:
                 rec["ply_evals"] = None
+
+            tags_raw = rec.pop("tags_json", None)
+            raw_tags_col = rec.get("tags")
+            if tags_raw:
+                try:
+                    rec["tags"] = json.loads(tags_raw) if isinstance(tags_raw, str) else tags_raw
+                except Exception:
+                    rec["tags"] = []
+            elif raw_tags_col:
+                try:
+                    rec["tags"] = (
+                        json.loads(raw_tags_col) if isinstance(raw_tags_col, str) else raw_tags_col
+                    )
+                except Exception:
+                    rec["tags"] = []
+            else:
+                rec["tags"] = []
 
             if not rec.get("played_at"):
                 rec["played_at"] = extract_played_at(
@@ -438,6 +462,21 @@ def get_analysis_by_id(
             )
         except Exception:
             result_dict["payload"] = None
+
+        payload_obj = result_dict.get("payload")
+        if payload_obj and getattr(payload_obj, "tags", None):
+            result_dict["tags"] = payload_obj.tags
+        elif result_dict.get("tags"):
+            try:
+                result_dict["tags"] = (
+                    json.loads(result_dict["tags"])
+                    if isinstance(result_dict["tags"], str)
+                    else result_dict["tags"]
+                )
+            except Exception:
+                result_dict["tags"] = []
+        else:
+            result_dict["tags"] = []
 
         return result_dict
 

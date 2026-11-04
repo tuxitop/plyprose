@@ -28,6 +28,31 @@ def test_classify_swing_thresholds():
     assert _classify_swing(loss_cp=50, forced_mate_status_changed=True) == "Blunder"
 
 
+def test_classify_swing_missed_win_and_tactic():
+    # Missed win: player was winning (pov_before >= 200) and threw it away (pov_after <= 50, loss >= 150)
+    assert (
+        _classify_swing(
+            loss_cp=250,
+            forced_mate_status_changed=False,
+            pov_before=300,
+            pov_after=50,
+        )
+        == "Missed Win"
+    )
+
+    # Missed tactic: had tactical motif in best move and loss >= 100
+    assert (
+        _classify_swing(
+            loss_cp=120,
+            forced_mate_status_changed=False,
+            pov_before=0,
+            pov_after=-120,
+            had_tactical_motif=True,
+        )
+        == "Missed Tactic"
+    )
+
+
 # -----------------------------------------------------------------------------
 # 2. Integration Tests with Stockfish
 # -----------------------------------------------------------------------------
@@ -142,6 +167,17 @@ def test_analyze_pgn_user_color_filtering():
     assert payload_black.user_color == "Black"
     assert len(payload_black.critical_moments) >= 1
     assert all(m.color == "Black" for m in payload_black.critical_moments)
+
+    # Analyzing with filter_by_user_color=False includes both sides while tagging user_color
+    payload_both = analyze_pgn(
+        pgn_str=pgn_str,
+        stockfish_path=STOCKFISH_PATH,
+        user_color="White",
+        time_per_move=0.03,
+        filter_by_user_color=False,
+    )
+    assert payload_both.user_color == "White"
+    assert len(payload_both.critical_moments) >= 1
 
 
 @pytest.mark.skipif(

@@ -39,6 +39,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { askMoveQuestion, appendQAToReport } from '../lib/api';
+import { formatPlyEval, getClassificationBadge } from '../lib/badges';
 import { classifyReportMove } from '../lib/chessNav';
 import { getQuickQuestions, renderCoachAnswerHtml } from '../lib/coachFormat';
 import type { AskMoveResponse } from '../types';
@@ -110,31 +111,6 @@ export interface InteractiveBoardProps {
   onScrollToSection?: (sectionName: string) => void;
 }
 
-// Classification badge configuration for moves that stand out
-function getClassificationBadge(classification?: string) {
-  if (!classification) return null;
-  const lower = classification.toLowerCase();
-  if (lower.includes('blunder')) {
-    return { symbol: '??', label: 'Blunder', bgClass: 'bg-rose-600' };
-  }
-  if (lower.includes('mistake')) {
-    return { symbol: '?', label: 'Mistake', bgClass: 'bg-orange-500' };
-  }
-  if (lower.includes('inaccuracy')) {
-    return { symbol: '?!', label: 'Inaccuracy', bgClass: 'bg-amber-500 text-slate-900' };
-  }
-  if (lower.includes('miss')) {
-    return { symbol: '❌', label: 'Miss', bgClass: 'bg-rose-700' };
-  }
-  if (lower.includes('brilliant')) {
-    return { symbol: '!!', label: 'Brilliant', bgClass: 'bg-cyan-500' };
-  }
-  if (lower.includes('great') || lower.includes('critical turning point')) {
-    return { symbol: '!', label: 'Great Move', bgClass: 'bg-blue-600' };
-  }
-  return null;
-}
-
 export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBoardProps>(
   function InteractiveBoard(
     {
@@ -189,6 +165,20 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const [showEvalChart, setShowEvalChart] = useState<boolean>(() => {
       return localStorage.getItem('chess_show_eval_chart') === 'true';
     });
+
+    // Move List Evaluation Visibility
+    const [showMoveListEvals, setShowMoveListEvals] = useState<boolean>(() => {
+      const saved = localStorage.getItem('chess_show_movelist_evals');
+      return saved !== null ? saved === 'true' : true;
+    });
+
+    const handleToggleMoveListEvals = () => {
+      setShowMoveListEvals(prev => {
+        const next = !prev;
+        localStorage.setItem('chess_show_movelist_evals', String(next));
+        return next;
+      });
+    };
 
     // Autoplay
     const [isAutoplaying, setIsAutoplaying] = useState(false);
@@ -555,33 +545,44 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const handleUserMove = useCallback(
       (orig: Key, dest: Key) => {
         const chessInst = new Chess(activeFen);
+        const moveNum = chessInst.moveNumber();
 
         try {
           const moveRes = chessInst.move({ from: orig, to: dest, promotion: 'q' });
           if (moveRes) {
             const nextFen = chessInst.fen();
-            const newMoveNum = !isFreePlay
-              ? currentPlyData.moveNumber
-              : Math.floor((variationPlies.length + 1) / 2) + currentPlyData.moveNumber;
-
-            const newVarPly: VariationPly = {
-              plyIndex: variationPlies.length,
-              fen: nextFen,
-              san: moveRes.san,
-              moveNumber: newMoveNum,
-              color: moveRes.color,
-              from: orig,
-              to: dest,
-            };
 
             if (!isFreePlay) {
               setBranchPly(safePly);
+              const newVarPly: VariationPly = {
+                plyIndex: 0,
+                fen: nextFen,
+                san: moveRes.san,
+                moveNumber: moveNum,
+                color: moveRes.color,
+                from: orig,
+                to: dest,
+              };
               setVariationPlies([newVarPly]);
               setCurrentVarIndex(0);
               setIsFreePlay(true);
             } else {
-              setVariationPlies(prev => [...prev, newVarPly]);
-              setCurrentVarIndex(variationPlies.length);
+              // User is already exploring a variation.
+              // If user was at move index k, truncate subsequent moves and append the new move
+              const basePlies =
+                currentVarIndex >= 0 ? variationPlies.slice(0, currentVarIndex + 1) : [];
+              const newVarPly: VariationPly = {
+                plyIndex: basePlies.length,
+                fen: nextFen,
+                san: moveRes.san,
+                moveNumber: moveNum,
+                color: moveRes.color,
+                from: orig,
+                to: dest,
+              };
+              const nextPlies = [...basePlies, newVarPly];
+              setVariationPlies(nextPlies);
+              setCurrentVarIndex(nextPlies.length - 1);
             }
 
             setFreeChess(chessInst);
@@ -604,7 +605,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           console.warn('Illegal user exploration move', e);
         }
       },
-      [activeFen, isFreePlay, currentPlyData, variationPlies, safePly, getLegalDests],
+      [activeFen, isFreePlay, currentVarIndex, variationPlies, safePly, getLegalDests],
     );
 
     // Initialize or update Chessground
@@ -1477,6 +1478,21 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
             <div>
               <span className="font-semibold text-slate-700 dark:text-slate-200 block mb-1">
+                Move List Display
+              </span>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={showMoveListEvals}
+                  onChange={handleToggleMoveListEvals}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                />
+                <span>Show evaluations for each move</span>
+              </label>
+            </div>
+
+            <div>
+              <span className="font-semibold text-slate-700 dark:text-slate-200 block mb-1">
                 Board Color Theme
               </span>
               <div className="grid grid-cols-5 gap-1.5">
@@ -1904,9 +1920,6 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                         className="py-1.5 px-2.5 bg-amber-500/10 dark:bg-amber-500/15 border-l-2 border-amber-500"
                       >
                         <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
-                          <span className="text-amber-700 dark:text-amber-400 font-sans font-semibold text-[10px] uppercase tracking-wider mr-1">
-                            Var:
-                          </span>
                           <span className="text-slate-400 dark:text-slate-500 font-sans">(</span>
                           {variationPlies.map((vm, vIdx) => {
                             const isActive = currentVarIndex === vIdx;
@@ -1949,6 +1962,16 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                       ? getClassificationBadge(pair.black.criticalMoment?.classification)
                       : null;
 
+                    const whiteEval = pair.white
+                      ? formatPlyEval(gamePlyEvals[pair.white.ply])
+                      : null;
+                    const blackEval = pair.black
+                      ? formatPlyEval(gamePlyEvals[pair.black.ply])
+                      : null;
+
+                    const whitePv = pair.white?.criticalMoment?.pv_san;
+                    const blackPv = pair.black?.criticalMoment?.pv_san;
+
                     // Check if this move is where the current exploration variation branched off
                     const isBranchRow =
                       isFreePlay && pair.moveNumber === Math.floor((branchPly - 1) / 2) + 1;
@@ -1969,19 +1992,32 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                   e.currentTarget.blur();
                                   handleGoToPly(pair.white!.ply);
                                 }}
-                                className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
                                   whiteActive
                                     ? 'bg-blue-600 text-white font-bold shadow-xs'
                                     : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
                                 }`}
                               >
-                                <span>{pair.white.san}</span>
-                                {whiteBadge && (
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="truncate">{pair.white.san}</span>
+                                  {whiteBadge && (
+                                    <span
+                                      className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white shrink-0 ${whiteBadge.bgClass}`}
+                                      title={whiteBadge.label}
+                                    >
+                                      {whiteBadge.symbol}
+                                    </span>
+                                  )}
+                                </div>
+                                {showMoveListEvals && whiteEval && (
                                   <span
-                                    className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white ${whiteBadge.bgClass}`}
-                                    title={whiteBadge.label}
+                                    className={`text-[9.5px] font-mono shrink-0 select-none ${
+                                      whiteActive
+                                        ? 'text-white/80'
+                                        : 'text-slate-400 dark:text-slate-500'
+                                    }`}
                                   >
-                                    {whiteBadge.symbol}
+                                    {whiteEval}
                                   </span>
                                 )}
                               </button>
@@ -1997,25 +2033,126 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                   e.currentTarget.blur();
                                   handleGoToPly(pair.black!.ply);
                                 }}
-                                className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
                                   blackActive
                                     ? 'bg-blue-600 text-white font-bold shadow-xs'
                                     : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
                                 }`}
                               >
-                                <span>{pair.black.san}</span>
-                                {blackBadge && (
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="truncate">{pair.black.san}</span>
+                                  {blackBadge && (
+                                    <span
+                                      className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white shrink-0 ${blackBadge.bgClass}`}
+                                      title={blackBadge.label}
+                                    >
+                                      {blackBadge.symbol}
+                                    </span>
+                                  )}
+                                </div>
+                                {showMoveListEvals && blackEval && (
                                   <span
-                                    className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white ${blackBadge.bgClass}`}
-                                    title={blackBadge.label}
+                                    className={`text-[9.5px] font-mono shrink-0 select-none ${
+                                      blackActive
+                                        ? 'text-white/80'
+                                        : 'text-slate-400 dark:text-slate-500'
+                                    }`}
                                   >
-                                    {blackBadge.symbol}
+                                    {blackEval}
                                   </span>
                                 )}
                               </button>
                             )}
                           </td>
                         </tr>
+
+                        {/* Coach Suggested Variation for White move if critical moment has pv_san */}
+                        {pair.white?.criticalMoment?.pv_san &&
+                          pair.white.criticalMoment.pv_san.length > 0 &&
+                          !isBranchRow && (
+                            <tr className="bg-blue-50/25 dark:bg-blue-950/25 border-b border-slate-100 dark:border-slate-800/40">
+                              <td
+                                colSpan={3}
+                                className="py-1 px-2.5 bg-blue-500/5 dark:bg-blue-500/10 border-l-2 border-blue-400 dark:border-blue-500"
+                              >
+                                <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
+                                  <span className="text-blue-600 dark:text-blue-400 font-sans font-semibold text-[10px] flex items-center gap-1 mr-1">
+                                    <Sparkles size={10} className="text-blue-500" />
+                                    {pair.white.criticalMoment.classification || 'Better'}:
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      if (whitePv) {
+                                        startVariation(pair.white!.ply - 1, whitePv);
+                                      }
+                                    }}
+                                    className="text-blue-700 dark:text-blue-300 hover:underline cursor-pointer flex flex-wrap items-center gap-0.5"
+                                    title="Play suggested variation on board"
+                                  >
+                                    <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                      (
+                                    </span>
+                                    {pair.white.criticalMoment.pv_san.map((m, mIdx) => (
+                                      <span key={mIdx} className="mr-0.5">
+                                        {mIdx % 2 === 0
+                                          ? `${pair.moveNumber + Math.floor(mIdx / 2)}. `
+                                          : ''}
+                                        {m}
+                                      </span>
+                                    ))}
+                                    <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                      )
+                                    </span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+
+                        {/* Coach Suggested Variation for Black move if critical moment has pv_san */}
+                        {pair.black?.criticalMoment?.pv_san &&
+                          pair.black.criticalMoment.pv_san.length > 0 &&
+                          !isBranchRow && (
+                            <tr className="bg-blue-50/25 dark:bg-blue-950/25 border-b border-slate-100 dark:border-slate-800/40">
+                              <td
+                                colSpan={3}
+                                className="py-1 px-2.5 bg-blue-500/5 dark:bg-blue-500/10 border-l-2 border-blue-400 dark:border-blue-500"
+                              >
+                                <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
+                                  <span className="text-blue-600 dark:text-blue-400 font-sans font-semibold text-[10px] flex items-center gap-1 mr-1">
+                                    <Sparkles size={10} className="text-blue-500" />
+                                    {pair.black.criticalMoment.classification || 'Better'}:
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      if (blackPv) {
+                                        startVariation(pair.black!.ply - 1, blackPv);
+                                      }
+                                    }}
+                                    className="text-blue-700 dark:text-blue-300 hover:underline cursor-pointer flex flex-wrap items-center gap-0.5"
+                                    title="Play suggested variation on board"
+                                  >
+                                    <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                      (
+                                    </span>
+                                    {pair.black.criticalMoment.pv_san.map((m, mIdx) => (
+                                      <span key={mIdx} className="mr-0.5">
+                                        {mIdx === 0
+                                          ? `${pair.moveNumber}... `
+                                          : mIdx % 2 === 1
+                                            ? `${pair.moveNumber + Math.floor((mIdx + 1) / 2)}. `
+                                            : ''}
+                                        {m}
+                                      </span>
+                                    ))}
+                                    <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                      )
+                                    </span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
 
                         {/* Lichess-Style Inline Variation Row directly beneath the move pair row */}
                         {isBranchRow && variationPlies.length > 0 && (
@@ -2025,9 +2162,6 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               className="py-1.5 px-2.5 bg-amber-500/10 dark:bg-amber-500/15 border-l-2 border-amber-500"
                             >
                               <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
-                                <span className="text-amber-700 dark:text-amber-400 font-sans font-semibold text-[10px] uppercase tracking-wider mr-1">
-                                  Var:
-                                </span>
                                 <span className="text-slate-400 dark:text-slate-500 font-sans">
                                   (
                                 </span>

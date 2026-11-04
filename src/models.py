@@ -62,6 +62,7 @@ class GameAnalysisPayload(BaseModel):
     time_control_category: str | None = None
     game_url: str | None = None
     ply_evals: list[int | None] | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class GameData(BaseModel):

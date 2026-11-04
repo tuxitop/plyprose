@@ -1,6 +1,7 @@
 import { ExternalLink, FileText, Github, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { Badge } from './Badge';
 import {
+  getTagBadge,
   platformBadgeVariant,
   platformLabel,
   resultBadgeVariant,
@@ -277,6 +278,21 @@ export function GamesTable({
                       {movesCount ? ` · ${movesCount} moves` : ''}
                       {g.opening_name ? ` · ${g.opening_name.slice(0, 25)}` : ''}
                     </span>
+                    {g.tags && g.tags.length > 0 && (
+                      <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                        {g.tags.slice(0, 3).map(tag => {
+                          const tb = getTagBadge(tag);
+                          return (
+                            <span
+                              key={tag}
+                              className={`text-[9px] font-medium px-1.5 py-0.2 rounded border ${tb.bgClass} ${tb.textClass}`}
+                            >
+                              {tb.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </td>
 

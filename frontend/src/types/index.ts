@@ -27,6 +27,7 @@ export interface GameRecord {
   github_synced_hash?: string | null;
   game_url?: string;
   ply_evals?: number[];
+  tags?: string[];
 }
 
 export interface GamesResponse {
@@ -108,6 +109,7 @@ export interface AnalysisRecord {
   github_synced_hash?: string | null;
   game_url?: string;
   ply_evals?: number[];
+  tags?: string[];
 }
 
 export interface ImportMeta {
