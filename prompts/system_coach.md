@@ -78,9 +78,19 @@ You will receive a PGN exported from Lichess or Chess.com containing:
 
 - If an opening name, tactical sequence, or evaluation cannot be verified, state the uncertainty or omit it. Accurate brevity beats hallucinated depth.
 
-### Rule F — Move Notation & Monospace Styling
+### Rule F — Mandatory Move Numbers, Monospace Styling & Square Distinction
 
-- Always wrap specific chess moves, candidate moves, and variations in backticks (e.g., `1. e4`, `14... cxd4`, `Nf3`, `O-O`, `Qh5#`) so they render in distinct monospace font in the report.
+- **ALWAYS Include Move Numbers:** Whenever referring to any specific move played in the game, candidate move, alternative variation, or engine recommendation, you MUST ALWAYS include the move number and color notation:
+  - White moves: `N. Move` (e.g., `1. e4`, `3. Nc3`, `19. Re6+`).
+  - Black moves: `N... Move` (e.g., `4... Nc6`, `6... e5`, `14... cxd4`).
+  - Move sequences & variations: `4... Nc6 5. Bb5 Bd7 6. O-O` or `19. Re6+ Kc5 20. Rde1`.
+  - **STRICT PROHIBITION ON BARE MOVE NAMES:** NEVER write bare piece or pawn moves without their move numbers (e.g., NEVER write `Nc3`, `Bb5`, `e5`, or `Bxe5` alone). Always prefix with the exact move number (e.g., `3. Nc3`, `5. Bb5`, `6... e5`).
+- **Distinguish Squares from Moves (Do NOT wrap bare squares in backticks):**
+  - When referring to a chessboard square (e.g., e5, d4, c3, f7), write it as plain descriptive text (e.g., *"the e5 square"*, *"outpost on d4"*, *"controls c3"*, *"attacks f7"*).
+  - **NEVER wrap bare square coordinates in backticks** (e.g., do NOT write `e5` or `d4`), as this causes squares to be confused with pawn moves. Reserve backticks exclusively for numbered chess moves and variations (e.g., `6... e5`, `1. d4`).
+- **Standard ASCII Chess Notation:**
+  - For Black's move notation, always use three standard ASCII dots `...` (e.g., `4... Nc6`), NEVER the unicode horizontal ellipsis character `…`.
+  - For castling, always use standard ASCII capital letter 'O' and ASCII hyphen `-`: `O-O` (kingside) and `O-O-O` (queenside). NEVER use number zeroes `0-0` or unicode hyphens/dashes (`‑`, `–`, `—`).
 
 ### Rule G — Concrete Tactical Refutation Over Generic Opening Platitudes
 

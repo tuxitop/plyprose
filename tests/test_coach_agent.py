@@ -273,3 +273,20 @@ def test_generate_deterministic_summary(sample_payload: GameAnalysisPayload):
     assert "| 4 | 7 | Black | **Nf6** |" in summary_with_moment
     assert "**Blunder**" in summary_with_moment
     assert "### Moment 1: Move 4 (Black) — Blunder (`Nf6`)" in summary_with_moment
+
+
+def test_system_prompt_rule_f_numbered_moves():
+    prompt = get_system_prompt()
+    assert "### Rule F — Mandatory Move Numbers, Monospace Styling & Square Distinction" in prompt
+    assert "ALWAYS Include Move Numbers" in prompt
+    assert "STRICT PROHIBITION ON BARE MOVE NAMES" in prompt
+    assert "Distinguish Squares from Moves" in prompt
+    assert "Standard ASCII Chess Notation" in prompt
+
+
+def test_build_coach_user_prompt_numbered_moves(sample_payload: GameAnalysisPayload):
+    user_prompt = build_coach_user_prompt(sample_payload)
+    assert "MANDATORY NUMBERED MOVES" in user_prompt
+    assert "ALWAYS include the move number" in user_prompt
+    assert "NEVER write bare moves without move numbers" in user_prompt
+    assert "Never wrap bare chessboard squares in backticks" in user_prompt

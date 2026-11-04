@@ -6,6 +6,28 @@ function normalizeFen(fen: string): string {
 }
 
 /**
+ * Normalizes unicode chess characters, dashes, ellipsis, spaces, and punctuation.
+ */
+export function normalizeChessText(text: string): string {
+  let clean = (text || '')
+    .trim()
+    .replace(/[`*]/g, '')
+    // Normalize unicode dashes / hyphens to standard ASCII hyphen
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+    // Normalize unicode ellipsis to three dots
+    .replace(/\u2026/g, '...')
+    // Normalize non-breaking and thin spaces to standard space
+    .replace(/[\u00A0\u202F\u2000-\u200B]/g, ' ')
+    // Strip enclosing parentheses, brackets, quotes, or trailing punctuation
+    .replace(/^[([{'"><]+|[)\]}'>",;.]+$/g, '')
+    .trim();
+
+  // Normalize castling notation using 0 instead of O
+  clean = clean.replace(/\b0-0-0\b/g, 'O-O-O').replace(/\b0-0\b/g, 'O-O');
+  return clean;
+}
+
+/**
  * Finds the ply index (0 for start position, 1..N for moves) that matches the target FEN.
  * Returns -1 if no matching position exists in the game.
  */
@@ -44,28 +66,42 @@ export function findPlyByFen(targetFen: string, pgnText: string): number {
 
 export interface MoveNavTarget {
   type: 'mainline' | 'variation';
-  ply: number; // For mainline: target game ply (1..N). For variation: branchPly (position before the move)
+  ply: number; // For mainline: target game ply at END of sequence (1..N). For variation: branchPly
   variationMoves?: string[]; // Sanitized moves to play in the variation
   displaySan: string;
 }
 
 function cleanSan(s: string): string {
-  return (s || '').replace(/[!?]/g, '').trim();
+  return normalizeChessText(s).replace(/[!?]/g, '').trim();
 }
 
 /**
  * Splits text into move tokens, extracting any leading move number and color.
+ * Robust to unicode ellipsis (4…), separated numbers/dots (4 ...), and inner moves.
  * e.g. "37. Nxc3! exf4+" -> { moveNum: 37, isBlack: false, moves: ["Nxc3!", "exf4+"] }
- * e.g. "36... e5?!" -> { moveNum: 36, isBlack: true, moves: ["e5?!"] }
+ * e.g. "4… Nc6 5. Bb5" -> { moveNum: 4, isBlack: true, moves: ["Nc6", "Bb5"] }
  */
-function parseMoveTokens(text: string): {
+export function parseMoveTokens(text: string): {
   moveNum: number | null;
   isBlack: boolean;
   moves: string[];
 } {
-  const clean = text.trim().replace(/[`*]/g, '');
-  const tokens = clean.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return { moveNum: null, isBlack: false, moves: [] };
+  const clean = normalizeChessText(text);
+  const rawTokens = clean.split(/\s+/).filter(Boolean);
+  if (rawTokens.length === 0) return { moveNum: null, isBlack: false, moves: [] };
+
+  // Combine separated digits and dot tokens: e.g. ["4", "...", "Nc6"] => ["4...", "Nc6"]
+  const tokens: string[] = [];
+  for (let i = 0; i < rawTokens.length; i++) {
+    const cur = rawTokens[i];
+    const next = rawTokens[i + 1];
+    if (/^\d+$/.test(cur) && next && /^(\.{1,3})$/.test(next)) {
+      tokens.push(cur + next);
+      i++;
+    } else {
+      tokens.push(cur);
+    }
+  }
 
   let moveNum: number | null = null;
   let isBlack = false;
@@ -93,24 +129,101 @@ function parseMoveTokens(text: string): {
         moves.push(innerNum[3].trim());
       }
     } else {
-      moves.push(t);
+      // Skip isolated move numbers or dots
+      if (!/^\d+\.?$/.test(t) && !/^\.+$/.test(t)) {
+        moves.push(t);
+      }
     }
   }
 
   return { moveNum, isBlack, moves };
 }
 
+export interface TableRowContext {
+  moveNum: number;
+  isBlack: boolean;
+}
+
+/**
+ * Extracts move number and color context from an HTML table row (DOM element or string).
+ */
+export function extractTableRowContext(
+  contextElementOrHtml: HTMLElement | string,
+): TableRowContext | null {
+  if (typeof contextElementOrHtml !== 'string') {
+    const tr = contextElementOrHtml.closest('tr');
+    if (!tr) return null;
+    const cells = Array.from(tr.querySelectorAll('th, td')).map(el =>
+      (el.textContent || '').trim(),
+    );
+    let moveNum: number | null = null;
+    let isBlack = false;
+
+    for (const cell of cells) {
+      const m = cell.match(/^(\d+)(\s*(\.{1,3}))?$/);
+      if (m) {
+        moveNum = parseInt(m[1], 10);
+        if (m[3] && m[3].length > 1) {
+          isBlack = true;
+        }
+        break;
+      }
+    }
+
+    if (moveNum !== null) {
+      for (const cell of cells) {
+        if (/^black$/i.test(cell)) isBlack = true;
+        if (/^white$/i.test(cell)) isBlack = false;
+      }
+      return { moveNum, isBlack };
+    }
+    return null;
+  }
+
+  // String HTML snippet representing a table row
+  const trContent = contextElementOrHtml;
+  const cellMatches = Array.from(trContent.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)).map(m =>
+    m[1].replace(/<[^>]+>/g, '').trim(),
+  );
+
+  let moveNum: number | null = null;
+  let isBlack = false;
+
+  for (const cell of cellMatches) {
+    const m = cell.match(/^(\d+)(\s*(\.{1,3}))?$/);
+    if (m) {
+      moveNum = parseInt(m[1], 10);
+      if (m[3] && m[3].length > 1) {
+        isBlack = true;
+      }
+      break;
+    }
+  }
+
+  if (moveNum !== null) {
+    for (const cell of cellMatches) {
+      if (/^black$/i.test(cell)) isBlack = true;
+      if (/^white$/i.test(cell)) isBlack = false;
+    }
+    return { moveNum, isBlack };
+  }
+
+  return null;
+}
+
 /**
  * Classifies a move text string against game PGN.
- * Accurately determines if it is a mainline game move or an alternative variation.
+ * Accurately determines if it is a mainline game move (or sequence) or an alternative variation.
+ * When clicking a move sequence, navigates to the END of that sequence.
  */
 export function classifyReportMove(
   text: string,
   pgnText: string,
   contextElement?: HTMLElement | null,
+  fallbackRowContext?: TableRowContext | null,
 ): MoveNavTarget | null {
   if (!text || !pgnText) return null;
-  const clean = text.trim().replace(/[`*]/g, '');
+  const clean = normalizeChessText(text);
   // Ignore FENs, URLs, or non-chess text
   if (clean.includes('/') || clean.length < 2 || clean.includes('http')) return null;
 
@@ -129,66 +242,99 @@ export function classifyReportMove(
   let isBlack = parsed.isBlack;
   const rawMoves = parsed.moves;
 
-  // If move number was not in the text, check contextElement (e.g. table row)
+  // If move number was not in the text, check DOM contextElement (e.g. table row)
   if (moveNum === null && contextElement) {
-    const tr = contextElement.closest('tr');
-    if (tr) {
-      const cells = Array.from(tr.querySelectorAll('th, td')).map(el =>
-        (el.textContent || '').trim(),
-      );
-      for (const cell of cells) {
-        const m = cell.match(/^(\d+)\s*(\.{1,3})/);
-        if (m) {
-          moveNum = parseInt(m[1], 10);
-          isBlack = m[2].length > 1;
-          break;
-        }
-      }
+    const trCtx = extractTableRowContext(contextElement);
+    if (trCtx) {
+      moveNum = trCtx.moveNum;
+      isBlack = trCtx.isBlack;
     }
   }
 
+  // If still null, check fallbackRowContext from HTML decoration
+  if (moveNum === null && fallbackRowContext) {
+    moveNum = fallbackRowContext.moveNum;
+    isBlack = fallbackRowContext.isBlack;
+  }
+
   // 1. With move number:
-  if (moveNum !== null) {
-    const gamePly = isBlack ? (moveNum - 1) * 2 + 2 : (moveNum - 1) * 2 + 1;
-    const branchPly = gamePly - 1;
+  if (moveNum !== null && rawMoves.length > 0) {
+    const startPly = isBlack ? (moveNum - 1) * 2 + 2 : (moveNum - 1) * 2 + 1;
+    const branchPly = startPly - 1;
 
-    // Check if first move matches the played mainline move
-    if (gamePly >= 1 && gamePly <= history.length) {
-      const playedSan = history[gamePly - 1].san;
-      const firstRaw = rawMoves[0] || '';
-      const firstSan = cleanSan(firstRaw);
-
-      if (!firstSan || playedSan.toLowerCase() === firstSan.toLowerCase()) {
-        return {
-          type: 'mainline',
-          ply: gamePly,
-          displaySan: `${moveNum}.${isBlack ? '..' : ''} ${playedSan}`,
-        };
+    // Check how many moves match the mainline game moves
+    let matchedMainlineCount = 0;
+    for (let i = 0; i < rawMoves.length; i++) {
+      const plyIndex = startPly + i;
+      if (plyIndex <= history.length) {
+        const playedSan = history[plyIndex - 1].san;
+        const candSan = cleanSan(rawMoves[i]);
+        if (
+          playedSan.toLowerCase().replace(/[+#]/g, '') ===
+          candSan.toLowerCase().replace(/[+#]/g, '')
+        ) {
+          matchedMainlineCount++;
+          continue;
+        }
       }
+      break;
     }
 
-    // Does not match played move: test if it is a valid alternative variation from branchPly!
-    if (branchPly >= 0 && branchPly <= history.length && rawMoves.length > 0) {
-      const branchFen = branchPly === 0 ? new Chess().fen() : history[branchPly - 1].after;
-      const sim = new Chess(branchFen);
-      const validMoves: string[] = [];
+    // Entire sequence was played in the mainline game: show the END of the sequence
+    if (matchedMainlineCount === rawMoves.length) {
+      const endPly = startPly + rawMoves.length - 1;
+      const endMoveNum = Math.floor((endPly - 1) / 2) + 1;
+      const endIsBlack = endPly % 2 === 0;
+      const endSan = history[endPly - 1].san;
+      return {
+        type: 'mainline',
+        ply: endPly,
+        displaySan: `${endMoveNum}.${endIsBlack ? '..' : ''} ${endSan}`,
+      };
+    }
 
-      for (const rm of rawMoves) {
+    // If the sequence partially matched mainline, then diverged into an alternative variation
+    if (matchedMainlineCount > 0) {
+      const divBranchPly = startPly + matchedMainlineCount - 1;
+      const branchFen = divBranchPly === 0 ? new Chess().fen() : history[divBranchPly - 1].after;
+      const sim = new Chess(branchFen);
+      const remainingMoves = rawMoves.slice(matchedMainlineCount);
+      const validMoves: string[] = [];
+      for (const rm of remainingMoves) {
         const s = cleanSan(rm);
         try {
-          const res = sim.move(s);
-          if (res) {
-            validMoves.push(res.san);
-          } else {
-            const res2 = sim.move(s.replace(/[+#]/g, ''));
-            if (res2) validMoves.push(res2.san);
-            else break;
-          }
+          const res = sim.move(s) || sim.move(s.replace(/[+#]/g, ''));
+          if (res) validMoves.push(res.san);
+          else break;
         } catch {
           break;
         }
       }
+      if (validMoves.length > 0) {
+        return {
+          type: 'variation',
+          ply: divBranchPly,
+          variationMoves: validMoves,
+          displaySan: `${rawMoves[0]} (var)`,
+        };
+      }
+    }
 
+    // Sequence did not match mainline at all: test if valid variation from branchPly
+    if (branchPly >= 0 && branchPly <= history.length) {
+      const branchFen = branchPly === 0 ? new Chess().fen() : history[branchPly - 1].after;
+      const sim = new Chess(branchFen);
+      const validMoves: string[] = [];
+      for (const rm of rawMoves) {
+        const s = cleanSan(rm);
+        try {
+          const res = sim.move(s) || sim.move(s.replace(/[+#]/g, ''));
+          if (res) validMoves.push(res.san);
+          else break;
+        } catch {
+          break;
+        }
+      }
       if (validMoves.length > 0) {
         return {
           type: 'variation',
@@ -200,11 +346,17 @@ export function classifyReportMove(
     }
   }
 
-  // 2. Standalone SAN move without move number (e.g. "cxd4", "Nf3")
+  // 2. Standalone moves without move number (e.g. "Nc3", "cxd4", "Nf3")
   if (rawMoves.length > 0) {
-    const candidate = cleanSan(rawMoves[0]).replace(/[.,;:]/g, '');
+    const candidate = cleanSan(rawMoves[0]);
     if (!candidate) return null;
 
+    // Reject bare chessboard squares like "e5", "d4", "c3" without move number
+    if (/^[a-h][1-8]$/i.test(candidate) && rawMoves.length === 1) {
+      return null;
+    }
+
+    // Check matches against game history
     const matches = history
       .map((m, idx) => ({
         ply: idx + 1,
@@ -212,13 +364,48 @@ export function classifyReportMove(
         moveNumber: Math.floor(idx / 2) + 1,
         color: m.color,
       }))
-      .filter(m => m.san.toLowerCase() === candidate.toLowerCase());
+      .filter(
+        m =>
+          m.san.toLowerCase().replace(/[+#]/g, '') === candidate.toLowerCase().replace(/[+#]/g, ''),
+      );
 
-    if (matches.length === 1) {
+    if (matches.length > 0) {
+      // If multiple moves in sequence without move numbers: check if contiguous sequence exists in history
+      if (rawMoves.length > 1) {
+        for (const match of matches) {
+          let allMatch = true;
+          for (let k = 0; k < rawMoves.length; k++) {
+            const plyK = match.ply + k;
+            if (plyK > history.length) {
+              allMatch = false;
+              break;
+            }
+            const expected = history[plyK - 1].san.toLowerCase().replace(/[+#]/g, '');
+            const actual = cleanSan(rawMoves[k]).toLowerCase().replace(/[+#]/g, '');
+            if (expected !== actual) {
+              allMatch = false;
+              break;
+            }
+          }
+          if (allMatch) {
+            const endPly = match.ply + rawMoves.length - 1;
+            const endMoveNum = Math.floor((endPly - 1) / 2) + 1;
+            const endIsBlack = endPly % 2 === 0;
+            return {
+              type: 'mainline',
+              ply: endPly,
+              displaySan: `${endMoveNum}.${endIsBlack ? '..' : ''} ${history[endPly - 1].san}`,
+            };
+          }
+        }
+      }
+
+      // Single move match: use first occurrence (e.g. opening move for "Nc3")
+      const m = matches[0];
       return {
         type: 'mainline',
-        ply: matches[0].ply,
-        displaySan: `${matches[0].moveNumber}.${matches[0].color === 'b' ? '..' : ''} ${matches[0].san}`,
+        ply: m.ply,
+        displaySan: `${m.moveNumber}.${m.color === 'b' ? '..' : ''} ${m.san}`,
       };
     }
   }
@@ -233,13 +420,23 @@ export function classifyReportMove(
 export function decorateReportHtml(html: string, pgnText: string): string {
   if (!html || !pgnText) return html;
 
-  return html.replace(/<code([^>]*)>([\s\S]*?)<\/code>/gi, (match, _attrs, content) => {
+  return html.replace(/<code([^>]*)>([\s\S]*?)<\/code>/gi, (match, _attrs, content, offset) => {
     const rawText = content.replace(/<[^>]+>/g, '').trim();
     if (!rawText || rawText.includes('/') || rawText.length < 2) {
       return match;
     }
 
-    const target = classifyReportMove(rawText, pgnText);
+    // Check if this <code> is within a table row <tr> to supply move number context
+    let fallbackRowContext: TableRowContext | null = null;
+    const lastTr = html.lastIndexOf('<tr', offset);
+    const lastTrClose = html.lastIndexOf('</tr>', offset);
+    if (lastTr !== -1 && lastTr > lastTrClose) {
+      const endTr = html.indexOf('</tr>', offset);
+      const trSnippet = html.substring(lastTr, endTr !== -1 ? endTr : offset);
+      fallbackRowContext = extractTableRowContext(trSnippet);
+    }
+
+    const target = classifyReportMove(rawText, pgnText, null, fallbackRowContext);
     if (!target) {
       return match;
     }

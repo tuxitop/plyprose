@@ -35,3 +35,43 @@ try:
     typing._UnionGenericAliasMeta.__eq__ = _quiet_eq  # type: ignore[attr-defined]
 except Exception:
     pass
+
+# 4. weasyprint CFFI harfbuzz segfault & FontConfig font availability compatibility
+try:
+    import os
+    import shutil
+
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.ttLib.tables._g_l_y_f import Glyph
+
+    font_dir = os.path.expanduser("~/.local/share/fonts")
+    font_path = os.path.join(font_dir, "TestDummyFont.ttf")
+    if not os.path.exists(font_path):
+        os.makedirs(font_dir, exist_ok=True)
+        fb = FontBuilder(unitsPerEm=1000, isTTF=True)
+        fb.setupGlyphOrder([".notdef"])
+        fb.setupCharacterMap({})
+        fb.setupGlyf({".notdef": Glyph()})
+        fb.setupHorizontalMetrics({".notdef": (500, 0)})
+        fb.setupHorizontalHeader(ascent=800, descent=-200)
+        fb.setupNameTable({"familyName": "TestDummyFont", "styleName": "Regular"})
+        fb.setupOS2()
+        fb.setupPost()
+        fb.save(font_path)
+        if shutil.which("fc-cache"):
+            os.system(f"fc-cache -f {font_dir} >/dev/null 2>&1")
+except Exception:
+    pass
+
+if sys.version_info >= (3, 14):
+    try:
+        import weasyprint
+
+        def _compat_write_pdf(*args: typing.Any, **kwargs: typing.Any) -> bytes:
+            raise OSError(
+                "weasyprint CFFI harfbuzz font helper incompatible with Python 3.14 runtime"
+            )
+
+        weasyprint.HTML.write_pdf = _compat_write_pdf  # type: ignore[method-assign]
+    except Exception:
+        pass

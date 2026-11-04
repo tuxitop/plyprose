@@ -329,16 +329,15 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     }, [initialVariation, plies]);
 
     // ── Lichess-Style Exploration Variations ─────────────────────────────────
+    const lastVarIdx = initialVarData ? initialVarData.varPlies.length - 1 : -1;
     const [isFreePlay, setIsFreePlay] = useState<boolean>(() => Boolean(initialVarData));
     const [branchPly, setBranchPly] = useState<number>(() => initialVarData?.branchPly ?? 0);
     const [variationPlies, setVariationPlies] = useState<VariationPly[]>(
       () => initialVarData?.varPlies ?? [],
     );
-    const [currentVarIndex, setCurrentVarIndex] = useState<number>(() => (initialVarData ? 0 : -1));
+    const [currentVarIndex, setCurrentVarIndex] = useState<number>(() => lastVarIdx);
     const [freeChess, setFreeChess] = useState<Chess | null>(() =>
-      initialVarData && initialVarData.varPlies.length > 0
-        ? new Chess(initialVarData.varPlies[0].fen)
-        : null,
+      initialVarData && lastVarIdx >= 0 ? new Chess(initialVarData.varPlies[lastVarIdx].fen) : null,
     );
 
     const startVariation = useCallback(
@@ -374,11 +373,12 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         }
 
         if (newVarPlies.length > 0) {
+          const lastIdx = newVarPlies.length - 1;
           setBranchPly(bPly);
           setVariationPlies(newVarPlies);
-          setCurrentVarIndex(0);
+          setCurrentVarIndex(lastIdx);
           setIsFreePlay(true);
-          setFreeChess(new Chess(newVarPlies[0].fen));
+          setFreeChess(new Chess(newVarPlies[lastIdx].fen));
           onSelectPly(bPly);
         }
       },
