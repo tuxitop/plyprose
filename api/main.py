@@ -39,6 +39,7 @@ from api.ratings import get_detected_ratings
 from api.settings_db import get_settings, update_settings
 from api.time_control import classify_time_control
 from src.analyzer import analyze_pgn
+from src.evals import extract_ply_evals_from_pgn, interpolate_ply_evals
 from src.exporter import export_to_pdf
 from src.fetcher import (
     FetchError,
@@ -80,12 +81,13 @@ from src.storage import (
     get_analysis_by_id,
     save_analysis,
     update_analysis_github_sync,
+    update_analysis_payload,
     update_analysis_platform,
     update_analysis_report,
 )
 from src.tags import resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.4.0")
+app = FastAPI(title="PlyProse API", version="1.4.1")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -186,7 +188,7 @@ def api_github_sync_game(analysis_id: int, force: bool = Query(False)) -> dict:
     if pgn_text or payload_json:
         report_md = reconcile_report_fens(report_md, pgn_text=pgn_text, payload=payload_json)
 
-    current_hash = compute_analysis_hash(report_md, pgn_text)
+    current_hash = compute_analysis_hash(report_md, pgn_text, payload_json=payload_json)
 
     # Avoid redundant GitHub API calls if content has not changed
     if not force and rec.get("github_path") and rec.get("github_synced_hash") == current_hash:
@@ -271,7 +273,7 @@ def api_github_sync_all(force: bool = Query(False)) -> dict:
         if pgn_text or payload_json:
             report_md = reconcile_report_fens(report_md, pgn_text=pgn_text, payload=payload_json)
 
-        current_hash = compute_analysis_hash(report_md, pgn_text)
+        current_hash = compute_analysis_hash(report_md, pgn_text, payload_json=payload_json)
 
         # Smart change detection: skip unchanged games with 0 GitHub requests
         if not force and rec.get("github_path") and rec.get("github_synced_hash") == current_hash:
@@ -367,14 +369,31 @@ def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
     purged_pending = 0
     errors: list[str] = []
 
+    def _record_has_evals(rec: dict[str, Any] | None) -> bool:
+        if not rec:
+            return False
+        if rec.get("ply_evals") and len(rec["ply_evals"]) > 1:
+            return True
+        raw_json = rec.get("payload_json")
+        if raw_json:
+            try:
+                p = json.loads(raw_json)
+                evals = p.get("ply_evals")
+                return bool(evals and len(evals) > 1)
+            except Exception:
+                return False
+        return False
+
     for rg in remote_games:
         folder = rg["folder"]
         try:
-            # 1. Fast check: already analyzed and tracked by github_path locally
+            # 1. Fast check: already analyzed, tracked by github_path, and has valid ply evaluations
             existing_by_path = find_analysis_by_github_path(folder)
-            if existing_by_path and not force:
-                skipped += 1
-                continue
+            if existing_by_path and not force and _record_has_evals(existing_by_path):
+                # If remote does not have a newer payload blob and local is fully populated, skip
+                if not rg.get("payload_blob_sha"):
+                    skipped += 1
+                    continue
 
             # 2. Fetch PGN, Report, and optional Payload blobs
             pgn_text = gh.get_blob_text(rg["pgn_blob_sha"]).strip()
@@ -386,44 +405,27 @@ def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
                 except Exception:
                     payload_json = None
 
-            current_hash = compute_analysis_hash(report_md, pgn_text)
+            current_hash = compute_analysis_hash(report_md, pgn_text, payload_json=payload_json)
             meta = parse_raw_pgn_metadata(pgn_text)
             ext_id = meta.get("id")
 
-            # 3. If matched by folder and force is True:
+            # 3. If matched by folder:
             if existing_by_path:
-                if existing_by_path.get("github_synced_hash") == current_hash and not force:
+                if (
+                    existing_by_path.get("github_synced_hash") == current_hash
+                    and _record_has_evals(existing_by_path)
+                    and not force
+                ):
                     skipped += 1
                     continue
-                update_analysis_report(
-                    existing_by_path["id"],
-                    report_md,
-                    existing_by_path.get("model_name", "github-sync"),
-                )
-                update_analysis_github_sync(existing_by_path["id"], folder, current_hash)
-                updated += 1
-                continue
 
-            # 4. Check if game already exists by external_id or PGN (analyzed locally prior to sync)
-            match_analysis = find_analysis(external_id=ext_id, pgn_text=pgn_text)
-            if match_analysis:
-                update_analysis_github_sync(match_analysis["id"], folder, current_hash)
-                if force:
-                    update_analysis_report(
-                        match_analysis["id"],
-                        report_md,
-                        match_analysis.get("model_name", "github-sync"),
-                    )
-                updated += 1
-                continue
-
-            # 5. Clean up duplicate pending records for this game
+            # 4. Clean up duplicate pending records for this game
             purged = delete_pending_game_by_external_id_or_pgn(
                 external_id=ext_id, pgn_text=pgn_text
             )
             purged_pending += purged
 
-            # 6. Reconstruct payload
+            # 5. Reconstruct and ensure payload has full ply evaluations
             payload: GameAnalysisPayload | None = None
             if payload_json and payload_json.strip():
                 try:
@@ -431,22 +433,35 @@ def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
                 except Exception:
                     payload = None
 
+            total_plies = 2
+            opening_name = None
+            try:
+                parsed_game = chess.pgn.read_game(io.StringIO(pgn_text))
+                if parsed_game:
+                    opening_name = parsed_game.headers.get("Opening")
+                    moves = list(parsed_game.mainline_moves())
+                    if moves:
+                        total_plies = len(moves)
+            except Exception:
+                pass
+
             if payload is None:
                 white_p = meta.get("white") or "White"
                 black_p = meta.get("black") or "Black"
                 tc = meta.get("time_control") or "unknown"
                 res = meta.get("result") or "*"
-                total_plies = 2
-                opening_name = None
-                try:
-                    parsed_game = chess.pgn.read_game(io.StringIO(pgn_text))
-                    if parsed_game:
-                        opening_name = parsed_game.headers.get("Opening")
-                        moves = list(parsed_game.mainline_moves())
-                        if moves:
-                            total_plies = len(moves)
-                except Exception:
-                    pass
+
+                # Extract per-ply evals from PGN comments or interpolate from result
+                pgn_evals = extract_ply_evals_from_pgn(pgn_text)
+                reconstructed_evals: list[int | None] | None
+                if pgn_evals and len(pgn_evals) > 1:
+                    reconstructed_evals = pgn_evals
+                else:
+                    reconstructed_evals = interpolate_ply_evals(
+                        [],
+                        total_plies,
+                        result_str=res,
+                    )
 
                 payload = GameAnalysisPayload(
                     white_player=white_p,
@@ -458,9 +473,52 @@ def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
                     total_plies=total_plies,
                     critical_moments=[],
                     opening_name=opening_name,
+                    ply_evals=reconstructed_evals,
                 )
+            else:
+                # Ensure ply_evals is populated on the loaded payload
+                if not payload.ply_evals or len(payload.ply_evals) < 2:
+                    pgn_evals = extract_ply_evals_from_pgn(pgn_text)
+                    if pgn_evals and len(pgn_evals) > 1:
+                        payload.ply_evals = pgn_evals
+                    else:
+                        payload.ply_evals = interpolate_ply_evals(
+                            payload.critical_moments,
+                            payload.total_plies or total_plies,
+                            result_str=payload.result,
+                        )
 
-            # 7. Save analysis to local SQLite database
+            # 6. If matched by folder, update with complete payload and report
+            if existing_by_path:
+                update_analysis_payload(
+                    existing_by_path["id"],
+                    payload=payload,
+                    report_md=report_md,
+                    model_name=existing_by_path.get("model_name", "github-sync"),
+                )
+                update_analysis_github_sync(existing_by_path["id"], folder, current_hash)
+                updated += 1
+                continue
+
+            # 7. Check if game already exists by external_id or PGN (analyzed locally prior to sync)
+            match_analysis = find_analysis(external_id=ext_id, pgn_text=pgn_text)
+            if match_analysis:
+                if (
+                    force
+                    or not _record_has_evals(match_analysis)
+                    or match_analysis.get("github_synced_hash") != current_hash
+                ):
+                    update_analysis_payload(
+                        match_analysis["id"],
+                        payload=payload,
+                        report_md=report_md,
+                        model_name=match_analysis.get("model_name", "github-sync"),
+                    )
+                update_analysis_github_sync(match_analysis["id"], folder, current_hash)
+                updated += 1
+                continue
+
+            # 8. Save brand new analysis to local SQLite database
             plat = meta.get("platform") or "manual"
             save_analysis(
                 pgn_text=pgn_text,
@@ -612,7 +670,11 @@ def _enrich(rec: dict, analyzed: bool, platform: str = "manual") -> dict:
         if not github_path:
             github_sync_status = "not_synced"
         else:
-            curr_hash = compute_analysis_hash(rec.get("report_md") or "", rec.get("pgn_text") or "")
+            curr_hash = compute_analysis_hash(
+                rec.get("report_md") or "",
+                rec.get("pgn_text") or "",
+                payload_json=rec.get("payload_json"),
+            )
             github_sync_status = "synced" if github_synced_hash == curr_hash else "modified"
 
     return {
@@ -1410,7 +1472,12 @@ async def _run_analysis_job(
         payload.tags = resolve_game_tags(ai_tags, payload)
 
         if existing_id:
-            update_analysis_report(existing_id, report, active_model)
+            update_analysis_payload(
+                existing_id,
+                payload=payload,
+                report_md=report,
+                model_name=active_model,
+            )
             analysis_id = existing_id
         else:
             analysis_id = save_analysis(
@@ -1456,6 +1523,7 @@ async def _run_analysis_job(
                     files = build_game_repo_files(
                         report_md=report_md,
                         pgn_text=pgn_text,
+                        payload_json=payload_json,
                     )
                     gh = GitHubSyncClient(
                         token=settings.get("github_token", ""),
@@ -1467,7 +1535,9 @@ async def _run_analysis_job(
                         files=files,
                         commit_message=f"Sync analysis: {fresh_rec.get('white_player')} vs {fresh_rec.get('black_player')} ({folder})",
                     )
-                    current_hash = compute_analysis_hash(report_md, pgn_text)
+                    current_hash = compute_analysis_hash(
+                        report_md, pgn_text, payload_json=payload_json
+                    )
                     update_analysis_github_sync(analysis_id, folder, current_hash)
             except Exception as gh_exc:
                 logger.warning("Failed to auto-sync game %s to GitHub: %s", analysis_id, gh_exc)
@@ -1564,12 +1634,23 @@ def api_get_analysis(analysis_id: int) -> dict:
         rec.get("platform", ""),
         rec.get("external_id"),
     )
+    if not rec.get("ply_evals") and rec.get("payload_json"):
+        try:
+            pj = json.loads(rec["payload_json"])
+            rec["ply_evals"] = pj.get("ply_evals")
+        except Exception:
+            rec["ply_evals"] = None
+
     github_path = rec.get("github_path")
     github_synced_hash = rec.get("github_synced_hash")
     if not github_path:
         rec["github_sync_status"] = "not_synced"
     else:
-        curr_hash = compute_analysis_hash(rec.get("report_md") or "", rec.get("pgn_text") or "")
+        curr_hash = compute_analysis_hash(
+            rec.get("report_md") or "",
+            rec.get("pgn_text") or "",
+            payload_json=rec.get("payload_json"),
+        )
         rec["github_sync_status"] = "synced" if github_synced_hash == curr_hash else "modified"
     return rec
 

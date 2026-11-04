@@ -279,6 +279,7 @@ async def test_run_analysis_job_auto_syncs_to_github(test_setup):
         analysis_id = _jobs[job_id]["analysis_id"]
         assert analysis_id is not None
         mock_sync.assert_called_once()
+        assert "payload.json" in mock_sync.call_args.kwargs["files"]
         saved = get_analysis_by_id(analysis_id, db_path=test_db)
         assert saved["github_path"] is not None
         assert "lichess" in saved["github_path"]
@@ -639,3 +640,115 @@ def test_github_pull_without_payload_json(test_setup):
         assert rec["result"] == "1/2-1/2"
         assert rec["time_control"] == "600+0"
         assert rec["opening_name"] == "Sicilian Defense"
+
+        # Verify evaluations were reconstructed so charts are never lost
+        rec_detail = get_analysis_by_id(rec["id"], db_path=test_db)
+        assert rec_detail is not None
+        assert rec_detail["ply_evals"] is not None
+        assert len(rec_detail["ply_evals"]) >= 2
+
+
+def test_github_pull_restores_missing_evals_on_existing_game(test_setup):
+    client, test_db = test_setup
+
+    from src.github_sync import GitHubSyncClient
+
+    client.put(
+        "/api/settings",
+        json={
+            "github_enabled": True,
+            "github_token": "ghp_pull_test",
+            "github_repo": "alice/chess-repo",
+            "github_branch": "main",
+        },
+    )
+
+    folder_path = "chess.com/blitz/2026-10/25-0930-alice-bob-white"
+    pgn_text = (
+        '[Event "Live Chess"]\n'
+        '[Site "Chess.com"]\n'
+        '[Date "2026.10.25"]\n'
+        '[White "Alice"]\n'
+        '[Black "Bob"]\n'
+        '[Result "1-0"]\n\n'
+        "1. e4 e5 1-0"
+    )
+
+    # 1. Existing local game that has NO ply_evals (simulating older pull or missing payload)
+    old_payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="180+2",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+        ply_evals=None,
+    )
+    aid = save_analysis(
+        pgn_text=pgn_text,
+        payload=old_payload,
+        report_md="## Initial Incomplete Report",
+        model_name="old",
+        github_path=folder_path,
+        github_synced_hash="old_incomplete_hash",
+        db_path=test_db,
+    )
+
+    # Remote now has full payload.json containing dense ply_evals
+    remote_payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="180+2",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+        ply_evals=[20, 45, 60],
+        tags=["kingside_attack"],
+    )
+
+    remote_games = [
+        {
+            "folder": folder_path,
+            "report_blob_sha": "rep_sha_full",
+            "pgn_blob_sha": "pgn_sha_full",
+            "payload_blob_sha": "pay_sha_full",
+        }
+    ]
+
+    def fake_get_blob_text(sha: str) -> str:
+        if sha == "rep_sha_full":
+            return "## Full Analysis Report with Dense Evals"
+        elif sha == "pgn_sha_full":
+            return pgn_text
+        elif sha == "pay_sha_full":
+            return remote_payload.model_dump_json()
+        return ""
+
+    with (
+        patch.object(GitHubSyncClient, "list_remote_games_summary", return_value=remote_games),
+        patch.object(GitHubSyncClient, "get_blob_text", side_effect=fake_get_blob_text),
+    ):
+        # Pull without force=True!
+        res = client.post("/api/github/pull")
+        assert res.status_code == 200
+        pull_data = res.json()
+        assert pull_data["ok"] is True
+        assert pull_data["updated_count"] == 1
+
+        # Assert local game was updated and now has ply_evals and tags
+        updated_rec = get_analysis_by_id(aid, db_path=test_db)
+        assert updated_rec is not None
+        assert updated_rec["ply_evals"] == [20, 45, 60]
+        assert updated_rec["tags"] == ["kingside_attack"]
+        assert updated_rec["report_md"] == "## Full Analysis Report with Dense Evals"
+
+        # Assert /api/games returns the restored evaluations for chart display
+        games_res = client.get("/api/games")
+        assert games_res.status_code == 200
+        games = games_res.json()["games"]
+        matching = next(g for g in games if g["id"] == aid)
+        assert matching["ply_evals"] == [20, 45, 60]

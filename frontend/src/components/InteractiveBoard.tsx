@@ -163,7 +163,8 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
     // Evaluation Chart Visibility
     const [showEvalChart, setShowEvalChart] = useState<boolean>(() => {
-      return localStorage.getItem('chess_show_eval_chart') === 'true';
+      const saved = localStorage.getItem('chess_show_eval_chart');
+      return saved !== null ? saved === 'true' : true;
     });
 
     // Move List Evaluation Visibility
@@ -1116,12 +1117,41 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         Array.isArray(parsedPayload.ply_evals) &&
         parsedPayload.ply_evals.length > 0
       ) {
-        return parsedPayload.ply_evals.map((v: unknown) => (typeof v === 'number' ? v : 0));
+        const rawEvals = parsedPayload.ply_evals;
+        const hasNulls = rawEvals.some((v: unknown) => typeof v !== 'number');
+        if (!hasNulls) {
+          return rawEvals as number[];
+        }
+        const total = rawEvals.length;
+        const evals: (number | null)[] = rawEvals.map((v: unknown) =>
+          typeof v === 'number' ? v : null,
+        );
+        let lastKnown = evals[0] ?? 20;
+        for (let i = 0; i < total; i++) {
+          if (evals[i] !== null) {
+            lastKnown = evals[i] as number;
+          } else {
+            let nextKnown = lastKnown;
+            let nextIdx = i;
+            for (let j = i + 1; j < total; j++) {
+              if (evals[j] !== null) {
+                nextKnown = evals[j] as number;
+                nextIdx = j;
+                break;
+              }
+            }
+            const span = nextIdx - (i - 1);
+            const step = (nextKnown - lastKnown) / (span || 1);
+            evals[i] = Math.round(lastKnown + step * (i - (i - 1)));
+          }
+        }
+        return evals as number[];
       }
 
       // 2. Otherwise reconstruct/interpolate from critical moments:
       const total = plies.length;
-      const evals = new Array(total).fill(null);
+      if (total === 0) return [];
+      const evals: (number | null)[] = new Array(total).fill(null);
       evals[0] = 20; // Starting position: +0.20
 
       if (parsedPayload?.critical_moments && Array.isArray(parsedPayload.critical_moments)) {
@@ -1153,14 +1183,16 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       // Linear interpolation for missing gaps between known points
       let lastKnown = 20;
       for (let i = 0; i < total; i++) {
-        if (evals[i] !== null) {
-          lastKnown = evals[i];
+        const val = evals[i];
+        if (val !== null && val !== undefined) {
+          lastKnown = val;
         } else {
           let nextKnown = lastKnown;
           let nextIdx = i;
           for (let j = i + 1; j < total; j++) {
-            if (evals[j] !== null) {
-              nextKnown = evals[j];
+            const nextVal = evals[j];
+            if (nextVal !== null && nextVal !== undefined) {
+              nextKnown = nextVal;
               nextIdx = j;
               break;
             }
@@ -1171,7 +1203,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         }
       }
 
-      return evals;
+      return evals.map(v => (typeof v === 'number' ? v : 0));
     }, [parsedPayload, plies]);
 
     // Current evaluation calculation for the eval bar

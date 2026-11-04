@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+
+import chess
+import pytest
 from fastapi.testclient import TestClient
 
 from api.games_db import get_pending_games, save_pending_game
@@ -574,3 +578,104 @@ def test_batch_import_platform_tagging(tmp_path, monkeypatch):
     assert r_list_cc.status_code == 200
     assert len(r_list_cc.json()["games"]) == 1
     assert r_list_cc.json()["games"][0]["platform"] == "chesscom"
+
+
+@pytest.mark.anyio
+async def test_reanalyze_updates_payload_and_tags(tmp_path, monkeypatch):
+    import uuid
+    from unittest.mock import patch
+
+    from api.main import _jobs, _run_analysis_job
+    from src.inspector import extract_tactical_facts
+    from src.models import CriticalMoment, GameAnalysisPayload
+    from src.storage import get_analysis_by_id, save_analysis
+
+    test_db = str(tmp_path / "test_reanalyze.db")
+    monkeypatch.setattr("src.storage.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.games_db.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.settings_db.DEFAULT_DB_PATH", test_db)
+
+    pgn = '[Event "Casual"]\n[White "Alice"]\n[Black "Bob"]\n[Result "1-0"]\n\n1. e4 e5 1-0'
+
+    # 1. Save initial analysis without tags or critical moments
+    initial_payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="300",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+        tags=[],
+    )
+    aid = save_analysis(
+        pgn_text=pgn,
+        payload=initial_payload,
+        report_md="# Initial Report",
+        model_name="old-model",
+        platform="chesscom",
+        db_path=test_db,
+    )
+
+    empty_facts = extract_tactical_facts(chess.Board())
+    cm_opp = CriticalMoment(
+        ply=2,
+        move_number=1,
+        color="Black",
+        move_played_san="e5",
+        eval_before_cp=25,
+        eval_after_cp=-200,
+        mate_before=None,
+        mate_after=None,
+        classification="Missed Tactic",
+        best_move_san="c5",
+        pv_san=["c5"],
+        facts_before_move=empty_facts,
+        facts_after_played_move=empty_facts,
+        facts_after_best_move=empty_facts,
+        facts_at_end_of_pv=empty_facts,
+    )
+
+    new_payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="300",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[cm_opp],
+        ply_evals=[20, 25, -200],
+        tags=["tactic:fork", "strategy:kingside-attack"],
+    )
+
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running", "events": [], "analysis_id": None}
+
+    with (
+        patch("api.main.analyze_pgn", return_value=new_payload),
+        patch("api.main.generate_narrative_report", return_value="## New Report with tactic:fork"),
+    ):
+        await _run_analysis_job(
+            job_id=job_id,
+            pgn=pgn,
+            side="white",
+            platform="chesscom",
+            existing_id=aid,
+            pending_game_id=None,
+        )
+
+    assert _jobs[job_id]["status"] == "done"
+    assert _jobs[job_id]["analysis_id"] == aid
+
+    # Verify that the record in the database was updated with the new payload and tags
+    rec = get_analysis_by_id(aid, db_path=test_db)
+    assert rec is not None
+    assert rec["report_md"] == "## New Report with tactic:fork"
+    assert "tactic:found-fork" in rec["tags"]
+    assert rec["ply_evals"] == [20, 25, -200]
+    raw_p = json.loads(rec["payload_json"])
+    assert len(raw_p["critical_moments"]) == 1
+    assert raw_p["critical_moments"][0]["classification"] == "Missed Tactic"
+    assert raw_p["critical_moments"][0]["color"] == "Black"

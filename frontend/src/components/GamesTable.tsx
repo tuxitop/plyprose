@@ -29,11 +29,12 @@ function MiniEvalChart({ evals, movesCount }: { evals?: number[]; movesCount?: n
     return <span className="text-slate-300 dark:text-slate-600 font-mono text-[11px]">—</span>;
   }
 
+  const cleanEvals = evals.map(v => (typeof v === 'number' && !isNaN(v) ? v : 0));
   const width = 160;
   const height = 32;
-  const n = evals.length;
+  const n = cleanEvals.length;
 
-  const points = evals.map((cp, idx) => {
+  const points = cleanEvals.map((cp, idx) => {
     let winProb: number;
     if (Math.abs(cp) >= 9000) {
       winProb = cp > 0 ? 1 : 0;

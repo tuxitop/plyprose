@@ -7,8 +7,9 @@ import os
 import sqlite3
 from typing import Any
 
+from src.evals import extract_ply_evals_from_pgn, interpolate_ply_evals
 from src.fetcher import extract_played_at, parse_raw_pgn_metadata
-from src.models import GameAnalysisPayload
+from src.models import CriticalMoment, GameAnalysisPayload
 
 DEFAULT_DB_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -17,12 +18,23 @@ DEFAULT_DB_PATH = os.path.join(
 )
 
 
-def compute_analysis_hash(report_md: str, pgn_text: str) -> str:
+def compute_analysis_hash(
+    report_md: str,
+    pgn_text: str,
+    payload_json: str | None = None,
+) -> str:
     """
-    Computes a deterministic SHA-256 hash of a game's report and PGN content
-    to detect whether local changes need synchronization with GitHub.
+    Computes a deterministic SHA-256 hash of a game's report, PGN content,
+    and optional payload facts to detect whether local changes need synchronization with GitHub.
     """
-    content = f"{(report_md or '').strip()}\n---PGN---\n{(pgn_text or '').strip()}"
+    parts = [
+        (report_md or "").strip(),
+        "---PGN---",
+        (pgn_text or "").strip(),
+    ]
+    if payload_json and payload_json.strip():
+        parts.extend(["---PAYLOAD---", payload_json.strip()])
+    content = "\n".join(parts)
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
@@ -112,6 +124,76 @@ def init_db(db_path: str | None = None) -> None:
             "CREATE INDEX IF NOT EXISTS idx_game_analyses_created_at ON game_analyses(created_at DESC);"
         )
         conn.commit()
+
+    repair_missing_ply_evals(db_path)
+
+
+def repair_missing_ply_evals(db_path: str | None = None) -> int:
+    """
+    Scans game_analyses for any records where payload_json is missing ply_evals
+    (e.g., from earlier pulls or legacy versions) and reconstructs/interpolates
+    evaluations from PGN comments or critical moments.
+    """
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, pgn_text, payload_json, result, total_plies
+            FROM game_analyses
+            WHERE json_extract(payload_json, '$.ply_evals') IS NULL
+               OR json_extract(payload_json, '$.ply_evals') = '[]';
+            """
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return 0
+
+        repaired_count = 0
+        for row in rows:
+            aid = row["id"]
+            pgn_text = row["pgn_text"] or ""
+            raw_payload = row["payload_json"]
+            res = row["result"] or "*"
+            total_plies = row["total_plies"] or 2
+
+            payload_dict: dict[str, Any] = {}
+            if raw_payload:
+                try:
+                    payload_dict = json.loads(raw_payload)
+                except Exception:
+                    payload_dict = {}
+
+            # 1. Try extracting [%eval ...] from PGN
+            extracted_evals = extract_ply_evals_from_pgn(pgn_text)
+            if extracted_evals and len(extracted_evals) > 1:
+                evals = extracted_evals
+            else:
+                # 2. Try interpolating from critical moments if available
+                cms_raw = payload_dict.get("critical_moments", [])
+                cms: list[CriticalMoment] = []
+                for cm_dict in cms_raw:
+                    try:
+                        cms.append(CriticalMoment.model_validate(cm_dict))
+                    except Exception:
+                        pass
+                evals = interpolate_ply_evals(
+                    cms,
+                    total_plies=total_plies,
+                    result_str=res,
+                )
+
+            payload_dict["ply_evals"] = evals
+            updated_payload_json = json.dumps(payload_dict)
+            conn.execute(
+                "UPDATE game_analyses SET payload_json = ? WHERE id = ?;",
+                (updated_payload_json, aid),
+            )
+            repaired_count += 1
+
+        conn.commit()
+        return repaired_count
 
 
 def save_analysis(
@@ -336,6 +418,7 @@ def get_all_analyses(db_path: str | None = None) -> list[dict[str, Any]]:
                 critical_moments_count,
                 model_name,
                 pgn_text,
+                payload_json,
                 report_md,
                 played_at,
                 platform,
@@ -478,7 +561,87 @@ def get_analysis_by_id(
         else:
             result_dict["tags"] = []
 
+        if payload_obj and getattr(payload_obj, "ply_evals", None):
+            result_dict["ply_evals"] = payload_obj.ply_evals
+        elif result_dict.get("payload_json"):
+            try:
+                pj = json.loads(result_dict["payload_json"])
+                result_dict["ply_evals"] = pj.get("ply_evals")
+            except Exception:
+                result_dict["ply_evals"] = None
+        else:
+            result_dict["ply_evals"] = None
+
         return result_dict
+
+
+def update_analysis_payload(
+    analysis_id: int,
+    payload: GameAnalysisPayload,
+    report_md: str | None = None,
+    model_name: str | None = None,
+    db_path: str | None = None,
+) -> bool:
+    """
+    Updates the GameAnalysisPayload (including ply_evals, critical_moments, tags)
+    and optionally report_md and model_name for an existing analysis record.
+
+    Returns:
+        True if the record was updated, False if no record matched analysis_id.
+    """
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
+    init_db(db_path)
+    payload_json = payload.model_dump_json()
+    tags_json = json.dumps(payload.tags if payload.tags else [])
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        if report_md is not None and model_name is not None:
+            cursor.execute(
+                """
+                UPDATE game_analyses
+                SET payload_json = ?,
+                    opening_name = ?,
+                    total_plies = ?,
+                    critical_moments_count = ?,
+                    tags = ?,
+                    report_md = ?,
+                    model_name = ?
+                WHERE id = ?;
+                """,
+                (
+                    payload_json,
+                    payload.opening_name,
+                    payload.total_plies,
+                    len(payload.critical_moments),
+                    tags_json,
+                    report_md.strip(),
+                    model_name.strip(),
+                    analysis_id,
+                ),
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE game_analyses
+                SET payload_json = ?,
+                    opening_name = ?,
+                    total_plies = ?,
+                    critical_moments_count = ?,
+                    tags = ?
+                WHERE id = ?;
+                """,
+                (
+                    payload_json,
+                    payload.opening_name,
+                    payload.total_plies,
+                    len(payload.critical_moments),
+                    tags_json,
+                    analysis_id,
+                ),
+            )
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def update_analysis_report(
@@ -571,9 +734,11 @@ __all__ = [
     "get_all_analyses",
     "get_analysis_by_id",
     "init_db",
+    "repair_missing_ply_evals",
     "save_analysis",
     "update_analysis_github_path",
     "update_analysis_github_sync",
+    "update_analysis_payload",
     "update_analysis_platform",
     "update_analysis_report",
 ]
