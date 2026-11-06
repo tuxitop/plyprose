@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import re
+from collections.abc import Callable
 
 import chess
 import chess.engine
@@ -124,6 +125,7 @@ def analyze_pgn(
     swing_threshold_cp: int = 80,
     platform: str | None = None,
     filter_by_user_color: bool = True,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> GameAnalysisPayload:
     """
     Replays a PGN move-by-move, evaluates each position with Stockfish,
@@ -270,6 +272,12 @@ def analyze_pgn(
         ply_times_spent: list[float | None] = [None]
 
         for ply_idx, node in enumerate(mainline_nodes, start=1):
+            if progress_callback is not None:
+                try:
+                    progress_callback(ply_idx, total_plies)
+                except Exception:
+                    pass
+
             move = node.move
             board_before = board.copy()
             turn = board_before.turn

@@ -87,7 +87,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.6.0")
+app = FastAPI(title="PlyProse API", version="1.7.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -101,6 +101,8 @@ app.add_middleware(
 # ── In-memory SSE job registry ─────────────────────────────────────────────────
 _jobs: dict[str, dict[str, Any]] = {}
 _background_tasks: set[asyncio.Task[Any]] = set()
+_job_tasks: dict[str, asyncio.Task[Any]] = {}
+_active_game_jobs: dict[str, str] = {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -697,7 +699,7 @@ def _enrich(rec: dict, analyzed: bool, platform: str = "manual") -> dict:
         "platform": plat,
         "played_at": played_at,
         "date": played_at or rec.get("date"),
-        "side": side,
+        "side": resolved_side if resolved_side in ("white", "black") else side,
         "white_player": white,
         "black_player": black,
         "white": white,
@@ -721,6 +723,7 @@ def api_get_games(
     result: str | None = Query(None),
     platform: str | None = Query(None),
     category: str | None = Query(None),
+    tag: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
 ) -> dict:
@@ -732,6 +735,8 @@ def api_get_games(
         platform = None
     if not isinstance(category, str):
         category = None
+    if not isinstance(tag, str):
+        tag = None
     if not isinstance(page, int):
         page = 1
     if not isinstance(page_size, int):
@@ -768,6 +773,14 @@ def api_get_games(
     if category and category != "all":
         records = [r for r in records if r.get("speed_label", "").lower() == category.lower()]
 
+    if tag and tag != "all":
+        target_tag = tag.strip().lower()
+        records = [
+            r
+            for r in records
+            if any(target_tag in (t or "").lower() for t in (r.get("tags") or []))
+        ]
+
     total = len(records)
     start = (page - 1) * page_size
     page_records = records[start : start + page_size]
@@ -779,6 +792,19 @@ def api_get_games(
         "pages": max(1, (total + page_size - 1) // page_size),
         "games": page_records,
     }
+
+
+@app.get("/api/tags")
+def api_get_tags() -> dict:
+    analyses = get_all_analyses()
+    tag_counts: dict[str, int] = {}
+    for a in analyses:
+        for t in a.get("tags") or []:
+            if isinstance(t, str) and t.strip():
+                clean_t = t.strip()
+                tag_counts[clean_t] = tag_counts.get(clean_t, 0) + 1
+    sorted_tags = sorted(tag_counts.keys(), key=lambda x: (-tag_counts[x], x))
+    return {"tags": sorted_tags, "counts": tag_counts}
 
 
 @app.delete("/api/games/pending/{game_id}")
@@ -1308,6 +1334,7 @@ class AnalyzePayload(BaseModel):
     platform: str = "manual"
     existing_analysis_id: int | None = None
     pending_game_id: int | None = None  # remove from pending table on success
+    skip_engine: bool = False
 
 
 def _resolve_user_color(side: str) -> str:
@@ -1326,16 +1353,23 @@ async def _run_analysis_job(
     platform: str,
     existing_id: int | None,
     pending_game_id: int | None,
+    skip_engine: bool = False,
 ) -> None:
     job = _jobs[job_id]
     settings = get_settings()
+
+    game_key = (
+        f"a-{existing_id}"
+        if existing_id
+        else f"p-{pending_game_id}"
+        if pending_game_id
+        else f"pgn-{abs(hash(pgn.strip()))}"
+    )
 
     def _emit(event: str, data: Any) -> None:
         job["events"].append({"event": event, "data": data})
 
     try:
-        _emit("step", {"step": 1, "message": "Running Stockfish engine analysis…", "progress": 10})
-
         loop = asyncio.get_event_loop()
 
         # Auto-resolve playing side from user accounts if not explicitly set
@@ -1376,17 +1410,53 @@ async def _run_analysis_job(
             elif "lichess.org" in pgn_low:
                 resolved_platform = "lichess"
 
-        payload: GameAnalysisPayload = await loop.run_in_executor(
-            None,
-            lambda: analyze_pgn(
-                pgn_str=pgn,
-                stockfish_path=settings.get("stockfish_path", "/usr/sbin/stockfish"),
-                user_color=user_color,
-                time_per_move=float(settings.get("stockfish_time", 0.15)),
-                platform=resolved_platform,
-                filter_by_user_color=False,
-            ),
-        )
+        payload: GameAnalysisPayload | None = None
+        if skip_engine and existing_id:
+            existing_rec = get_analysis_by_id(existing_id)
+            if existing_rec and existing_rec.get("payload_json"):
+                try:
+                    payload = GameAnalysisPayload.model_validate_json(existing_rec["payload_json"])
+                    _emit(
+                        "step",
+                        {
+                            "step": 1,
+                            "message": "Loaded cached Stockfish analysis…",
+                            "progress": 50,
+                        },
+                    )
+                except Exception:
+                    payload = None
+
+        if payload is None:
+
+            def _sf_progress(current_ply: int, total_plies: int) -> None:
+                pct = int(10 + (current_ply / max(1, total_plies)) * 40)
+                _emit(
+                    "step",
+                    {
+                        "step": 1,
+                        "message": f"Stockfish evaluating move {current_ply}/{total_plies}…",
+                        "progress": pct,
+                    },
+                )
+
+            _emit(
+                "step",
+                {"step": 1, "message": "Running Stockfish engine analysis…", "progress": 10},
+            )
+
+            payload = await loop.run_in_executor(
+                None,
+                lambda: analyze_pgn(
+                    pgn_str=pgn,
+                    stockfish_path=settings.get("stockfish_path", "/usr/sbin/stockfish"),
+                    user_color=user_color,
+                    time_per_move=float(settings.get("stockfish_time", 0.15)),
+                    platform=resolved_platform,
+                    filter_by_user_color=False,
+                    progress_callback=_sf_progress,
+                ),
+            )
 
         _emit("step", {"step": 2, "message": "Generating LLM coaching narrative…", "progress": 50})
 
@@ -1443,17 +1513,40 @@ async def _run_analysis_job(
             goals=goals,
         )
 
-        report: str = await loop.run_in_executor(
-            None,
-            lambda: generate_narrative_report(
-                payload=payload,
-                provider=settings.get("llm_provider", "openai-compat"),
-                model_name=settings.get("llm_model", "gpt-4o-mini"),
-                api_key=settings.get("llm_api_key") or None,
-                base_url=settings.get("llm_base_url") or None,
-                system_prompt=custom_system_prompt,
-            ),
-        )
+        llm_start_time = asyncio.get_event_loop().time()
+
+        async def _llm_ticker() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(3)
+                    elapsed = int(asyncio.get_event_loop().time() - llm_start_time)
+                    progress_val = min(89, 50 + elapsed)
+                    _emit(
+                        "step",
+                        {
+                            "step": 2,
+                            "message": f"Generating LLM coaching narrative ({elapsed}s elapsed)…",
+                            "progress": progress_val,
+                        },
+                    )
+            except asyncio.CancelledError:
+                pass
+
+        ticker_task = asyncio.create_task(_llm_ticker())
+        try:
+            report: str = await loop.run_in_executor(
+                None,
+                lambda: generate_narrative_report(
+                    payload=payload,
+                    provider=settings.get("llm_provider", "openai-compat"),
+                    model_name=settings.get("llm_model", "gpt-4o-mini"),
+                    api_key=settings.get("llm_api_key") or None,
+                    base_url=settings.get("llm_base_url") or None,
+                    system_prompt=custom_system_prompt,
+                ),
+            )
+        finally:
+            ticker_task.cancel()
 
         if not report or not report.strip():
             report = generate_deterministic_summary(payload, note="LLM returned empty response.")
@@ -1559,11 +1652,21 @@ async def _run_analysis_job(
 
         job["status"] = "done"
         job["analysis_id"] = analysis_id
-        _emit("done", {"analysis_id": analysis_id, "progress": 100, "message": "Analysis complete"})
+        _emit(
+            "done",
+            {"analysis_id": analysis_id, "progress": 100, "message": "Analysis complete"},
+        )
 
+    except asyncio.CancelledError:
+        job["status"] = "cancelled"
+        _emit("error", {"message": "Analysis cancelled by user."})
+        raise
     except Exception as exc:
         job["status"] = "error"
         _emit("error", {"message": str(exc)})
+    finally:
+        _active_game_jobs.pop(game_key, None)
+        _job_tasks.pop(job_id, None)
 
 
 @app.post("/api/games/analyze")
@@ -1574,11 +1677,32 @@ async def api_start_analysis(payload: AnalyzePayload) -> dict:
 
     settings = get_settings()
     sf_path = settings.get("stockfish_path", "")
-    if not os.path.isfile(sf_path):
+    if not os.path.isfile(sf_path) and not payload.skip_engine:
         raise HTTPException(status_code=400, detail=f"Stockfish binary not found at '{sf_path}'")
+
+    game_key = (
+        f"a-{payload.existing_analysis_id}"
+        if payload.existing_analysis_id
+        else f"p-{payload.pending_game_id}"
+        if payload.pending_game_id
+        else f"pgn-{abs(hash(pgn))}"
+    )
+
+    # If an analysis is already running for this game, cancel the older job to prevent duplicates
+    if game_key in _active_game_jobs:
+        old_job_id = _active_game_jobs[game_key]
+        old_task = _job_tasks.get(old_job_id)
+        if old_task and not old_task.done():
+            old_task.cancel()
+        if old_job_id in _jobs:
+            _jobs[old_job_id]["status"] = "cancelled"
+            _jobs[old_job_id]["events"].append(
+                {"event": "error", "data": {"message": "Cancelled by newer analysis request."}}
+            )
 
     job_id = str(uuid.uuid4())
     _jobs[job_id] = {"status": "running", "events": [], "analysis_id": None}
+    _active_game_jobs[game_key] = job_id
 
     task = asyncio.create_task(
         _run_analysis_job(
@@ -1588,12 +1712,27 @@ async def api_start_analysis(payload: AnalyzePayload) -> dict:
             payload.platform,
             payload.existing_analysis_id,
             payload.pending_game_id,
+            payload.skip_engine,
         )
     )
+    _job_tasks[job_id] = task
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
     return {"job_id": job_id}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def api_cancel_job(job_id: str) -> dict:
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    task = _job_tasks.get(job_id)
+    if task and not task.done():
+        task.cancel()
+    job["status"] = "cancelled"
+    job["events"].append({"event": "error", "data": {"message": "Analysis cancelled by user."}})
+    return {"status": "cancelled", "job_id": job_id}
 
 
 @app.get("/api/jobs/{job_id}/stream")
@@ -1611,7 +1750,7 @@ async def api_stream_job(job_id: str) -> StreamingResponse:
                 ev = job["events"][sent]
                 yield f"event: {ev['event']}\ndata: {json.dumps(ev['data'])}\n\n"
                 sent += 1
-            if job["status"] in ("done", "error"):
+            if job["status"] in ("done", "error", "cancelled"):
                 break
             await asyncio.sleep(0.3)
 

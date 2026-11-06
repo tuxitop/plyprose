@@ -679,3 +679,140 @@ async def test_reanalyze_updates_payload_and_tags(tmp_path, monkeypatch):
     assert len(raw_p["critical_moments"]) == 1
     assert raw_p["critical_moments"][0]["classification"] == "Missed Tactic"
     assert raw_p["critical_moments"][0]["color"] == "Black"
+
+
+def test_api_games_filter_by_tag_and_get_tags(tmp_path, monkeypatch):
+    test_db = str(tmp_path / "test_api_games_tags.db")
+    monkeypatch.setattr("src.storage.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.games_db.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.main.get_all_analyses", lambda: get_all_analyses(test_db))
+    monkeypatch.setattr("api.main.get_pending_games", lambda: get_pending_games(test_db))
+
+    payload1 = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="300",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+        tags=["tactic:found-fork", "general:comeback-win"],
+    )
+    save_analysis(
+        pgn_text="1. e4 e5 1-0",
+        payload=payload1,
+        report_md="Report 1",
+        model_name="test-model",
+        db_path=test_db,
+    )
+
+    payload2 = GameAnalysisPayload(
+        white_player="Charlie",
+        black_player="Dave",
+        user_color="Black",
+        result="0-1",
+        time_control="300",
+        pgn_moves_summary="1. d4 d5",
+        total_plies=2,
+        critical_moments=[],
+        tags=["tactic:hung-piece"],
+    )
+    save_analysis(
+        pgn_text="1. d4 d5 0-1",
+        payload=payload2,
+        report_md="Report 2",
+        model_name="test-model",
+        db_path=test_db,
+    )
+
+    client = TestClient(app)
+
+    # 1. Test GET /api/tags
+    res_tags = client.get("/api/tags")
+    assert res_tags.status_code == 200
+    tag_data = res_tags.json()
+    assert "tactic:found-fork" in tag_data["tags"]
+    assert "tactic:hung-piece" in tag_data["tags"]
+    assert tag_data["counts"]["tactic:found-fork"] == 1
+
+    # 2. Test GET /api/games?tag=tactic:found-fork
+    res_games = client.get("/api/games?tag=tactic:found-fork")
+    assert res_games.status_code == 200
+    games = res_games.json()["games"]
+    assert len(games) == 1
+    assert games[0]["white_player"] == "Alice"
+
+    # 3. Test GET /api/games?tag=nonexistent
+    res_none = client.get("/api/games?tag=nonexistent-tag")
+    assert res_none.status_code == 200
+    assert len(res_none.json()["games"]) == 0
+
+
+def test_api_cancel_job():
+    from api.main import _jobs
+
+    client = TestClient(app)
+    test_job_id = "test-cancel-uuid"
+    _jobs[test_job_id] = {"status": "running", "events": [], "analysis_id": None}
+
+    # Cancel endpoint
+    res = client.post(f"/api/jobs/{test_job_id}/cancel")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "cancelled"
+    assert _jobs[test_job_id]["status"] == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_api_skip_engine_reanalysis(tmp_path, monkeypatch):
+    import uuid
+    from unittest.mock import patch
+
+    from api.main import _jobs, _run_analysis_job
+    from src.storage import get_analysis_by_id
+
+    test_db = str(tmp_path / "test_skip_engine.db")
+    monkeypatch.setattr("src.storage.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.games_db.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.main.get_analysis_by_id", lambda aid: get_analysis_by_id(aid, test_db))
+
+    payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="300",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+    )
+    aid = save_analysis(
+        pgn_text="1. e4 e5 1-0",
+        payload=payload,
+        report_md="# Initial Report",
+        model_name="test-model",
+        db_path=test_db,
+    )
+
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"status": "running", "events": [], "analysis_id": None}
+
+    with (
+        patch("api.main.analyze_pgn") as mock_sf,
+        patch("api.main.generate_narrative_report", return_value="## Fast LLM Report"),
+    ):
+        await _run_analysis_job(
+            job_id=job_id,
+            pgn="1. e4 e5 1-0",
+            side="white",
+            platform="chesscom",
+            existing_id=aid,
+            pending_game_id=None,
+            skip_engine=True,
+        )
+        mock_sf.assert_not_called()
+
+    assert _jobs[job_id]["status"] == "done"
+    rec = get_analysis_by_id(aid, db_path=test_db)
+    assert rec["report_md"] == "## Fast LLM Report"

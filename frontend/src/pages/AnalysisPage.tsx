@@ -16,6 +16,7 @@ import { Badge } from '../components/Badge';
 import { TagCapsule } from '../components/TagCapsule';
 import { resultBadgeVariant, resultLabel, sortTagsNegativeFirst } from '../lib/badges';
 import {
+  cancelJob,
   exportPdfUrl,
   exportZipUrl,
   getAnalysis,
@@ -167,9 +168,33 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
     };
   }, [analysisId]);
 
-  const handleReanalyze = () => {
+  const handleCancelReanalyze = async () => {
+    if (!reanalyzeJobId) return;
+    try {
+      if (stopRef.current) {
+        stopRef.current();
+        stopRef.current = null;
+      }
+      await cancelJob(reanalyzeJobId);
+    } catch (e) {
+      console.error('Failed to cancel re-analysis:', e);
+    } finally {
+      setReanalyzeJobId(null);
+      setReanalyzeProgress(0);
+      setReanalyzeMessage('');
+    }
+  };
+
+  const handleReanalyze = (skipEngine = true) => {
     if (!record?.pgn_text) return;
-    startAnalysis(record.pgn_text, record.side || 'auto', record.platform || 'manual', analysisId)
+    startAnalysis(
+      record.pgn_text,
+      record.side || 'auto',
+      record.platform || 'manual',
+      analysisId,
+      undefined,
+      skipEngine,
+    )
       .then(({ job_id }) => {
         setReanalyzeJobId(job_id);
         setReanalyzeProgress(5);
@@ -452,7 +477,17 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                     />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                   </svg>
-                  {reanalyzeMessage} {reanalyzeProgress}%
+                  <span>
+                    {reanalyzeMessage} {reanalyzeProgress}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCancelReanalyze}
+                    className="px-2 py-0.5 text-xs font-medium text-rose-600 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-200 border border-rose-200 dark:border-rose-800 rounded bg-rose-50/50 dark:bg-rose-950/40 transition-colors cursor-pointer"
+                    title="Cancel re-analysis"
+                  >
+                    Cancel
+                  </button>
                 </div>
               )}
               <Button
@@ -460,8 +495,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 size="sm"
                 loading={Boolean(reanalyzeJobId)}
                 icon={<RefreshCw size={12} />}
-                onClick={handleReanalyze}
-                title="Re-run Stockfish + LLM analysis"
+                onClick={() => handleReanalyze(true)}
+                title="Re-run LLM coach narrative (default, fast)"
               >
                 Re-analyze
               </Button>

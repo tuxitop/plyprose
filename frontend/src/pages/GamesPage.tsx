@@ -7,7 +7,9 @@ import { ImportModal } from '../components/ImportModal';
 import { Modal } from '../components/Modal';
 import { PlatformImportModal } from '../components/PlatformImportModal';
 import {
+  cancelJob,
   deleteGame,
+  getAvailableTags,
   getGames,
   pullFromGitHub,
   startAnalysis,
@@ -25,6 +27,8 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
   const [result, setResult] = useState<ResultFilter>('all');
   const [platform, setPlatform] = useState<Platform>('all');
   const [category, setCategory] = useState<CategoryFilter>('all');
+  const [tag, setTag] = useState<string>('all');
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
 
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
@@ -48,6 +52,15 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
   const [pullingGh, setPullingGh] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ text: string; isError?: boolean } | null>(null);
 
+  const fetchTags = useCallback(async () => {
+    try {
+      const res = await getAvailableTags();
+      setAvailableTags(res.tags);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const fetchGames = useCallback(async () => {
     setLoading(true);
     try {
@@ -56,16 +69,18 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
       if (result !== 'all') params.result = result;
       if (platform !== 'all') params.platform = platform;
       if (category !== 'all') params.category = category;
+      if (tag !== 'all') params.tag = tag;
       const data = await getGames(params);
       setGames(data.games);
       setTotal(data.total);
       setPages(data.pages);
+      void fetchTags();
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, status, result, platform, category]);
+  }, [page, pageSize, status, result, platform, category, tag, fetchTags]);
 
   useEffect(() => {
     let ignore = false;
@@ -93,6 +108,10 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
     setCategory(c);
     setPage(1);
   };
+  const handleTagChange = (t: string) => {
+    setTag(t);
+    setPage(1);
+  };
 
   const handleDelete = (game: GameRecord) => {
     setGameToDelete(game);
@@ -114,16 +133,35 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
     }
   };
 
+  const handleCancelJob = async (jobId: string) => {
+    try {
+      if (stopStreamRef.current) {
+        stopStreamRef.current();
+        stopStreamRef.current = null;
+      }
+      await cancelJob(jobId);
+    } catch (e) {
+      console.error('Failed to cancel analysis:', e);
+    } finally {
+      setActiveJobId(null);
+      setActiveGameKey(null);
+      setJobProgress(0);
+      setJobMessage('');
+      void fetchGames();
+    }
+  };
+
   const runAnalysis = (
     pgn: string,
     side: string,
     plat: string,
     existingId?: number,
     pendingId?: number,
+    skipEngine?: boolean,
   ) => {
     const gameKey = existingId ? `a-${existingId}` : pendingId ? `p-${pendingId}` : null;
     setActiveGameKey(gameKey);
-    startAnalysis(pgn, side, plat, existingId, pendingId)
+    startAnalysis(pgn, side, plat, existingId, pendingId, skipEngine)
       .then(({ job_id }) => {
         setActiveJobId(job_id);
         setJobProgress(5);
@@ -156,18 +194,21 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
       });
   };
 
-  const handleAnalyze = (game: GameRecord) => {
+  const handleAnalyze = (game: GameRecord, skipEngine?: boolean) => {
     if (!game.pgn_text) {
       alert('PGN not available for this record.');
       return;
     }
     const isAnalyzed = game.analyzed ?? Boolean(game.report_md);
+    // If already analyzed, default to skipEngine = true (LLM only) unless explicitly passed false
+    const shouldSkipEngine = isAnalyzed ? (skipEngine ?? true) : false;
     runAnalysis(
       game.pgn_text,
       game.side || 'auto',
       game.platform ?? 'manual',
       isAnalyzed ? game.id : undefined,
       !isAnalyzed ? game.id : undefined,
+      shouldSkipEngine,
     );
   };
 
@@ -271,16 +312,28 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
             />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
           </svg>
-          <div className="flex-1">
-            <p className="text-xs font-medium text-blue-900 dark:text-blue-200">{jobMessage}</p>
-            <div className="mt-1 h-1 bg-blue-200 dark:bg-blue-900 rounded-full overflow-hidden w-48">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-blue-900 dark:text-blue-200 truncate">
+              {jobMessage}
+            </p>
+            <div className="mt-1 h-1 bg-blue-200 dark:bg-blue-900 rounded-full overflow-hidden w-48 max-w-full">
               <div
                 className="h-full bg-blue-600 dark:bg-blue-400 transition-all duration-500 rounded-full"
                 style={{ width: `${jobProgress}%` }}
               />
             </div>
           </div>
-          <span className="text-xs text-blue-700 dark:text-blue-300 font-mono">{jobProgress}%</span>
+          <span className="text-xs text-blue-700 dark:text-blue-300 font-mono shrink-0">
+            {jobProgress}%
+          </span>
+          <button
+            type="button"
+            onClick={() => activeJobId && handleCancelJob(activeJobId)}
+            className="px-2 py-0.5 text-xs font-medium text-rose-600 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-200 border border-rose-200 dark:border-rose-800 rounded bg-rose-50/50 dark:bg-rose-950/40 transition-colors cursor-pointer shrink-0"
+            title="Cancel running analysis"
+          >
+            Cancel
+          </button>
         </div>
       )}
 
@@ -308,10 +361,13 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
         result={result}
         platform={platform}
         category={category}
+        tag={tag}
+        availableTags={availableTags}
         onStatus={handleStatusChange}
         onResult={handleResultChange}
         onPlatform={handlePlatformChange}
         onCategory={handleCategoryChange}
+        onTag={handleTagChange}
       />
 
       <GamesTable
@@ -326,6 +382,8 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
         onDelete={handleDelete}
         onSyncToGitHub={handleSyncToGitHub}
         syncingGameId={syncingGameId}
+        onTagClick={handleTagChange}
+        onCancelJob={handleCancelJob}
       />
 
       {total > 0 && (

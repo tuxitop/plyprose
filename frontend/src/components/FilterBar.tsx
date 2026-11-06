@@ -1,4 +1,5 @@
-import { Filter, RotateCcw } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
+import { getTagCapsuleConfig } from '../lib/badges';
 import type { CategoryFilter, Platform, ResultFilter, StatusFilter } from '../types';
 
 interface FilterBarProps {
@@ -6,10 +7,13 @@ interface FilterBarProps {
   result: ResultFilter;
   platform: Platform;
   category: CategoryFilter;
+  tag: string;
+  availableTags?: string[];
   onStatus: (v: StatusFilter) => void;
   onResult: (v: ResultFilter) => void;
   onPlatform: (v: Platform) => void;
   onCategory: (v: CategoryFilter) => void;
+  onTag: (v: string) => void;
 }
 
 function SelectButtonGroup<T extends string>({
@@ -56,16 +60,20 @@ export function FilterBar({
   result,
   platform,
   category,
+  tag,
+  availableTags = [],
   onStatus,
   onResult,
   onPlatform,
   onCategory,
+  onTag,
 }: FilterBarProps) {
   const activeCount = [
     status !== 'all',
     result !== 'all',
     platform !== 'all',
     category !== 'all',
+    tag !== 'all',
   ].filter(Boolean).length;
 
   const isFiltered = activeCount > 0;
@@ -75,37 +83,14 @@ export function FilterBar({
     onResult('all');
     onPlatform('all');
     onCategory('all');
+    onTag('all');
   };
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 sm:p-4 shadow-xs flex flex-col gap-3">
-      {/* Top Header Row with Active Count and Reset */}
-      <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
-        <div className="flex items-center gap-2">
-          <Filter size={13} className="text-slate-400 dark:text-slate-500" />
-          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Filters</span>
-          {isFiltered && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800">
-              {activeCount} active
-            </span>
-          )}
-        </div>
-
-        {isFiltered && (
-          <button
-            type="button"
-            onClick={handleReset}
-            className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-          >
-            <RotateCcw size={11} />
-            Reset all
-          </button>
-        )}
-      </div>
-
-      {/* Two-Column Symmetrical Filter Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-3.5 pt-0.5">
-        {/* Left Column: Lifecycle & Origin */}
+      {/* Symmetrical Filter Grid (No redundant header) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-3 pt-0.5">
+        {/* Left Column: Lifecycle, Origin & Tags */}
         <div className="flex flex-col gap-3">
           <SelectButtonGroup<StatusFilter>
             label="Status"
@@ -129,9 +114,42 @@ export function FilterBar({
               { value: 'manual', label: 'Manual' },
             ]}
           />
+
+          <div className="flex items-center gap-3">
+            <span className="w-18 sm:w-20 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
+              Tag
+            </span>
+            <div className="flex items-center gap-1.5 max-w-full">
+              <select
+                value={tag}
+                onChange={e => onTag(e.target.value)}
+                className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 shadow-inner focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="all">All Tags</option>
+                {availableTags.map(t => {
+                  const cfg = getTagCapsuleConfig(t);
+                  return (
+                    <option key={t} value={t}>
+                      {cfg.category}: {cfg.name}
+                    </option>
+                  );
+                })}
+              </select>
+              {tag !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => onTag('all')}
+                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Clear tag filter"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Right Column: Game Result & Format */}
+        {/* Right Column: Game Result, Speed & Reset */}
         <div className="flex flex-col gap-3">
           <SelectButtonGroup<ResultFilter>
             label="Result"
@@ -157,6 +175,20 @@ export function FilterBar({
               { value: 'Classical', label: '🏛️ Classical' },
             ]}
           />
+
+          {isFiltered && (
+            <div className="flex items-center gap-3">
+              <span className="w-18 sm:w-20 shrink-0" />
+              <button
+                type="button"
+                onClick={handleReset}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 px-2 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <RotateCcw size={12} />
+                Reset all filters ({activeCount})
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -262,6 +262,7 @@ export function splitTag(tag: string): { category: string; name: string } {
 
 export interface TagCapsuleStyle {
   category: string;
+  compactCategory: string;
   name: string;
   isPositive: boolean;
   categoryBg: string;
@@ -278,22 +279,30 @@ export function getTagCapsuleConfig(tag: string): TagCapsuleStyle {
 
   let categoryBg = 'bg-slate-200 dark:bg-slate-700';
   let categoryText = 'text-slate-700 dark:text-slate-300';
+  let compactCategory = category.slice(0, 1);
 
   if (category === 'TACTIC') {
     categoryBg = 'bg-purple-100 dark:bg-purple-950/70';
     categoryText = 'text-purple-700 dark:text-purple-300';
+    compactCategory = 'T';
   } else if (category === 'OPENING') {
     categoryBg = 'bg-indigo-100 dark:bg-indigo-950/70';
     categoryText = 'text-indigo-700 dark:text-indigo-300';
+    compactCategory = 'O';
   } else if (category === 'STRATEGY') {
     categoryBg = 'bg-blue-100 dark:bg-blue-950/70';
     categoryText = 'text-blue-700 dark:text-blue-300';
+    compactCategory = 'S';
   } else if (category === 'ENDGAME') {
     categoryBg = 'bg-teal-100 dark:bg-teal-950/70';
     categoryText = 'text-teal-700 dark:text-teal-300';
+    compactCategory = 'E';
   } else if (category === 'TIME') {
     categoryBg = 'bg-amber-100 dark:bg-amber-950/70';
     categoryText = 'text-amber-800 dark:text-amber-300';
+    compactCategory = '⏱';
+  } else if (category === 'GENERAL') {
+    compactCategory = 'G';
   }
 
   const valueBg = positive
@@ -308,6 +317,7 @@ export function getTagCapsuleConfig(tag: string): TagCapsuleStyle {
 
   return {
     category,
+    compactCategory,
     name,
     isPositive: positive,
     categoryBg,

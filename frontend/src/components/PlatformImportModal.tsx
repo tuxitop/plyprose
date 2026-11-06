@@ -95,14 +95,8 @@ export function PlatformImportModal({ open, onClose, onImportDone }: PlatformImp
       setGames(res.games);
       setHasFetched(true);
 
-      // By default, pre-select all games that aren't already imported
-      const newIds = new Set<string>();
-      for (const g of res.games) {
-        if (!g.already_imported) {
-          newIds.add(g.id);
-        }
-      }
-      setSelectedIds(newIds);
+      // By default, none of the games are selected; user explicitly selects what to import
+      setSelectedIds(new Set());
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to fetch games.');
     } finally {

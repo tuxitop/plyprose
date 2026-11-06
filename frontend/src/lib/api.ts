@@ -123,6 +123,7 @@ export const startAnalysis = (
   platform: string,
   existingId?: number,
   pendingGameId?: number,
+  skipEngine?: boolean,
 ) =>
   req<{ job_id: string }>('/games/analyze', {
     method: 'POST',
@@ -132,8 +133,15 @@ export const startAnalysis = (
       platform,
       existing_analysis_id: existingId ?? null,
       pending_game_id: pendingGameId ?? null,
+      skip_engine: skipEngine ?? false,
     }),
   });
+
+export const cancelJob = (jobId: string) =>
+  req<{ status: string; job_id: string }>(`/jobs/${jobId}/cancel`, { method: 'POST' });
+
+export const getAvailableTags = () =>
+  req<{ tags: string[]; counts: Record<string, number> }>('/tags');
 
 export const getJobStatus = (jobId: string) => req<JobStatus>(`/jobs/${jobId}`);
 

@@ -1,4 +1,4 @@
-import { ExternalLink, FileText, Github, Play, RefreshCw, Trash2 } from 'lucide-react';
+import { ExternalLink, FileText, Github, Play, RefreshCw, Trash2, X } from 'lucide-react';
 import { Badge } from './Badge';
 import { TagCapsule } from './TagCapsule';
 import {
@@ -19,10 +19,12 @@ interface GamesTableProps {
   activeJobProgress: number;
   activeJobMessage: string;
   onViewReport: (id: number) => void;
-  onAnalyze: (game: GameRecord) => void;
+  onAnalyze: (game: GameRecord, skipEngine?: boolean) => void;
   onDelete: (game: GameRecord) => void;
   onSyncToGitHub?: (game: GameRecord) => void;
   syncingGameId?: number | null;
+  onTagClick?: (tag: string) => void;
+  onCancelJob?: (jobId: string) => void;
 }
 
 function MiniEvalChart({ evals, movesCount }: { evals?: number[]; movesCount?: number }) {
@@ -104,6 +106,8 @@ export function GamesTable({
   onDelete,
   onSyncToGitHub,
   syncingGameId,
+  onTagClick,
+  onCancelJob,
 }: GamesTableProps) {
   if (loading) {
     return (
@@ -148,7 +152,7 @@ export function GamesTable({
         <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
           <tr>
             <th className="py-2.5 px-3 w-8">#</th>
-            <th className="py-2.5 px-3 w-60 sm:w-64 md:w-72">Platform & Speed</th>
+            <th className="py-2.5 px-3 w-36 sm:w-40 md:w-44">Platform & Speed</th>
             <th className="py-2.5 px-3 w-10 text-center">Side</th>
             <th className="py-2.5 px-3">Players</th>
             <th className="py-2.5 px-3 w-20">Result</th>
@@ -183,7 +187,7 @@ export function GamesTable({
                   {idx + 1}
                 </td>
 
-                <td className="py-3 px-3 w-60 sm:w-64 md:w-72">
+                <td className="py-3 px-3 w-36 sm:w-40 md:w-44">
                   <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-1.5 whitespace-nowrap">
                       <Badge
@@ -210,14 +214,6 @@ export function GamesTable({
                           <Github size={10} />
                           GitHub
                         </span>
-                      ) : g.github_sync_status === 'modified' ? (
-                        <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-700 shrink-0"
-                          title={`Local analysis modified since last GitHub sync:\n${g.github_path || 'Sync needed'}`}
-                        >
-                          <Github size={10} />
-                          Sync Needed
-                        </span>
                       ) : g.github_path ? (
                         <span
                           className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 shrink-0"
@@ -225,24 +221,6 @@ export function GamesTable({
                         >
                           <Github size={10} />
                           GitHub
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                      {g.speed_seconds ? (
-                        <span>
-                          {g.platform === 'chesscom'
-                            ? 'chess.com'
-                            : g.platform === 'lichess'
-                              ? 'lichess'
-                              : 'fide'}
-                          : {g.speed_seconds}s
-                        </span>
-                      ) : null}
-                      {g.speed_seconds && movesCount ? <span>·</span> : null}
-                      {movesCount ? (
-                        <span className="font-mono text-slate-500 dark:text-slate-400">
-                          {movesCount} moves
                         </span>
                       ) : null}
                     </div>
@@ -285,8 +263,47 @@ export function GamesTable({
                         {sortTagsNegativeFirst(g.tags)
                           .slice(0, 3)
                           .map(tag => (
-                            <TagCapsule key={tag} tag={tag} size="sm" />
+                            <TagCapsule
+                              key={tag}
+                              tag={tag}
+                              size="sm"
+                              compactCategory
+                              className={
+                                onTagClick
+                                  ? 'cursor-pointer hover:opacity-80 transition-opacity'
+                                  : ''
+                              }
+                            />
                           ))}
+                        {g.tags.length > 3 && (
+                          <div className="relative group/tagmore inline-block">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                              +{g.tags.length - 3}
+                            </span>
+                            <div className="absolute left-0 bottom-full mb-1.5 hidden group-hover/tagmore:flex flex-col gap-1 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-30 min-w-max pointer-events-auto">
+                              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                All Remaining Tags
+                              </span>
+                              <div className="flex items-center gap-1 flex-wrap max-w-xs">
+                                {sortTagsNegativeFirst(g.tags)
+                                  .slice(3)
+                                  .map(tag => (
+                                    <TagCapsule
+                                      key={tag}
+                                      tag={tag}
+                                      size="sm"
+                                      compactCategory
+                                      className={
+                                        onTagClick
+                                          ? 'cursor-pointer hover:opacity-80 transition-opacity'
+                                          : ''
+                                      }
+                                    />
+                                  ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -321,6 +338,17 @@ export function GamesTable({
                         <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[70px]">
                           {activeJobMessage}
                         </span>
+                        {onCancelJob && activeJobId && (
+                          <button
+                            type="button"
+                            onClick={() => onCancelJob(activeJobId)}
+                            title="Cancel running analysis"
+                            aria-label="Cancel analysis"
+                            className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
                       </div>
                     ) : isAnalyzed ? (
                       <>
@@ -337,8 +365,8 @@ export function GamesTable({
                         <button
                           type="button"
                           disabled={isAnyAnalyzing}
-                          onClick={() => onAnalyze(g)}
-                          title="Re-run Stockfish + LLM analysis"
+                          onClick={e => onAnalyze(g, !e.shiftKey)}
+                          title="Re-run LLM coach (Shift+Click for full Stockfish + LLM re-run)"
                           aria-label="Re-run Analysis"
                           className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
                         >
