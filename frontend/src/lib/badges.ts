@@ -339,7 +339,7 @@ export function renderTagCapsuleHtml(tag: string, size: 'sm' | 'md' = 'sm'): str
 
 export function renderSquarePillHtml(square: string): string {
   const sq = square.toLowerCase().trim();
-  return `<span class="chess-square-pill inline-flex items-center px-1.5 py-0.2 mx-0.5 rounded text-[11px] font-mono font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 select-none align-baseline cursor-pointer" data-square="${sq}" title="Board square ${sq}"><span class="text-[9px] text-amber-500 opacity-75 mr-0.5">⌗</span>${sq}</span>`;
+  return `<span class="chess-square-pill inline-block px-1.5 py-0.5 mx-0.5 rounded text-[12px] font-mono font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 select-none align-baseline cursor-pointer" data-square="${sq}" title="Board square ${sq}">${sq}</span>`;
 }
 
 export function getTagBadge(tag: string): TagBadgeConfig {

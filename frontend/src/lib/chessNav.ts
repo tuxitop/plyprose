@@ -417,10 +417,24 @@ export function classifyReportMove(
 /**
  * Decorates report HTML to visually distinguish played moves from variations,
  * formats raw tag slugs into rich two-part capsules, styles board square coordinates distinctly,
- * and makes all moves interactive with clean accessible button markup.
+ * and makes all moves interactive with clean accessible button markup without double-nesting.
  */
 export function decorateReportHtml(html: string, pgnText: string): string {
   if (!html || !pgnText) return html;
+
+  // Stash store to isolate already-decorated elements from double-processing
+  const stashItems: string[] = [];
+  function stash(content: string): string {
+    const id = stashItems.length;
+    stashItems.push(content);
+    return `<!--CHESS_STASH_${id}-->`;
+  }
+  function unstash(text: string): string {
+    return text.replace(/<!--CHESS_STASH_(\d+)-->/g, (_match, idStr) => {
+      const id = parseInt(idStr, 10);
+      return stashItems[id] ?? '';
+    });
+  }
 
   // 1. Normalize unicode characters (Narrow No-Break Space \u202f, NBSP \u00a0, unicode hyphens, ellipsis)
   let processed = html
@@ -428,12 +442,17 @@ export function decorateReportHtml(html: string, pgnText: string): string {
     .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
     .replace(/\u2026/g, '...');
 
+  // Stash pre-existing blocks that must not be parsed (figures, pre/code blocks, scripts, styles)
+  processed = processed.replace(/<(figure|pre|script|style)[^>]*>[\s\S]*?<\/\1>/gi, match =>
+    stash(match),
+  );
+
   // 2. Replace Section 7 tag bullets (e.g. `<code>tactic:found-fork</code> (**Fork Executed**):`)
   // with the rich two-part capsule pill
   const tagBulletRegex =
     /<code([^>]*)>((?:tactic|opening|strategy|endgame|time|general):[a-z0-9-]+)<\/code>(?:\s*(?:\((?:<strong[^>]*>|\*{1,2})?\s*[^)<>]+\s*(?:<\/strong>|\*{1,2})?\)\s*[:\-\u2013\u2014]?|[:\-\u2013\u2014]))?/gi;
   processed = processed.replace(tagBulletRegex, (_match, _attrs, slug) => {
-    return `${renderTagCapsuleHtml(slug, 'sm')} `;
+    return `${stash(renderTagCapsuleHtml(slug, 'sm'))} `;
   });
 
   // 3. Process <code>...</code> blocks: moves, squares, or plain code
@@ -442,12 +461,12 @@ export function decorateReportHtml(html: string, pgnText: string): string {
     (match, _attrs, content, offset) => {
       const rawText = content.replace(/<[^>]+>/g, '').trim();
       if (!rawText || rawText.includes('/') || rawText.length < 2) {
-        return match;
+        return stash(match);
       }
 
       // Check if it's a standalone square (e.g. `b5`, `a7`, `d8`)
       if (/^[a-h][1-8]$/i.test(rawText)) {
-        return renderSquarePillHtml(rawText);
+        return stash(renderSquarePillHtml(rawText));
       }
 
       // Check if this <code> is within a table row <tr> to supply move number context
@@ -462,20 +481,22 @@ export function decorateReportHtml(html: string, pgnText: string): string {
 
       const target = classifyReportMove(rawText, pgnText, null, fallbackRowContext);
       if (!target) {
-        return match;
+        return stash(match);
       }
 
       if (target.type === 'mainline') {
-        return `<button type="button" class="chess-move-btn chess-move-mainline group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50/90 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 hover:border-blue-300 dark:hover:border-blue-700 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="mainline" data-ply="${target.ply}" title="Jump to game move ${target.displaySan}"><span class="text-[9px] text-blue-500 opacity-75 group-hover:opacity-100">▶</span>${content}</button>`;
+        const btnHtml = `<button type="button" class="chess-move-btn chess-move-mainline group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50/90 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 hover:border-blue-300 dark:hover:border-blue-700 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="mainline" data-ply="${target.ply}" title="Jump to game move ${target.displaySan}"><span class="text-[9px] text-blue-500 opacity-75 group-hover:opacity-100">▶</span>${content}</button>`;
+        return stash(btnHtml);
       } else {
         const movesJson = encodeURIComponent(JSON.stringify(target.variationMoves || []));
         const branchMoveNumber = Math.floor((target.ply - 1) / 2) + 1;
-        return `<button type="button" class="chess-move-btn chess-move-variation group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50/90 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 hover:border-purple-400 dark:hover:border-purple-600 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="variation" data-branch-ply="${target.ply}" data-moves="${movesJson}" title="Explore variation: ${rawText} (branches at move ${branchMoveNumber})"><span class="text-[10px] text-purple-500 font-bold opacity-80 group-hover:opacity-100">⑂</span>${content}</button>`;
+        const btnHtml = `<button type="button" class="chess-move-btn chess-move-variation group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50/90 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 hover:border-purple-400 dark:hover:border-purple-600 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="variation" data-branch-ply="${target.ply}" data-moves="${movesJson}" title="Explore variation: ${rawText} (branches at move ${branchMoveNumber})"><span class="text-[10px] text-purple-500 font-bold opacity-80 group-hover:opacity-100">⑂</span>${content}</button>`;
+        return stash(btnHtml);
       }
     },
   );
 
-  // 4. Process numbered moves and squares in text outside tags (e.g. in <p>, <li>, <td>, <strong>)
+  // 4. Process numbered moves and squares in remaining plain text outside tags
   processed = processed.replace(/>([^<]+)</g, (match, textContent) => {
     if (!textContent.trim()) return match;
 
@@ -500,7 +521,7 @@ export function decorateReportHtml(html: string, pgnText: string): string {
           const branchMoveNumber = Math.floor((target.ply - 1) / 2) + 1;
           btnHtml = `<button type="button" class="chess-move-btn chess-move-variation group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50/90 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 hover:border-purple-400 dark:hover:border-purple-600 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="variation" data-branch-ply="${target.ply}" data-moves="${movesJson}" title="Explore variation: ${moveCandidate} (branches at move ${branchMoveNumber})"><span class="text-[10px] text-purple-500 font-bold opacity-80 group-hover:opacity-100">⑂</span>${moveCandidate}</button>`;
         }
-        return `${prefix}${btnHtml}`;
+        return `${prefix}${stash(btnHtml)}`;
       },
     );
 
@@ -508,21 +529,21 @@ export function decorateReportHtml(html: string, pgnText: string): string {
     modified = modified.replace(
       /(^|[\s(])(on|to|from|at|square)\s+([a-h][1-8])(?=[.,;:!?)\]\s]|$)/gi,
       (_full: string, prefix: string, word: string, sq: string): string => {
-        return `${prefix}${word} ${renderSquarePillHtml(sq)}`;
+        return `${prefix}${word} ${stash(renderSquarePillHtml(sq))}`;
       },
     );
 
     modified = modified.replace(
       /(^|[\s(])([a-h][1-8])\s+square(?=[.,;:!?)\]\s]|$)/gi,
       (_full: string, prefix: string, sq: string): string => {
-        return `${prefix}${renderSquarePillHtml(sq)} square`;
+        return `${prefix}${stash(renderSquarePillHtml(sq))} square`;
       },
     );
 
     return `>${modified}<`;
   });
 
-  return processed;
+  return unstash(processed);
 }
 
 /**
