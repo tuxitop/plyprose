@@ -19,16 +19,16 @@ export const TagCapsule: React.FC<TagCapsuleProps> = ({
   const isSmall = size === 'sm';
 
   const containerClasses = isSmall
-    ? 'inline-flex items-center rounded-full text-[10px] font-medium border overflow-hidden shadow-2xs select-none'
-    : 'inline-flex items-center rounded-full text-xs font-medium border overflow-hidden shadow-2xs select-none';
+    ? 'inline-flex items-stretch rounded-full text-[10px] font-medium border overflow-hidden select-none'
+    : 'inline-flex items-stretch rounded-full text-xs font-medium border overflow-hidden select-none';
 
   const categoryClasses = isSmall
-    ? `px-1.5 py-0.2 text-[8px] font-bold tracking-wider uppercase border-r border-slate-300/80 dark:border-slate-700/80 ${cfg.categoryBg} ${cfg.categoryText}`
-    : `px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase border-r border-slate-300/80 dark:border-slate-700/80 ${cfg.categoryBg} ${cfg.categoryText}`;
+    ? `inline-flex items-center justify-center px-1.5 py-0.5 text-[8px] font-bold tracking-wider uppercase border-r border-slate-300/80 dark:border-slate-700/80 leading-none ${cfg.categoryBg} ${cfg.categoryText}`
+    : `inline-flex items-center justify-center px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase border-r border-slate-300/80 dark:border-slate-700/80 leading-none ${cfg.categoryBg} ${cfg.categoryText}`;
 
   const valueClasses = isSmall
-    ? `px-1.5 py-0.2 text-[10px] font-semibold whitespace-nowrap ${cfg.valueBg} ${cfg.valueText}`
-    : `px-2 py-0.5 text-xs font-semibold whitespace-nowrap ${cfg.valueBg} ${cfg.valueText}`;
+    ? `inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap leading-none ${cfg.valueBg} ${cfg.valueText}`
+    : `inline-flex items-center justify-center px-2 py-0.5 text-xs font-semibold whitespace-nowrap leading-none ${cfg.valueBg} ${cfg.valueText}`;
 
   return (
     <span

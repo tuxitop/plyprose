@@ -448,11 +448,11 @@ export function decorateReportHtml(html: string, pgnText: string): string {
   );
 
   // 2. Replace Section 7 tag bullets (e.g. `<code>tactic:found-fork</code> (**Fork Executed**):`)
-  // with the rich two-part capsule pill
+  // with the rich two-part capsule pill matching the header styling
   const tagBulletRegex =
-    /<code([^>]*)>((?:tactic|opening|strategy|endgame|time|general):[a-z0-9-]+)<\/code>(?:\s*(?:\((?:<strong[^>]*>|\*{1,2})?\s*[^)<>]+\s*(?:<\/strong>|\*{1,2})?\)\s*[:\-\u2013\u2014]?|[:\-\u2013\u2014]))?/gi;
+    /<(?:code|strong)([^>]*)>((?:tactic|opening|strategy|endgame|time|general):[a-z0-9-]+)<\/(?:code|strong)>(?:\s*(?:\((?:<strong[^>]*>|\*{1,2})?\s*[^)<>]+\s*(?:<\/strong>|\*{1,2})?\)\s*[:\-\u2013\u2014]?|[:\-\u2013\u2014]))?/gi;
   processed = processed.replace(tagBulletRegex, (_match, _attrs, slug) => {
-    return `${stash(renderTagCapsuleHtml(slug, 'sm'))} `;
+    return `${stash(renderTagCapsuleHtml(slug, 'md'))} `;
   });
 
   // 3. Process <code>...</code> blocks: moves, squares, or plain code
