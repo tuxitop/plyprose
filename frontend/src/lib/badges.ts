@@ -135,7 +135,8 @@ export interface TagBadgeConfig {
   category: 'tactic' | 'opening' | 'strategy' | 'endgame' | 'general' | 'time';
 }
 
-const TAG_LABELS: Record<string, string> = {
+export const TAG_LABELS: Record<string, string> = {
+  // Tactics: Missed Opportunities
   'tactic:missed-fork': 'Missed Fork',
   'tactic:missed-pin': 'Missed Pin',
   'tactic:missed-skewer': 'Missed Skewer',
@@ -147,43 +148,50 @@ const TAG_LABELS: Record<string, string> = {
   'tactic:missed-back-rank': 'Missed Back-Rank',
   'tactic:missed-deflection': 'Missed Deflection',
   'tactic:missed-zwischenzug': 'Missed Zwischenzug',
-  'tactic:hung-piece': 'Left Piece Hanging',
-  'tactic:blundered-piece': 'Blundered Piece',
-  'tactic:found-fork': 'Fork Executed',
-  'tactic:found-pin': 'Pin Applied',
-  'tactic:found-skewer': 'Skewer Executed',
+  // Tactics: Blunders & Hanging Pieces
+  'tactic:hung-piece': 'Hung Piece',
+  'tactic:blundered-piece': 'Hung Piece',
+  // Tactics: Found & Executed
+  'tactic:found-fork': 'Fork',
+  'tactic:found-pin': 'Pin',
+  'tactic:found-skewer': 'Skewer',
   'tactic:found-discovery': 'Discovered Attack',
   'tactic:found-mate': 'Checkmate',
-  'tactic:found-sacrifice': 'Tactical Sacrifice',
-  'tactic:hanging-piece-punished': 'Captured Free Piece',
+  'tactic:found-sacrifice': 'Sacrifice',
+  'tactic:hanging-piece-punished': 'Free Piece Won',
   'tactic:back-rank-punished': 'Back-Rank Mate',
 
-  'time:clutch-play': 'Clutch Time Scramble',
-  'time:trouble-blunder': 'Time Pressure Blunder',
-  'time:rushed-blunder': 'Rushed Move Blunder',
-  'time:time-advantage': 'Clock Advantage',
+  // Time Management
+  'time:clutch-play': 'Clutch Play',
+  'time:trouble-blunder': 'Time Blunder',
+  'time:rushed-blunder': 'Rushed Blunder',
+  'time:time-advantage': 'Clock Lead',
+  'time:time-sink': 'Time Sink',
 
-  'opening:development-lead': 'Lead in Development',
-  'opening:development-lag': 'Lag in Development',
-  'opening:early-queen': 'Early Queen Attack',
+  // Opening
+  'opening:development-lead': 'Dev Lead',
+  'opening:development-lag': 'Dev Lag',
+  'opening:early-queen': 'Early Queen',
   'opening:king-in-center': 'King in Center',
   'opening:failed-to-castle': 'Castling Neglected',
   'opening:pawn-overextension': 'Pawn Overextension',
   'opening:wasted-tempo': 'Wasted Tempo',
   'opening:center-control': 'Center Control',
 
+  // Strategy
   'strategy:piece-coordination': 'Piece Coordination',
-  'strategy:outpost-control': 'Outpost Control',
-  'strategy:open-file-control': 'Open File Control',
+  'strategy:outpost-control': 'Outpost Dominance',
+  'strategy:open-file-control': 'Open File',
   'strategy:weak-squares': 'Weak Squares',
   'strategy:isolated-pawn': 'Isolated Pawn',
-  'strategy:doubled-pawns': 'Doubled Pawns',
-  'strategy:king-safety-risk': 'Vulnerable King',
+  'strategy:doubled-pawns': 'Compromised Pawns',
+  'strategy:king-safety-risk': 'King Safety',
   'strategy:pawn-storm': 'Pawn Storm',
   'strategy:passive-defense': 'Passive Defense',
   'strategy:overextended-attack': 'Overextended Attack',
 
-  'endgame:passed-pawn-created': 'Passed Pawn Created',
+  // Endgame
+  'endgame:passed-pawn-created': 'Passed Pawn',
   'endgame:passed-pawn-missed': 'Allowed Passed Pawn',
   'endgame:active-rook': 'Active Rook',
   'endgame:passive-rook': 'Passive Rook',
@@ -193,35 +201,151 @@ const TAG_LABELS: Record<string, string> = {
   'endgame:technical-conversion': 'Smooth Conversion',
   'endgame:stalemate-trap': 'Stalemate Resource',
 
+  // General
   'general:time-trouble': 'Time Trouble',
   'general:resilient-defense': 'Resilient Defense',
-  'general:comeback-win': 'Comeback Win',
+  'general:comeback-win': 'Comeback',
   'general:missed-simplification': 'Missed Simplification',
 };
+
+export const POSITIVE_TAGS: ReadonlySet<string> = new Set([
+  'tactic:found-mate',
+  'tactic:found-sacrifice',
+  'tactic:found-fork',
+  'tactic:found-pin',
+  'tactic:found-skewer',
+  'tactic:found-discovery',
+  'tactic:hanging-piece-punished',
+  'tactic:back-rank-punished',
+  'time:clutch-play',
+  'time:time-advantage',
+  'opening:development-lead',
+  'opening:center-control',
+  'strategy:piece-coordination',
+  'strategy:outpost-control',
+  'strategy:open-file-control',
+  'endgame:passed-pawn-created',
+  'endgame:active-rook',
+  'endgame:king-centralization',
+  'endgame:opposition',
+  'endgame:technical-conversion',
+  'endgame:stalemate-trap',
+  'general:comeback-win',
+  'general:resilient-defense',
+]);
+
+export function isPositiveTag(tag: string): boolean {
+  const norm = tag.toLowerCase().trim();
+  return POSITIVE_TAGS.has(norm);
+}
+
+export function sortTagsNegativeFirst(tags: string[]): string[] {
+  const negatives: string[] = [];
+  const positives: string[] = [];
+  for (const t of tags) {
+    if (isPositiveTag(t)) {
+      positives.push(t);
+    } else {
+      negatives.push(t);
+    }
+  }
+  return [...negatives, ...positives];
+}
+
+export function splitTag(tag: string): { category: string; name: string } {
+  const norm = tag.toLowerCase().trim();
+  const parts = norm.split(':');
+  const cat = parts.length > 1 ? parts[0] : 'general';
+  const name = TAG_LABELS[norm] || parts.slice(1).join(' ').replace(/-/g, ' ') || norm;
+  return { category: cat.toUpperCase(), name };
+}
+
+export interface TagCapsuleStyle {
+  category: string;
+  name: string;
+  isPositive: boolean;
+  categoryBg: string;
+  categoryText: string;
+  valueBg: string;
+  valueText: string;
+  border: string;
+}
+
+export function getTagCapsuleConfig(tag: string): TagCapsuleStyle {
+  const norm = tag.toLowerCase().trim();
+  const { category, name } = splitTag(norm);
+  const positive = isPositiveTag(norm);
+
+  let categoryBg = 'bg-slate-200 dark:bg-slate-700';
+  let categoryText = 'text-slate-700 dark:text-slate-300';
+
+  if (category === 'TACTIC') {
+    categoryBg = 'bg-purple-100 dark:bg-purple-950/70';
+    categoryText = 'text-purple-700 dark:text-purple-300';
+  } else if (category === 'OPENING') {
+    categoryBg = 'bg-indigo-100 dark:bg-indigo-950/70';
+    categoryText = 'text-indigo-700 dark:text-indigo-300';
+  } else if (category === 'STRATEGY') {
+    categoryBg = 'bg-blue-100 dark:bg-blue-950/70';
+    categoryText = 'text-blue-700 dark:text-blue-300';
+  } else if (category === 'ENDGAME') {
+    categoryBg = 'bg-teal-100 dark:bg-teal-950/70';
+    categoryText = 'text-teal-700 dark:text-teal-300';
+  } else if (category === 'TIME') {
+    categoryBg = 'bg-amber-100 dark:bg-amber-950/70';
+    categoryText = 'text-amber-800 dark:text-amber-300';
+  }
+
+  const valueBg = positive
+    ? 'bg-emerald-50 dark:bg-emerald-950/40'
+    : 'bg-rose-50 dark:bg-rose-950/40';
+  const valueText = positive
+    ? 'text-emerald-700 dark:text-emerald-300'
+    : 'text-rose-700 dark:text-rose-300';
+  const border = positive
+    ? 'border-emerald-200 dark:border-emerald-800/60'
+    : 'border-rose-200 dark:border-rose-800/60';
+
+  return {
+    category,
+    name,
+    isPositive: positive,
+    categoryBg,
+    categoryText,
+    valueBg,
+    valueText,
+    border,
+  };
+}
 
 export function getTagBadge(tag: string): TagBadgeConfig {
   const norm = tag.toLowerCase().trim();
   const label = TAG_LABELS[norm] || norm.split(':').pop()?.replace(/-/g, ' ') || norm;
 
   if (norm.startsWith('tactic:')) {
-    const isMissed = norm.includes('missed') || norm.includes('hanging');
+    const isMissed = !isPositiveTag(norm);
     return {
       label,
       bgClass: isMissed
         ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800'
-        : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800',
+        : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800',
       textClass: isMissed
         ? 'text-rose-700 dark:text-rose-300'
-        : 'text-amber-700 dark:text-amber-300',
+        : 'text-emerald-700 dark:text-emerald-300',
       category: 'tactic',
     };
   }
 
   if (norm.startsWith('opening:')) {
+    const isNegative = !isPositiveTag(norm);
     return {
       label,
-      bgClass: 'bg-violet-50 dark:bg-violet-950/40 border-violet-200 dark:border-violet-800',
-      textClass: 'text-violet-700 dark:text-violet-300',
+      bgClass: isNegative
+        ? 'bg-violet-50 dark:bg-violet-950/40 border-violet-200 dark:border-violet-800'
+        : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800',
+      textClass: isNegative
+        ? 'text-violet-700 dark:text-violet-300'
+        : 'text-emerald-700 dark:text-emerald-300',
       category: 'opening',
     };
   }
@@ -245,7 +369,7 @@ export function getTagBadge(tag: string): TagBadgeConfig {
   }
 
   if (norm.startsWith('time:')) {
-    const isTrouble = norm.includes('blunder') || norm.includes('trouble');
+    const isTrouble = !isPositiveTag(norm);
     return {
       label,
       bgClass: isTrouble

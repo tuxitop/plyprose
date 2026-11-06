@@ -1,11 +1,12 @@
 import { ExternalLink, FileText, Github, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { Badge } from './Badge';
+import { TagCapsule } from './TagCapsule';
 import {
-  getTagBadge,
   platformBadgeVariant,
   platformLabel,
   resultBadgeVariant,
   resultLabel,
+  sortTagsNegativeFirst,
 } from '../lib/badges';
 import { formatTC, formatGameTimeLocal as formatGameTime } from '../lib/timeControl';
 import type { GameRecord } from '../types';
@@ -281,17 +282,11 @@ export function GamesTable({
                     </span>
                     {g.tags && g.tags.length > 0 && (
                       <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                        {g.tags.slice(0, 3).map(tag => {
-                          const tb = getTagBadge(tag);
-                          return (
-                            <span
-                              key={tag}
-                              className={`text-[9px] font-medium px-1.5 py-0.2 rounded border ${tb.bgClass} ${tb.textClass}`}
-                            >
-                              {tb.label}
-                            </span>
-                          );
-                        })}
+                        {sortTagsNegativeFirst(g.tags)
+                          .slice(0, 3)
+                          .map(tag => (
+                            <TagCapsule key={tag} tag={tag} size="sm" />
+                          ))}
                       </div>
                     )}
                   </div>

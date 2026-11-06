@@ -87,7 +87,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.5.0")
+app = FastAPI(title="PlyProse API", version="1.6.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(

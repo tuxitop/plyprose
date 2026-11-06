@@ -22,66 +22,67 @@ ALLOWED_TAGS: dict[str, str] = {
     "tactic:missed-fork": "Missed Fork",
     "tactic:missed-pin": "Missed Pin",
     "tactic:missed-skewer": "Missed Skewer",
-    "tactic:missed-discovery": "Missed Discovered Attack",
-    "tactic:missed-mate": "Missed Checkmate",
-    "tactic:missed-win": "Missed Winning Advantage",
-    "tactic:missed-tactic": "Missed Tactical Motif",
+    "tactic:missed-discovery": "Missed Discovery",
+    "tactic:missed-mate": "Missed Mate",
+    "tactic:missed-win": "Missed Win",
+    "tactic:missed-tactic": "Missed Tactic",
     "tactic:missed-hanging-piece": "Missed Free Piece",
-    "tactic:missed-back-rank": "Missed Back-Rank Tactic",
+    "tactic:missed-back-rank": "Missed Back-Rank",
     "tactic:missed-deflection": "Missed Deflection",
-    "tactic:missed-zwischenzug": "Missed In-Between Move",
+    "tactic:missed-zwischenzug": "Missed Zwischenzug",
     # ── Tactics: Blunders & Hanging Pieces ────────────────────────────────────
-    "tactic:hung-piece": "Left Piece Hanging",
-    "tactic:blundered-piece": "Blundered Piece",
+    "tactic:hung-piece": "Hung Piece",
+    "tactic:blundered-piece": "Hung Piece",
     # ── Tactics: Found & Executed ─────────────────────────────────────────────
-    "tactic:found-fork": "Fork Executed",
-    "tactic:found-pin": "Pin Applied",
-    "tactic:found-skewer": "Skewer Executed",
+    "tactic:found-fork": "Fork",
+    "tactic:found-pin": "Pin",
+    "tactic:found-skewer": "Skewer",
     "tactic:found-discovery": "Discovered Attack",
-    "tactic:found-mate": "Checkmate Delivered",
-    "tactic:found-sacrifice": "Tactical Sacrifice",
-    "tactic:hanging-piece-punished": "Captured Free Piece",
-    "tactic:back-rank-punished": "Back-Rank Checkmate",
+    "tactic:found-mate": "Checkmate",
+    "tactic:found-sacrifice": "Sacrifice",
+    "tactic:hanging-piece-punished": "Free Piece Won",
+    "tactic:back-rank-punished": "Back-Rank Mate",
     # ── Time Management ───────────────────────────────────────────────────────
-    "time:clutch-play": "Clutch Time Scramble",
-    "time:trouble-blunder": "Time Pressure Blunder",
-    "time:rushed-blunder": "Rushed Move Blunder",
-    "time:time-advantage": "Clock Advantage",
+    "time:clutch-play": "Clutch Play",
+    "time:trouble-blunder": "Time Blunder",
+    "time:rushed-blunder": "Rushed Blunder",
+    "time:time-advantage": "Clock Lead",
+    "time:time-sink": "Time Sink",
     # ── Opening & Early Development ──────────────────────────────────────────
-    "opening:development-lead": "Lead in Development",
-    "opening:development-lag": "Lag in Development",
-    "opening:early-queen": "Premature Queen Attack",
-    "opening:king-in-center": "King Trapped in Center",
+    "opening:development-lead": "Dev Lead",
+    "opening:development-lag": "Dev Lag",
+    "opening:early-queen": "Early Queen",
+    "opening:king-in-center": "King in Center",
     "opening:failed-to-castle": "Castling Neglected",
     "opening:pawn-overextension": "Pawn Overextension",
-    "opening:wasted-tempo": "Wasted Opening Tempo",
-    "opening:center-control": "Dominant Center Control",
+    "opening:wasted-tempo": "Wasted Tempo",
+    "opening:center-control": "Center Control",
     # ── Middlegame Strategy & Positional ──────────────────────────────────────
-    "strategy:piece-coordination": "Harmonious Piece Play",
+    "strategy:piece-coordination": "Piece Coordination",
     "strategy:outpost-control": "Outpost Dominance",
-    "strategy:open-file-control": "Open File Seized",
-    "strategy:weak-squares": "Exploited Weak Squares",
-    "strategy:isolated-pawn": "Isolated Pawn Weakness",
-    "strategy:doubled-pawns": "Compromised Pawn Structure",
-    "strategy:king-safety-risk": "Vulnerable King",
-    "strategy:pawn-storm": "Flank Pawn Storm",
+    "strategy:open-file-control": "Open File",
+    "strategy:weak-squares": "Weak Squares",
+    "strategy:isolated-pawn": "Isolated Pawn",
+    "strategy:doubled-pawns": "Compromised Pawns",
+    "strategy:king-safety-risk": "King Safety",
+    "strategy:pawn-storm": "Pawn Storm",
     "strategy:passive-defense": "Passive Defense",
     "strategy:overextended-attack": "Overextended Attack",
     # ── Endgame ───────────────────────────────────────────────────────────────
-    "endgame:passed-pawn-created": "Created Passed Pawn",
-    "endgame:passed-pawn-missed": "Allowed Opponent Passed Pawn",
-    "endgame:active-rook": "Active Rook in Endgame",
+    "endgame:passed-pawn-created": "Passed Pawn",
+    "endgame:passed-pawn-missed": "Allowed Passed Pawn",
+    "endgame:active-rook": "Active Rook",
     "endgame:passive-rook": "Passive Rook",
-    "endgame:king-centralization": "Active Endgame King",
+    "endgame:king-centralization": "Active King",
     "endgame:pawn-race": "Pawn Race",
-    "endgame:opposition": "King Opposition",
-    "endgame:technical-conversion": "Smooth Endgame Conversion",
+    "endgame:opposition": "Opposition",
+    "endgame:technical-conversion": "Smooth Conversion",
     "endgame:stalemate-trap": "Stalemate Resource",
     # ── General & Practical Play ──────────────────────────────────────────────
-    "general:time-trouble": "Time Trouble Critical Swing",
-    "general:resilient-defense": "Tenacious Defensive Resource",
-    "general:comeback-win": "Turnaround from Deficit",
-    "general:missed-simplification": "Missed Winning Simplification",
+    "general:time-trouble": "Time Trouble",
+    "general:resilient-defense": "Resilient Defense",
+    "general:comeback-win": "Comeback",
+    "general:missed-simplification": "Missed Simplification",
 }
 
 # Aliases to normalize variations across different LLM outputs
@@ -122,6 +123,8 @@ TAG_ALIASES: dict[str, str] = {
     "rushed-blunder": "time:rushed-blunder",
     "time-advantage": "time:time-advantage",
     "clock-advantage": "time:time-advantage",
+    "clock-lead": "time:time-advantage",
+    "time-sink": "time:time-sink",
     # Opening aliases
     "early-queen": "opening:early-queen",
     "premature-queen": "opening:early-queen",
@@ -179,28 +182,86 @@ def normalize_tag(raw_tag: str) -> str | None:
     return None
 
 
+POSITIVE_TAGS: set[str] = {
+    # Tactics (Found)
+    "tactic:found-mate",
+    "tactic:found-sacrifice",
+    "tactic:found-fork",
+    "tactic:found-pin",
+    "tactic:found-skewer",
+    "tactic:found-discovery",
+    "tactic:hanging-piece-punished",
+    "tactic:back-rank-punished",
+    # Time Management
+    "time:clutch-play",
+    "time:time-advantage",
+    # Opening
+    "opening:development-lead",
+    "opening:center-control",
+    # Strategy
+    "strategy:piece-coordination",
+    "strategy:outpost-control",
+    "strategy:open-file-control",
+    # Endgame
+    "endgame:passed-pawn-created",
+    "endgame:active-rook",
+    "endgame:king-centralization",
+    "endgame:opposition",
+    "endgame:technical-conversion",
+    "endgame:stalemate-trap",
+    # General
+    "general:comeback-win",
+    "general:resilient-defense",
+}
+
+
+def is_positive_tag(tag: str) -> bool:
+    """Returns True if the given tag represents an achievement or positive pattern."""
+    norm = normalize_tag(tag)
+    return norm in POSITIVE_TAGS if norm else False
+
+
+def sort_tags_negative_first(tags: list[str]) -> list[str]:
+    """
+    Sorts a list of tags so that negative (areas to improve) tags come first,
+    followed by positive (achievements/strengths) tags.
+    """
+    negatives: list[str] = []
+    positives: list[str] = []
+    for t in tags:
+        norm = normalize_tag(t) or t
+        if is_positive_tag(norm):
+            positives.append(norm)
+        else:
+            negatives.append(norm)
+    return negatives + positives
+
+
 def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
     """
     Deterministically computes grounded tags directly from python-chess tactical facts,
     board positions, clock data, and Stockfish swing evaluations, completely immune to LLM hallucination.
+    Populates `cm.tags` on each CriticalMoment and returns the filtered game-level tags for the coached player.
     """
-    tags: set[str] = set()
+    user_col = (payload.user_color or "").strip().lower()
+    game_tags: set[str] = set()
 
     # 1. Critical moments tactical analysis
     for cm in payload.critical_moments:
+        move_tags: set[str] = set()
         cls_lower = (cm.classification or "").lower()
 
         # Missed win / Missed mate
-        if "missed win" in cls_lower:
-            tags.add("tactic:missed-win")
         if cm.mate_before is not None and cm.mate_after is None:
-            tags.add("tactic:missed-mate")
+            move_tags.add("tactic:missed-mate")
+        elif "missed win" in cls_lower:
+            move_tags.add("tactic:missed-win")
 
         # Positive critical moments: Checkmate, Brilliant sacrifice
         if "checkmate" in cls_lower or "#" in cm.move_played_san:
-            tags.add("tactic:found-mate")
+            move_tags.add("tactic:found-mate")
         if "brilliant" in cls_lower:
-            tags.add("tactic:found-sacrifice")
+            move_tags.add("tactic:found-sacrifice")
 
         # Tactical motifs in best move that were missed in played move
         best_facts = cm.facts_after_best_move
@@ -213,9 +274,9 @@ def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
         )
         played_has_pins = any(p.is_pinned for p in played_facts.attacked_or_pinned_pieces)
         if best_has_pins and not played_has_pins:
-            tags.add("tactic:missed-pin")
+            move_tags.add("tactic:missed-pin")
         elif played_has_pins and cls_lower in ("great move", "brilliant", "checkmate", "best move"):
-            tags.add("tactic:found-pin")
+            move_tags.add("tactic:found-pin")
 
         # Double attacks / Forks
         best_has_fork = any(
@@ -223,9 +284,9 @@ def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
         ) or any(len(p.attackers) >= 2 for p in pv_end_facts.attacked_or_pinned_pieces)
         played_has_fork = any(len(p.attackers) >= 2 for p in played_facts.attacked_or_pinned_pieces)
         if best_has_fork and not played_has_fork:
-            tags.add("tactic:missed-fork")
+            move_tags.add("tactic:missed-fork")
         elif played_has_fork and cls_lower in ("great move", "brilliant", "checkmate", "best move"):
-            tags.add("tactic:found-fork")
+            move_tags.add("tactic:found-fork")
 
         # Hanging pieces: distinguish between hanging your own piece vs missing opponent's free piece
         own_hanging = any(
@@ -234,32 +295,32 @@ def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
         if own_hanging and any(
             w in cls_lower for w in ("blunder", "mistake", "inaccuracy", "miss")
         ):
-            tags.add("tactic:hung-piece")
+            move_tags.add("tactic:hung-piece")
 
-        opp_color_str = "Black" if cm.color == "White" else "White"
+        opp_color_str = "Black" if cm.color.lower() == "white" else "White"
         opp_hanging_before = any(
             p.lower().startswith(opp_color_str.lower()) for p in cm.facts_before_move.hanging_pieces
         )
         if opp_hanging_before:
             if any(w in cls_lower for w in ("blunder", "mistake", "inaccuracy", "miss")):
-                tags.add("tactic:missed-hanging-piece")
+                move_tags.add("tactic:missed-hanging-piece")
             elif cls_lower in ("great move", "brilliant", "checkmate", "best move"):
-                tags.add("tactic:hanging-piece-punished")
+                move_tags.add("tactic:hanging-piece-punished")
 
         # Check early opening mistakes (castling rights surrendered)
         if cm.move_number <= 10:
             if not any(played_facts.legal_castling.values()) and any(
                 cm.facts_before_move.legal_castling.values()
             ):
-                tags.add("opening:king-in-center")
+                move_tags.add("opening:king-in-center")
 
-        # Time pressure blunder
+        # Time pressure blunder (<= 30s)
         if (
             cm.clock_seconds_remaining is not None
             and cm.clock_seconds_remaining <= 30.0
             and any(w in cls_lower for w in ("blunder", "mistake"))
         ):
-            tags.add("time:trouble-blunder")
+            move_tags.add("time:trouble-blunder")
 
         # Rushed move blunder (moved in < 3s despite having ample time > 60s)
         if (
@@ -269,7 +330,17 @@ def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
             and cm.clock_seconds_remaining > 60.0
             and any(w in cls_lower for w in ("blunder", "mistake", "inaccuracy"))
         ):
-            tags.add("time:rushed-blunder")
+            move_tags.add("time:rushed-blunder")
+
+        # Time sink (spent >= 45s while clock > 60s, without brilliant or great move)
+        if (
+            cm.time_spent_seconds is not None
+            and cm.time_spent_seconds >= 45.0
+            and cm.clock_seconds_remaining is not None
+            and cm.clock_seconds_remaining > 60.0
+            and cls_lower not in ("great move", "brilliant", "checkmate")
+        ):
+            move_tags.add("time:time-sink")
 
         # Clutch time scramble / conversion
         if (
@@ -277,7 +348,15 @@ def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
             and cm.clock_seconds_remaining <= 30.0
             and any(w in cls_lower for w in ("checkmate", "brilliant", "great move"))
         ):
-            tags.add("time:clutch-play")
+            move_tags.add("time:clutch-play")
+
+        # Store move-level tags on CriticalMoment
+        cm.tags = sorted(move_tags)
+
+        # Perspective filter for game-level tags:
+        # Only attribute to student if move matches user_color (or if user_color is unspecified/both)
+        if not user_col or user_col not in ("white", "black") or cm.color.lower() == user_col:
+            game_tags.update(move_tags)
 
     # 2. Checkmate delivered at the end of the game
     if (
@@ -285,16 +364,25 @@ def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
         and payload.pgn_moves_summary
         and "#" in payload.pgn_moves_summary.split()[-1]
     ):
-        tags.add("tactic:found-mate")
+        if user_col == "white" and payload.result == "1-0":
+            game_tags.add("tactic:found-mate")
+        elif user_col == "black" and payload.result == "0-1":
+            game_tags.add("tactic:found-mate")
+        elif user_col not in ("white", "black"):
+            game_tags.add("tactic:found-mate")
 
     # 3. Comeback turnaround
     if payload.ply_evals and len(payload.ply_evals) >= 10:
         if payload.result == "1-0":
-            if any(e is not None and e <= -200 for e in payload.ply_evals):
-                tags.add("general:comeback-win")
+            if (user_col == "white" or user_col not in ("white", "black")) and any(
+                e is not None and e <= -200 for e in payload.ply_evals
+            ):
+                game_tags.add("general:comeback-win")
         elif payload.result == "0-1":
-            if any(e is not None and e >= 200 for e in payload.ply_evals):
-                tags.add("general:comeback-win")
+            if (user_col == "black" or user_col not in ("white", "black")) and any(
+                e is not None and e >= 200 for e in payload.ply_evals
+            ):
+                game_tags.add("general:comeback-win")
 
     # 4. Accurate Endgame King Centralization check
     if payload.pgn_moves_summary:
@@ -329,18 +417,25 @@ def extract_deterministic_tags(payload: GameAnalysisPayload) -> list[str]:
                         ):
                             black_central_plies += 1
 
-                if white_central_plies >= 4 or black_central_plies >= 4:
-                    tags.add("endgame:king-centralization")
+                if user_col == "white" and white_central_plies >= 4:
+                    game_tags.add("endgame:king-centralization")
+                elif user_col == "black" and black_central_plies >= 4:
+                    game_tags.add("endgame:king-centralization")
+                elif user_col not in ("white", "black") and (
+                    white_central_plies >= 4 or black_central_plies >= 4
+                ):
+                    game_tags.add("endgame:king-centralization")
         except Exception:
             pass
 
-    return sorted(tags)
+    return sorted(game_tags)
 
 
 def parse_tags_with_justifications(report_md: str) -> dict[str, str]:
     """
     Extracts tags and their justifications from coaching report markdown.
     Discards any tag that lacks a concrete explanation of why it applies (min 15 chars).
+    Sorts tags chronologically by move number if mentioned, with whole-game tags last.
     """
     justified_tags: dict[str, str] = {}
     if not report_md:
@@ -356,12 +451,36 @@ def parse_tags_with_justifications(report_md: str) -> dict[str, str]:
         if m:
             raw_tag = m.group(1).lower().strip()
             explanation = m.group(2).strip()
-            explanation = re.sub(r"^\(\*\*[^\)]+\*\*\)\s*[:\-\u2013\u2014]?\s*", "", explanation)
+            explanation = re.sub(
+                r"^\s*(?:\([^\)]*\)|\*\*[^\*]+\*\*)\s*[:\-\u2013\u2014]?\s*", "", explanation
+            )
             norm = normalize_tag(raw_tag)
             if norm and norm in ALLOWED_TAGS and len(explanation) >= 15:
                 justified_tags[norm] = explanation
 
-    return justified_tags
+    if not justified_tags:
+        return justified_tags
+
+    def _extract_move_num(text: str) -> int:
+        match = re.search(
+            r"\b(?:move\s+)(\d+)\b|\b(\d+)\s*(?:\.{1,3}|\.\s+)[a-zA-Z0-9#+=x\-]+",
+            text,
+            re.IGNORECASE,
+        )
+        if match:
+            num_str = match.group(1) or match.group(2)
+            if num_str:
+                try:
+                    return int(num_str)
+                except ValueError:
+                    pass
+        return 9999
+
+    sorted_items = sorted(
+        justified_tags.items(),
+        key=lambda item: _extract_move_num(item[1]),
+    )
+    return dict(sorted_items)
 
 
 VALID_MOVE_CLASSES: dict[str, str] = {
@@ -471,7 +590,7 @@ def reconcile_move_classifications(
 def resolve_game_tags(
     ai_tags: list[str] | None,
     payload: GameAnalysisPayload,
-    max_tags: int = 6,
+    max_tags: int | None = None,
     report_md: str | None = None,
 ) -> list[str]:
     """
@@ -490,7 +609,7 @@ def resolve_game_tags(
                 if t not in seen:
                     resolved.append(t)
                     seen.add(t)
-                    if len(resolved) >= max_tags:
+                    if max_tags is not None and len(resolved) >= max_tags:
                         return resolved
             return resolved
 
@@ -501,7 +620,7 @@ def resolve_game_tags(
             if norm and norm in ALLOWED_TAGS and norm not in seen:
                 resolved.append(norm)
                 seen.add(norm)
-                if len(resolved) >= max_tags:
+                if max_tags is not None and len(resolved) >= max_tags:
                     return resolved
 
     for pt in payload.tags or []:
@@ -509,7 +628,7 @@ def resolve_game_tags(
         if norm_pt and norm_pt in ALLOWED_TAGS and norm_pt not in seen:
             resolved.append(norm_pt)
             seen.add(norm_pt)
-            if len(resolved) >= max_tags:
+            if max_tags is not None and len(resolved) >= max_tags:
                 return resolved
 
     if not resolved:
@@ -518,7 +637,23 @@ def resolve_game_tags(
             if dt not in seen:
                 resolved.append(dt)
                 seen.add(dt)
-                if len(resolved) >= max_tags:
+                if max_tags is not None and len(resolved) >= max_tags:
                     break
 
     return resolved
+
+
+__all__ = [
+    "ALLOWED_TAGS",
+    "POSITIVE_TAGS",
+    "TAG_ALIASES",
+    "VALID_MOVE_CLASSES",
+    "extract_deterministic_tags",
+    "is_positive_tag",
+    "normalize_tag",
+    "parse_move_classifications_from_table",
+    "parse_tags_with_justifications",
+    "reconcile_move_classifications",
+    "resolve_game_tags",
+    "sort_tags_negative_first",
+]

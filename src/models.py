@@ -45,6 +45,7 @@ class CriticalMoment(BaseModel):
     facts_at_end_of_pv: TacticalFacts
     clock_seconds_remaining: float | None = None  # Time remaining on player's clock after move
     time_spent_seconds: float | None = None  # Seconds spent calculating this move
+    tags: list[str] = Field(default_factory=list)  # Move-specific tactical/time tags
 
 
 class GameAnalysisPayload(BaseModel):

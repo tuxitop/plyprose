@@ -226,26 +226,38 @@ Recommend up to 3 targeted study or training priorities specifically for the coa
 
 # 7. Game Tags & Tactical Patterns
 
-**CRITICAL COACHING RULE — 1-TO-1 TAG EXPLANATION:**
+**CRITICAL COACHING RULE — 1-TO-1 TAG EXPLANATION & STUDENT PERSPECTIVE:**
 EVERY SINGLE TAG THAT IS ASSIGNED TO THIS GAME MUST BE LISTED AND EXPLAINED BY YOU IN THIS SECTION.
-Any tag that you do not explicitly list and explain here will NOT be assigned to the game. Discard any candidate tag that you do not approve or cannot justify with concrete game evidence.
+Any tag that you do not explicitly list and explain here will NOT be assigned to the game. Discard any candidate tag that you do not approve or cannot justify with concrete game evidence. Do NOT arbitrarily limit tags to 3 or 6; explain all genuine tags that apply to the game.
 
+- **STRICT STUDENT-ONLY PERSPECTIVE:**
+  When coaching a specific player (`user_color`), all tags assigned and explained in this section MUST reflect YOUR (the coached student's) play. NEVER assign or explain tags for opponent blunders, opponent sacrifices, or opponent missed wins! (For example, if White is the student and Black blundered or missed a fork, do NOT assign `time:trouble-blunder`, `tactic:missed-win`, or `tactic:missed-fork` to White). All tactical and time tags must describe what YOU executed, hung, or missed.
+- **CHRONOLOGICAL ORDER:**
+  Order the bullets in Section 7 chronologically by the move number where they occurred (from opening moves to endgame/final moves), followed by macro whole-game tags (e.g. `general:comeback-win` or `time:clutch-play`) at the end.
 - **Mandatory Justifications:** For every tag you select, you MUST provide a concrete 1-2 sentence explanation citing the exact move number(s) (e.g. `20... Ne3`, `32... Rae8`, `39... Re1#`) or clock/board dynamic.
 - **Hung Piece vs Missed Free Piece (Do NOT confuse them):**
-  - Use `tactic:hung-piece` (**Left Piece Hanging**) when a player moves and inadvertently leaves their OWN piece undefended and hanging to be taken (e.g. `32... Rae8` leaving the bishop on f3 hanging).
-  - Use `tactic:missed-hanging-piece` (**Missed Free Piece**) when the OPPONENT left a piece undefended and the player failed to capture it.
-  - Use `tactic:hanging-piece-punished` (**Captured Free Piece**) when the player spotted and captured the opponent's free piece.
+  - Use `tactic:hung-piece` (**Hung Piece**) when you move and inadvertently leave your OWN piece undefended and hanging to be captured (e.g. `32... Rae8` leaving your bishop on f3 hanging).
+  - Use `tactic:missed-hanging-piece` (**Missed Free Piece**) when the OPPONENT left a piece undefended and you failed to capture it.
+  - Use `tactic:hanging-piece-punished` (**Free Piece Won**) when you spotted and captured the opponent's free piece.
+- **Missed Win vs Missed Mate:**
+  - Use `tactic:missed-win` (**Missed Win**) when you had a decisive winning evaluation advantage (> +3.00 / -3.00) and threw it away with an inaccurate or blundered move.
+  - Use `tactic:missed-mate` (**Missed Mate**) when you had a concrete forced checkmate sequence on the board and failed to execute it.
+- **Time Management Habits (Time Sink vs Time Pressure):**
+  - Use `time:time-sink` (**Time Sink**) when you spend excessive calculation time (> 45s) on a single move early in the game or when your clock is still healthy (> 60s), without producing a brilliant/great move. (Do NOT call this time pressure!).
+  - Use `time:trouble-blunder` (**Time Blunder**) when you blunder while your clock is critically low (remaining time $\le 30$s).
+  - Use `time:rushed-blunder` (**Rushed Blunder**) when you blunder after moving too quickly (< 3s) despite having ample clock (> 60s).
+  - Use `time:clutch-play` (**Clutch Play**) when you successfully execute a critical checkmate or winning blow under time scramble (< 30s).
 - **Co-Existence of Patterns:** Positive and negative patterns are not mutually exclusive. If the game featured both an executed tactic (e.g. finding a fork on move 20) and a missed opportunity (e.g. missing a fork on move 12), include both tags and explain each with its respective move number.
 - Format each tag as a bullet in this exact format:
   - `category:tag-slug` (**Tag Label**): Concrete justification citing move numbers and tactical or positional dynamics.
 
-Standard taxonomy categories:
-- **Tactics (Found):** `tactic:found-mate` (Checkmate Delivered), `tactic:found-fork` (Fork Executed), `tactic:found-pin` (Pin Applied), `tactic:found-sacrifice` (Tactical Sacrifice), `tactic:hanging-piece-punished` (Captured Free Piece)
-- **Tactics (Blunders & Misses):** `tactic:hung-piece` (Left Piece Hanging), `tactic:missed-hanging-piece` (Missed Free Piece), `tactic:missed-fork`, `tactic:missed-pin`, `tactic:missed-skewer`, `tactic:missed-discovery`, `tactic:missed-mate`, `tactic:missed-win`
-- **Time Management:** `time:clutch-play` (Clutch Time Scramble under < 30s), `time:trouble-blunder` (Time Pressure Blunder with < 30s), `time:rushed-blunder` (Rushed Move Blunder < 3s), `time:time-advantage` (Clock Advantage)
-- **Opening:** `opening:king-in-center`, `opening:failed-to-castle`, `opening:early-queen`, `opening:development-lead`, `opening:development-lag`
-- **Endgame:** `endgame:king-centralization` (Active Endgame King on c3-f6), `endgame:passed-pawn-created`, `endgame:active-rook`
-- **General / Strategic:** `general:comeback-win` (Turnaround from Deficit), `general:resilient-defense`, `strategy:weak-squares`, `strategy:isolated-pawn`
+Standard taxonomy categories & shortened labels:
+- **Tactics (Found):** `tactic:found-mate` (Checkmate), `tactic:found-fork` (Fork), `tactic:found-pin` (Pin), `tactic:found-skewer` (Skewer), `tactic:found-discovery` (Discovered Attack), `tactic:found-sacrifice` (Sacrifice), `tactic:hanging-piece-punished` (Free Piece Won), `tactic:back-rank-punished` (Back-Rank Mate)
+- **Tactics (Blunders & Misses):** `tactic:hung-piece` (Hung Piece), `tactic:missed-hanging-piece` (Missed Free Piece), `tactic:missed-fork` (Missed Fork), `tactic:missed-pin` (Missed Pin), `tactic:missed-skewer` (Missed Skewer), `tactic:missed-discovery` (Missed Discovery), `tactic:missed-mate` (Missed Mate), `tactic:missed-win` (Missed Win), `tactic:missed-tactic` (Missed Tactic)
+- **Time Management:** `time:clutch-play` (Clutch Play), `time:trouble-blunder` (Time Blunder), `time:rushed-blunder` (Rushed Blunder), `time:time-sink` (Time Sink), `time:time-advantage` (Clock Lead)
+- **Opening:** `opening:development-lead` (Dev Lead), `opening:development-lag` (Dev Lag), `opening:early-queen` (Early Queen), `opening:king-in-center` (King in Center), `opening:failed-to-castle` (Castling Neglected), `opening:center-control` (Center Control)
+- **Endgame:** `endgame:king-centralization` (Active King), `endgame:passed-pawn-created` (Passed Pawn), `endgame:active-rook` (Active Rook), `endgame:technical-conversion` (Smooth Conversion)
+- **General / Strategic:** `general:comeback-win` (Comeback), `general:resilient-defense` (Resilient Defense), `strategy:piece-coordination` (Piece Coordination), `strategy:outpost-control` (Outpost Dominance)
 
 # 8. Verification Report
 

@@ -11,7 +11,8 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Badge } from '../components/Badge';
-import { getTagBadge, resultBadgeVariant, resultLabel } from '../lib/badges';
+import { TagCapsule } from '../components/TagCapsule';
+import { resultBadgeVariant, resultLabel, sortTagsNegativeFirst } from '../lib/badges';
 import {
   exportPdfUrl,
   exportZipUrl,
@@ -402,17 +403,9 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               </div>
               {record.tags && record.tags.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                  {record.tags.map(tag => {
-                    const tb = getTagBadge(tag);
-                    return (
-                      <span
-                        key={tag}
-                        className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${tb.bgClass} ${tb.textClass}`}
-                      >
-                        {tb.label}
-                      </span>
-                    );
-                  })}
+                  {sortTagsNegativeFirst(record.tags).map(tag => (
+                    <TagCapsule key={tag} tag={tag} />
+                  ))}
                 </div>
               )}
               <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 flex-wrap">

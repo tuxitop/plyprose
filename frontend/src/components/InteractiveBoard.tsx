@@ -39,12 +39,18 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { askMoveQuestion, appendQAToReport } from '../lib/api';
-import { formatPlyEval, formatSecondsToClock, getClassificationBadge } from '../lib/badges';
+import {
+  formatPlyEval,
+  formatSecondsToClock,
+  getClassificationBadge,
+  sortTagsNegativeFirst,
+} from '../lib/badges';
 import { classifyReportMove } from '../lib/chessNav';
 import { getQuickQuestions, renderCoachAnswerHtml } from '../lib/coachFormat';
 import type { AskMoveResponse } from '../types';
 import { StockfishService, type EngineLine } from '../lib/stockfishService';
 import { EvaluationChart } from './EvaluationChart';
+import { TagCapsule } from './TagCapsule';
 
 export type BoardTheme = 'green' | 'brown' | 'blue' | 'dark' | 'icicle';
 export type PieceTheme = 'cburnett' | 'merida' | 'alpha';
@@ -68,6 +74,7 @@ export interface CriticalMomentData {
   refutation_san?: string[];
   clock_seconds_remaining?: number | null;
   time_spent_seconds?: number | null;
+  tags?: string[];
 }
 
 export interface GamePly {
@@ -2301,6 +2308,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           · Clock: {formatSecondsToClock(currentPlyData.clockSecondsRemaining)}
                         </span>
                       )}
+                  </div>
+                )}
+              {currentPlyData.criticalMoment?.tags &&
+                currentPlyData.criticalMoment.tags.length > 0 && (
+                  <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                    {sortTagsNegativeFirst(currentPlyData.criticalMoment.tags).map(t => (
+                      <TagCapsule key={t} tag={t} size="sm" />
+                    ))}
                   </div>
                 )}
             </div>
