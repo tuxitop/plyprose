@@ -318,6 +318,30 @@ export function getTagCapsuleConfig(tag: string): TagCapsuleStyle {
   };
 }
 
+export function renderTagCapsuleHtml(tag: string, size: 'sm' | 'md' = 'sm'): string {
+  const cfg = getTagCapsuleConfig(tag);
+  const isSmall = size === 'sm';
+
+  const containerClasses = isSmall
+    ? 'inline-flex items-center rounded-full text-[10px] font-medium border overflow-hidden shadow-2xs select-none align-middle mr-1.5'
+    : 'inline-flex items-center rounded-full text-xs font-medium border overflow-hidden shadow-2xs select-none align-middle mr-1.5';
+
+  const categoryClasses = isSmall
+    ? `px-1.5 py-0.2 text-[8px] font-bold tracking-wider uppercase border-r border-slate-300/80 dark:border-slate-700/80 ${cfg.categoryBg} ${cfg.categoryText}`
+    : `px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase border-r border-slate-300/80 dark:border-slate-700/80 ${cfg.categoryBg} ${cfg.categoryText}`;
+
+  const valueClasses = isSmall
+    ? `px-1.5 py-0.2 text-[10px] font-semibold whitespace-nowrap ${cfg.valueBg} ${cfg.valueText}`
+    : `px-2 py-0.5 text-xs font-semibold whitespace-nowrap ${cfg.valueBg} ${cfg.valueText}`;
+
+  return `<span class="${containerClasses} ${cfg.border}" title="${cfg.category}: ${cfg.name}"><span class="${categoryClasses}">${cfg.category}</span><span class="${valueClasses}">${cfg.name}</span></span>`;
+}
+
+export function renderSquarePillHtml(square: string): string {
+  const sq = square.toLowerCase().trim();
+  return `<span class="chess-square-pill inline-flex items-center px-1.5 py-0.2 mx-0.5 rounded text-[11px] font-mono font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 select-none align-baseline cursor-pointer" data-square="${sq}" title="Board square ${sq}"><span class="text-[9px] text-amber-500 opacity-75 mr-0.5">⌗</span>${sq}</span>`;
+}
+
 export function getTagBadge(tag: string): TagBadgeConfig {
   const norm = tag.toLowerCase().trim();
   const label = TAG_LABELS[norm] || norm.split(':').pop()?.replace(/-/g, ' ') || norm;

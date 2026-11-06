@@ -1,4 +1,5 @@
 import { Chess } from 'chess.js';
+import { renderSquarePillHtml, renderTagCapsuleHtml } from './badges';
 
 function normalizeFen(fen: string): string {
   if (!fen) return '';
@@ -414,41 +415,114 @@ export function classifyReportMove(
 }
 
 /**
- * Decorates report HTML to visually distinguish played moves from variations
- * and make all moves interactive with clean accessible button markup.
+ * Decorates report HTML to visually distinguish played moves from variations,
+ * formats raw tag slugs into rich two-part capsules, styles board square coordinates distinctly,
+ * and makes all moves interactive with clean accessible button markup.
  */
 export function decorateReportHtml(html: string, pgnText: string): string {
   if (!html || !pgnText) return html;
 
-  return html.replace(/<code([^>]*)>([\s\S]*?)<\/code>/gi, (match, _attrs, content, offset) => {
-    const rawText = content.replace(/<[^>]+>/g, '').trim();
-    if (!rawText || rawText.includes('/') || rawText.length < 2) {
-      return match;
-    }
+  // 1. Normalize unicode characters (Narrow No-Break Space \u202f, NBSP \u00a0, unicode hyphens, ellipsis)
+  let processed = html
+    .replace(/[\u00A0\u202F\u2000-\u200B]/g, ' ')
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+    .replace(/\u2026/g, '...');
 
-    // Check if this <code> is within a table row <tr> to supply move number context
-    let fallbackRowContext: TableRowContext | null = null;
-    const lastTr = html.lastIndexOf('<tr', offset);
-    const lastTrClose = html.lastIndexOf('</tr>', offset);
-    if (lastTr !== -1 && lastTr > lastTrClose) {
-      const endTr = html.indexOf('</tr>', offset);
-      const trSnippet = html.substring(lastTr, endTr !== -1 ? endTr : offset);
-      fallbackRowContext = extractTableRowContext(trSnippet);
-    }
-
-    const target = classifyReportMove(rawText, pgnText, null, fallbackRowContext);
-    if (!target) {
-      return match;
-    }
-
-    if (target.type === 'mainline') {
-      return `<button type="button" class="chess-move-btn chess-move-mainline group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50/90 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 hover:border-blue-300 dark:hover:border-blue-700 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="mainline" data-ply="${target.ply}" title="Jump to game move ${target.displaySan}"><span class="text-[9px] text-blue-500 opacity-75 group-hover:opacity-100">▶</span>${content}</button>`;
-    } else {
-      const movesJson = encodeURIComponent(JSON.stringify(target.variationMoves || []));
-      const branchMoveNumber = Math.floor((target.ply - 1) / 2) + 1;
-      return `<button type="button" class="chess-move-btn chess-move-variation group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50/90 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 hover:border-purple-400 dark:hover:border-purple-600 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="variation" data-branch-ply="${target.ply}" data-moves="${movesJson}" title="Explore variation: ${rawText} (branches at move ${branchMoveNumber})"><span class="text-[10px] text-purple-500 font-bold opacity-80 group-hover:opacity-100">⑂</span>${content}</button>`;
-    }
+  // 2. Replace Section 7 tag bullets (e.g. `<code>tactic:found-fork</code> (**Fork Executed**):`)
+  // with the rich two-part capsule pill
+  const tagBulletRegex =
+    /<code([^>]*)>((?:tactic|opening|strategy|endgame|time|general):[a-z0-9-]+)<\/code>(?:\s*(?:\((?:<strong[^>]*>|\*{1,2})?\s*[^)<>]+\s*(?:<\/strong>|\*{1,2})?\)\s*[:\-\u2013\u2014]?|[:\-\u2013\u2014]))?/gi;
+  processed = processed.replace(tagBulletRegex, (_match, _attrs, slug) => {
+    return `${renderTagCapsuleHtml(slug, 'sm')} `;
   });
+
+  // 3. Process <code>...</code> blocks: moves, squares, or plain code
+  processed = processed.replace(
+    /<code([^>]*)>([\s\S]*?)<\/code>/gi,
+    (match, _attrs, content, offset) => {
+      const rawText = content.replace(/<[^>]+>/g, '').trim();
+      if (!rawText || rawText.includes('/') || rawText.length < 2) {
+        return match;
+      }
+
+      // Check if it's a standalone square (e.g. `b5`, `a7`, `d8`)
+      if (/^[a-h][1-8]$/i.test(rawText)) {
+        return renderSquarePillHtml(rawText);
+      }
+
+      // Check if this <code> is within a table row <tr> to supply move number context
+      let fallbackRowContext: TableRowContext | null = null;
+      const lastTr = processed.lastIndexOf('<tr', offset);
+      const lastTrClose = processed.lastIndexOf('</tr>', offset);
+      if (lastTr !== -1 && lastTr > lastTrClose) {
+        const endTr = processed.indexOf('</tr>', offset);
+        const trSnippet = processed.substring(lastTr, endTr !== -1 ? endTr : offset);
+        fallbackRowContext = extractTableRowContext(trSnippet);
+      }
+
+      const target = classifyReportMove(rawText, pgnText, null, fallbackRowContext);
+      if (!target) {
+        return match;
+      }
+
+      if (target.type === 'mainline') {
+        return `<button type="button" class="chess-move-btn chess-move-mainline group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50/90 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 hover:border-blue-300 dark:hover:border-blue-700 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="mainline" data-ply="${target.ply}" title="Jump to game move ${target.displaySan}"><span class="text-[9px] text-blue-500 opacity-75 group-hover:opacity-100">▶</span>${content}</button>`;
+      } else {
+        const movesJson = encodeURIComponent(JSON.stringify(target.variationMoves || []));
+        const branchMoveNumber = Math.floor((target.ply - 1) / 2) + 1;
+        return `<button type="button" class="chess-move-btn chess-move-variation group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50/90 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 hover:border-purple-400 dark:hover:border-purple-600 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="variation" data-branch-ply="${target.ply}" data-moves="${movesJson}" title="Explore variation: ${rawText} (branches at move ${branchMoveNumber})"><span class="text-[10px] text-purple-500 font-bold opacity-80 group-hover:opacity-100">⑂</span>${content}</button>`;
+      }
+    },
+  );
+
+  // 4. Process numbered moves and squares in text outside tags (e.g. in <p>, <li>, <td>, <strong>)
+  processed = processed.replace(/>([^<]+)</g, (match, textContent) => {
+    if (!textContent.trim()) return match;
+
+    let modified = textContent;
+
+    // A. Detect numbered chess moves in plain text: e.g. "10. Nxc6+", "9... Nf6", "11. Nxd8"
+    const movePattern =
+      /(^|[\s(])(\d{1,3}(?:\.{1,3}|\s*\.{1,3}\s*)[A-Za-z0-9#+=x-]+(?:[!?]{1,2})?)(?=[.,;:!?)\]\s]|$)/g;
+
+    modified = modified.replace(
+      movePattern,
+      (full: string, prefix: string, moveCandidate: string): string => {
+        const cleanCandidate = cleanSan(moveCandidate);
+        const target = classifyReportMove(cleanCandidate, pgnText);
+        if (!target) return full;
+
+        let btnHtml: string;
+        if (target.type === 'mainline') {
+          btnHtml = `<button type="button" class="chess-move-btn chess-move-mainline group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50/90 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 hover:border-blue-300 dark:hover:border-blue-700 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="mainline" data-ply="${target.ply}" title="Jump to game move ${target.displaySan}"><span class="text-[9px] text-blue-500 opacity-75 group-hover:opacity-100">▶</span>${moveCandidate}</button>`;
+        } else {
+          const movesJson = encodeURIComponent(JSON.stringify(target.variationMoves || []));
+          const branchMoveNumber = Math.floor((target.ply - 1) / 2) + 1;
+          btnHtml = `<button type="button" class="chess-move-btn chess-move-variation group inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50/90 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 hover:border-purple-400 dark:hover:border-purple-600 transition-colors cursor-pointer select-none text-[12px] font-mono font-semibold align-baseline" data-move-type="variation" data-branch-ply="${target.ply}" data-moves="${movesJson}" title="Explore variation: ${moveCandidate} (branches at move ${branchMoveNumber})"><span class="text-[10px] text-purple-500 font-bold opacity-80 group-hover:opacity-100">⑂</span>${moveCandidate}</button>`;
+        }
+        return `${prefix}${btnHtml}`;
+      },
+    );
+
+    // B. Detect square mentions in plain text: e.g. "on d8", "to e5", "square b5"
+    modified = modified.replace(
+      /(^|[\s(])(on|to|from|at|square)\s+([a-h][1-8])(?=[.,;:!?)\]\s]|$)/gi,
+      (_full: string, prefix: string, word: string, sq: string): string => {
+        return `${prefix}${word} ${renderSquarePillHtml(sq)}`;
+      },
+    );
+
+    modified = modified.replace(
+      /(^|[\s(])([a-h][1-8])\s+square(?=[.,;:!?)\]\s]|$)/gi,
+      (_full: string, prefix: string, sq: string): string => {
+        return `${prefix}${renderSquarePillHtml(sq)} square`;
+      },
+    );
+
+    return `>${modified}<`;
+  });
+
+  return processed;
 }
 
 /**

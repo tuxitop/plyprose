@@ -8,6 +8,8 @@ import {
   ExternalLink,
   ChevronUp,
   ChevronDown,
+  PanelRightClose,
+  PanelRightOpen,
 } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Badge } from '../components/Badge';
@@ -40,10 +42,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Interactive Chessboard sidebar state
-  const [isBoardOpen, setIsBoardOpen] = useState(() => {
-    return typeof window !== 'undefined' ? window.innerWidth >= 1200 : false;
-  });
+  // Interactive Chessboard sidebar state (default: open)
+  const [isBoardOpen, setIsBoardOpen] = useState(true);
   const [currentPly, setCurrentPly] = useState<number>(0);
   const boardRef = useRef<InteractiveBoardHandle | null>(null);
   const [initialVariation, setInitialVariation] = useState<{
@@ -295,6 +295,19 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
           }
         }
       }
+
+      // Case 4: Clicked on a chessboard square pill (.chess-square-pill)
+      const sqPill = target.closest('.chess-square-pill');
+      if (sqPill) {
+        const sq = sqPill.getAttribute('data-square');
+        if (sq) {
+          setIsBoardOpen(true);
+          if (boardRef.current?.highlightSquare) {
+            boardRef.current.highlightSquare(sq);
+          }
+        }
+        return;
+      }
     },
     [record],
   );
@@ -387,8 +400,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
           </div>
 
           {/* Match summary bar */}
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex flex-col gap-1.5 min-w-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
                   {white} <span className="text-slate-400 font-normal">vs</span> {black}
@@ -425,7 +438,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               </div>
             </div>
 
-            <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
               {reanalyzeJobId && (
                 <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
                   <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
@@ -464,16 +477,6 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                   Open Game
                 </a>
               )}
-              {!isBoardOpen && (
-                <button
-                  onClick={() => setIsBoardOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                  title="Open interactive chessboard sidebar"
-                >
-                  <span className="text-base leading-none">♟</span>
-                  Interactive Board
-                </button>
-              )}
               <a
                 href={exportPdfUrl(analysisId)}
                 download
@@ -490,6 +493,22 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 <Download size={12} />
                 .zip
               </a>
+              {/* Dedicated Sidebar Toggle Button at the header edge */}
+              <button
+                onClick={() => setIsBoardOpen(prev => !prev)}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                  isBoardOpen
+                    ? 'border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60'
+                    : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+                title={isBoardOpen ? 'Hide interactive board' : 'Show interactive board'}
+                aria-label={isBoardOpen ? 'Hide interactive board' : 'Show interactive board'}
+              >
+                {isBoardOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+                <span className="hidden sm:inline">
+                  {isBoardOpen ? 'Hide Board' : 'Show Board'}
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -518,19 +537,15 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               <ChevronDown size={13} />
               <span>Show Header</span>
             </button>
-            {!isBoardOpen && (
-              <>
-                <span className="text-slate-300 dark:text-slate-700">|</span>
-                <button
-                  onClick={() => setIsBoardOpen(true)}
-                  className="flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
-                  title="Open interactive board"
-                >
-                  <span className="text-xs">♟</span>
-                  <span>Board</span>
-                </button>
-              </>
-            )}
+            <span className="text-slate-300 dark:text-slate-700">|</span>
+            <button
+              onClick={() => setIsBoardOpen(prev => !prev)}
+              className="flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+              title={isBoardOpen ? 'Hide interactive board' : 'Show interactive board'}
+            >
+              {isBoardOpen ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
+              <span>{isBoardOpen ? 'Hide Board' : 'Show Board'}</span>
+            </button>
           </div>
         )}
 

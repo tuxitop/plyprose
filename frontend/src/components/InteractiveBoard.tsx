@@ -103,6 +103,7 @@ export interface VariationPly {
 export interface InteractiveBoardHandle {
   startVariation: (branchPly: number, moves: string[]) => void;
   resetVariation: () => void;
+  highlightSquare?: (square: string) => void;
 }
 
 export interface InteractiveBoardProps {
@@ -420,13 +421,21 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       setFreeChess(null);
     }, []);
 
+    const highlightSquare = useCallback((square: string) => {
+      const sq = square.toLowerCase().trim() as Key;
+      if (cgApiRef.current && /^[a-h][1-8]$/.test(sq)) {
+        cgApiRef.current.selectSquare(sq);
+      }
+    }, []);
+
     useImperativeHandle(
       ref,
       () => ({
         startVariation,
         resetVariation,
+        highlightSquare,
       }),
-      [startVariation, resetVariation],
+      [startVariation, resetVariation, highlightSquare],
     );
 
     // Current active ply clamped to range
