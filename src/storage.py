@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from typing import Any
 
@@ -36,6 +37,33 @@ def compute_analysis_hash(
         parts.extend(["---PAYLOAD---", payload_json.strip()])
     content = "\n".join(parts)
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def compute_game_hash(pgn_text: str) -> str:
+    """
+    Computes a deterministic 12-character hexadecimal hash of the game's PGN.
+    Used as a stable, instance-independent identifier for games without an external_id.
+    """
+    clean = re.sub(r"\s+", " ", (pgn_text or "").strip())
+    return hashlib.sha256(clean.encode("utf-8")).hexdigest()[:12]
+
+
+def get_game_key(rec: dict[str, Any]) -> str:
+    """
+    Returns the deterministic, instance-independent key for a game record:
+    - external_id if present (e.g. Lichess/Chess.com game ID)
+    - last segment of github_path if present
+    - 12-character PGN hash otherwise
+    """
+    ext_id = rec.get("external_id")
+    if ext_id and str(ext_id).strip():
+        return str(ext_id).strip()
+    github_path = rec.get("github_path")
+    if github_path and str(github_path).strip():
+        parts = str(github_path).strip().strip("/").split("/")
+        if parts:
+            return parts[-1]
+    return compute_game_hash(rec.get("pgn_text", ""))
 
 
 def get_connection(db_path: str | None = None) -> sqlite3.Connection:
@@ -473,6 +501,7 @@ def get_all_analyses(db_path: str | None = None) -> list[dict[str, Any]]:
                     rec["platform"] = "chesscom"
                 elif "lichess.org" in pgn_low:
                     rec["platform"] = "lichess"
+            rec["game_key"] = get_game_key(rec)
             analyses.append(rec)
 
         analyses.sort(
@@ -572,7 +601,60 @@ def get_analysis_by_id(
         else:
             result_dict["ply_evals"] = None
 
+        result_dict["game_key"] = get_game_key(result_dict)
         return result_dict
+
+
+def get_analysis_by_id_or_key(
+    identifier: int | str,
+    db_path: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Fetches an analysis record by either:
+    1. Primary key integer ID (e.g. 1, 42)
+    2. Platform external_id (e.g. 'ATH_TuongThinh_2019', '123456789')
+    3. GitHub folder path or folder suffix (e.g. '25-0930-tuxitop-keswic-white')
+    4. Deterministic 12-character PGN hash
+    """
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
+    init_db(db_path)
+
+    ident_str = str(identifier).strip()
+    if not ident_str:
+        return None
+
+    # Check primary key if it's all digits
+    if ident_str.isdigit():
+        rec = get_analysis_by_id(int(ident_str), db_path=db_path)
+        if rec:
+            return rec
+
+    # Otherwise (or if not matched by local primary key ID), query by external_id, github_path, or hash
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        # Look up by external_id
+        row = cursor.execute(
+            "SELECT id FROM game_analyses WHERE external_id = ?;", (ident_str,)
+        ).fetchone()
+        if row:
+            return get_analysis_by_id(row["id"], db_path=db_path)
+
+        # Look up by github_path (exact or folder suffix)
+        row = cursor.execute(
+            "SELECT id FROM game_analyses WHERE github_path = ? OR github_path LIKE ?;",
+            (ident_str, f"%/{ident_str}"),
+        ).fetchone()
+        if row:
+            return get_analysis_by_id(row["id"], db_path=db_path)
+
+        # Look up by PGN hash
+        all_rows = cursor.execute("SELECT id, pgn_text FROM game_analyses;").fetchall()
+        for r in all_rows:
+            if compute_game_hash(r["pgn_text"]) == ident_str:
+                return get_analysis_by_id(r["id"], db_path=db_path)
+
+    return None
 
 
 def update_analysis_payload(
@@ -728,11 +810,14 @@ __all__ = [
     "DEFAULT_DB_PATH",
     "clear_all_analyses",
     "compute_analysis_hash",
+    "compute_game_hash",
     "delete_analysis",
     "find_analysis",
     "find_analysis_by_github_path",
     "get_all_analyses",
     "get_analysis_by_id",
+    "get_analysis_by_id_or_key",
+    "get_game_key",
     "init_db",
     "repair_missing_ply_evals",
     "save_analysis",

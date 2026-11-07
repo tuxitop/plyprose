@@ -1,5 +1,6 @@
 export interface GameRecord {
   id: number;
+  game_key?: string;
   created_at: string;
   white_player: string;
   black_player: string;
@@ -50,10 +51,18 @@ export interface Settings {
   stockfish_path: string;
   stockfish_depth: number;
   stockfish_time: number;
+  stockfish_limit_mode?: 'both' | 'depth' | 'time';
+  stockfish_backward_analysis?: boolean;
+  stockfish_version?: string | null;
   llm_provider: string;
   llm_base_url: string;
   llm_api_key: string;
   llm_model: string;
+  gemini_api_key?: string;
+  gemini_model?: string;
+  openai_base_url?: string;
+  openai_api_key?: string;
+  openai_model?: string;
   github_enabled?: boolean;
   github_token?: string;
   github_repo?: string;
@@ -87,6 +96,7 @@ export interface DetectedRatingsResponse {
 
 export interface AnalysisRecord {
   id: number;
+  game_key?: string;
   created_at: string;
   white_player: string;
   black_player: string;

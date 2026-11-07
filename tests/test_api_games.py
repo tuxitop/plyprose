@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import chess
 import pytest
@@ -237,6 +238,124 @@ def test_settings_platform_and_time_control_ratings(tmp_path, monkeypatch):
     assert updated["elo_chesscom_rapid"] == 1580
     assert updated["elo_lichess_blitz"] == 1650
     assert updated["elo_lichess_rapid"] == 1780
+
+
+def test_settings_stockfish_and_llm_provider_switching(tmp_path, monkeypatch):
+    test_db = str(tmp_path / "test_settings_stockfish_llm.db")
+    monkeypatch.setattr("src.storage.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.settings_db.DEFAULT_DB_PATH", test_db)
+
+    client = TestClient(app)
+
+    # 1. Initial settings should contain stockfish defaults and detected version
+    r = client.get("/api/settings")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["stockfish_limit_mode"] == "both"
+    assert data["stockfish_backward_analysis"] is True
+    assert "stockfish_version" in data
+
+    # 2. Update stockfish mode to depth-only and backward analysis to false
+    r_put = client.put(
+        "/api/settings",
+        json={
+            "stockfish_limit_mode": "depth",
+            "stockfish_backward_analysis": False,
+            "stockfish_depth": 20,
+        },
+    )
+    assert r_put.status_code == 200
+    updated = r_put.json()
+    assert updated["stockfish_limit_mode"] == "depth"
+    assert updated["stockfish_backward_analysis"] is False
+    assert updated["stockfish_depth"] == 20
+
+    # 3. Configure Gemini credentials
+    r_gemini = client.put(
+        "/api/settings",
+        json={
+            "llm_provider": "gemini",
+            "llm_api_key": "AIzaSyFakeGeminiKey123",
+            "llm_model": "gemini-2.5-pro",
+        },
+    )
+    assert r_gemini.status_code == 200
+    gemini_data = r_gemini.json()
+    assert gemini_data["llm_provider"] == "gemini"
+    assert gemini_data["llm_api_key"] == "AIzaSyFakeGeminiKey123"
+    assert gemini_data["gemini_api_key"] == "AIzaSyFakeGeminiKey123"
+    assert gemini_data["llm_model"] == "gemini-2.5-pro"
+
+    # 4. Switch to OpenAI-compatible
+    r_openai = client.put(
+        "/api/settings",
+        json={
+            "llm_provider": "openai-compat",
+            "llm_base_url": "http://localhost:11434/v1",
+            "llm_api_key": "sk-local-test",
+            "llm_model": "deepseek-r1",
+        },
+    )
+    assert r_openai.status_code == 200
+    openai_data = r_openai.json()
+    assert openai_data["llm_provider"] == "openai-compat"
+    assert openai_data["llm_api_key"] == "sk-local-test"
+    assert openai_data["openai_api_key"] == "sk-local-test"
+    assert openai_data["llm_model"] == "deepseek-r1"
+
+    # 5. Switch back to Gemini without re-specifying keys; stored Gemini config should be restored
+    r_back_gemini = client.put(
+        "/api/settings",
+        json={"llm_provider": "gemini"},
+    )
+    assert r_back_gemini.status_code == 200
+    restored_gemini = r_back_gemini.json()
+    assert restored_gemini["llm_provider"] == "gemini"
+    assert restored_gemini["llm_api_key"] == "AIzaSyFakeGeminiKey123"
+    assert restored_gemini["llm_model"] == "gemini-2.5-pro"
+
+    # 6. Test connection routing to Gemini probe
+    with patch(
+        "api.main.probe_gemini_connection",
+        return_value=(True, "Successfully connected to Google Gemini."),
+    ) as mock_probe:
+        r_test = client.post("/api/settings/test-connection")
+        assert r_test.status_code == 200
+        assert r_test.json()["ok"] is True
+        mock_probe.assert_called_once_with(api_key="AIzaSyFakeGeminiKey123")
+
+    # 7. List models routing to Gemini models
+    with patch(
+        "api.main.get_available_gemini_models",
+        return_value=["gemini-2.5-flash", "gemini-2.5-pro"],
+    ) as mock_models:
+        r_models = client.get("/api/llm/models")
+        assert r_models.status_code == 200
+        assert r_models.json()["models"] == ["gemini-2.5-flash", "gemini-2.5-pro"]
+        mock_models.assert_called_once_with(api_key="AIzaSyFakeGeminiKey123")
+
+    # 8. List models with explicit query parameters
+    with patch(
+        "api.main.get_available_gemini_models",
+        return_value=["gemini-3.8-flash"],
+    ) as mock_models_query:
+        r_q = client.get("/api/llm/models?provider=gemini&api_key=CustomQueryKey")
+        assert r_q.status_code == 200
+        assert r_q.json()["models"] == ["gemini-3.8-flash"]
+        mock_models_query.assert_called_once_with(api_key="CustomQueryKey")
+
+    with patch(
+        "api.main.list_openai_compat_models",
+        return_value=["custom-llm"],
+    ) as mock_openai_query:
+        r_oq = client.get(
+            "/api/llm/models?provider=openai-compat&base_url=http://custom-host/v1&api_key=sk-custom"
+        )
+        assert r_oq.status_code == 200
+        assert r_oq.json()["models"] == ["custom-llm"]
+        mock_openai_query.assert_called_once_with(
+            base_url="http://custom-host/v1", api_key="sk-custom"
+        )
 
 
 def test_sync_games_with_time_range(tmp_path, monkeypatch):
@@ -816,3 +935,46 @@ async def test_api_skip_engine_reanalysis(tmp_path, monkeypatch):
     assert _jobs[job_id]["status"] == "done"
     rec = get_analysis_by_id(aid, db_path=test_db)
     assert rec["report_md"] == "## Fast LLM Report"
+
+
+def test_api_get_analysis_by_key_and_string_id(tmp_path, monkeypatch):
+    test_db = str(tmp_path / "test_api_key.db")
+    monkeypatch.setattr("src.storage.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.games_db.DEFAULT_DB_PATH", test_db)
+
+    payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="300",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+    )
+    pgn = '[Site "Chess.com"]\n[Link "https://www.chess.com/game/live/123456789"]\n\n1. e4 e5 1-0'
+    aid = save_analysis(
+        pgn_text=pgn,
+        payload=payload,
+        report_md="# Title\n\nContent",
+        model_name="test-model",
+        db_path=test_db,
+    )
+
+    client = TestClient(app)
+
+    # Fetch by numeric id
+    r1 = client.get(f"/api/analysis/{aid}")
+    assert r1.status_code == 200
+    assert r1.json()["id"] == aid
+    assert r1.json()["game_key"] == "123456789"
+
+    # Fetch by string external_id
+    r2 = client.get("/api/analysis/123456789")
+    assert r2.status_code == 200
+    assert r2.json()["id"] == aid
+
+    # Report html by string external_id
+    r3 = client.get("/api/analysis/123456789/report-html")
+    assert r3.status_code == 200
+    assert "report_html" in r3.json()

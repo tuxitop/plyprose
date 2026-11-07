@@ -39,6 +39,7 @@ from api.ratings import get_detected_ratings
 from api.settings_db import get_settings, update_settings
 from api.time_control import classify_time_control
 from src.analyzer import analyze_pgn
+from src.coach_agent import get_available_gemini_models, probe_gemini_connection
 from src.evals import extract_ply_evals_from_pgn, interpolate_ply_evals
 from src.exporter import export_to_pdf
 from src.fetcher import (
@@ -88,6 +89,7 @@ from src.storage import (
     find_analysis_by_github_path,
     get_all_analyses,
     get_analysis_by_id,
+    get_analysis_by_id_or_key,
     save_analysis,
     update_analysis_github_sync,
     update_analysis_payload,
@@ -96,7 +98,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.9.0")
+app = FastAPI(title="PlyProse API", version="1.10.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -141,10 +143,17 @@ class SettingsPayload(BaseModel):
     stockfish_path: str | None = None
     stockfish_depth: int | None = None
     stockfish_time: float | None = None
+    stockfish_limit_mode: str | None = None
+    stockfish_backward_analysis: bool | None = None
     llm_provider: str | None = None
     llm_base_url: str | None = None
     llm_api_key: str | None = None
     llm_model: str | None = None
+    gemini_api_key: str | None = None
+    gemini_model: str | None = None
+    openai_base_url: str | None = None
+    openai_api_key: str | None = None
+    openai_model: str | None = None
     github_enabled: bool | None = None
     github_token: str | None = None
     github_repo: str | None = None
@@ -178,7 +187,7 @@ def api_github_test_connection(payload: GitHubTestPayload | None = None) -> dict
 
 
 @app.post("/api/github/sync/{analysis_id}")
-def api_github_sync_game(analysis_id: int, force: bool = Query(False)) -> dict:
+def api_github_sync_game(analysis_id: str, force: bool = Query(False)) -> dict:
     settings = get_settings()
     token = settings.get("github_token", "").strip()
     repo = settings.get("github_repo", "").strip()
@@ -189,9 +198,10 @@ def api_github_sync_game(analysis_id: int, force: bool = Query(False)) -> dict:
             status_code=400, detail="GitHub token and repository must be configured in settings."
         )
 
-    rec = get_analysis_by_id(analysis_id)
+    rec = get_analysis_by_id_or_key(analysis_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Analysis not found")
+    real_id = rec["id"]
 
     report_md = rec.get("report_md", "")
     pgn_text = rec.get("pgn_text", "")
@@ -235,7 +245,7 @@ def api_github_sync_game(analysis_id: int, force: bool = Query(False)) -> dict:
             files=files,
             commit_message=f"Sync analysis: {rec.get('white_player')} vs {rec.get('black_player')} ({folder})",
         )
-        update_analysis_github_sync(analysis_id, folder, current_hash)
+        update_analysis_github_sync(real_id, folder, current_hash)
         return {
             "ok": True,
             "commit_sha": commit_sha,
@@ -611,10 +621,16 @@ def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
 @app.post("/api/settings/test-connection")
 def api_test_connection() -> dict:
     settings = get_settings()
-    ok, message = probe_openai_compat_connection(
-        base_url=settings.get("llm_base_url"),
-        api_key=settings.get("llm_api_key") or None,
-    )
+    provider = settings.get("llm_provider", "openai-compat")
+    if provider == "gemini":
+        ok, message = probe_gemini_connection(
+            api_key=settings.get("llm_api_key") or None,
+        )
+    else:
+        ok, message = probe_openai_compat_connection(
+            base_url=settings.get("llm_base_url"),
+            api_key=settings.get("llm_api_key") or None,
+        )
     return {"ok": ok, "message": message}
 
 
@@ -852,10 +868,11 @@ def api_delete_pending(game_id: int) -> dict:
 
 
 @app.delete("/api/games/{game_id}")
-def api_delete_game(game_id: int) -> dict:
-    rec = get_analysis_by_id(game_id)
+def api_delete_game(game_id: str) -> dict:
+    rec = get_analysis_by_id_or_key(game_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Game not found")
+    real_id = rec["id"]
 
     settings = get_settings()
     if (
@@ -886,7 +903,7 @@ def api_delete_game(game_id: int) -> dict:
             except Exception as gh_exc:
                 logger.warning("Failed to delete game %s from GitHub: %s", game_id, gh_exc)
 
-    ok = delete_analysis(game_id)
+    ok = delete_analysis(real_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Game not found")
     return {"ok": True}
@@ -898,14 +915,21 @@ class UpdatePlatformPayload(BaseModel):
 
 
 @app.patch("/api/games/{game_id}/platform")
-def api_update_game_platform(game_id: int, payload: UpdatePlatformPayload) -> dict:
+def api_update_game_platform(game_id: str, payload: UpdatePlatformPayload) -> dict:
     plat = payload.platform.strip().lower()
     if plat not in ("lichess", "chesscom", "manual"):
         raise HTTPException(status_code=400, detail=f"Invalid platform: {plat}")
     if payload.is_pending:
-        ok = update_pending_game_platform(game_id, plat)
+        try:
+            pid = int(game_id)
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail="Pending game not found") from err
+        ok = update_pending_game_platform(pid, plat)
     else:
-        ok = update_analysis_platform(game_id, plat)
+        rec = get_analysis_by_id_or_key(game_id)
+        if not rec:
+            raise HTTPException(status_code=404, detail="Game not found")
+        ok = update_analysis_platform(rec["id"], plat)
     if not ok:
         raise HTTPException(status_code=404, detail="Game not found")
     return {"ok": True, "game_id": game_id, "platform": plat}
@@ -1481,13 +1505,23 @@ async def _run_analysis_job(
                 {"step": 1, "message": "Running Stockfish engine analysis…", "progress": 10},
             )
 
+            sf_depth = settings.get("stockfish_depth", 18)
+            sf_time = settings.get("stockfish_time", 0.15)
+            limit_mode = settings.get("stockfish_limit_mode", "both")
+            sf_backward = bool(settings.get("stockfish_backward_analysis", True))
+
+            depth_val = int(sf_depth) if limit_mode in ("both", "depth") and sf_depth else None
+            time_val = float(sf_time) if limit_mode in ("both", "time") and sf_time else None
+
             payload = await loop.run_in_executor(
                 None,
                 lambda: analyze_pgn(
                     pgn_str=pgn,
                     stockfish_path=settings.get("stockfish_path", "/usr/sbin/stockfish"),
                     user_color=user_color,
-                    time_per_move=float(settings.get("stockfish_time", 0.15)),
+                    time_per_move=time_val,
+                    depth=depth_val,
+                    backward_analysis=sf_backward,
                     platform=resolved_platform,
                     filter_by_user_color=False,
                     progress_callback=_sf_progress,
@@ -1811,8 +1845,8 @@ def api_get_job(job_id: str) -> dict:
 
 
 @app.get("/api/analysis/{analysis_id}")
-def api_get_analysis(analysis_id: int) -> dict:
-    rec = get_analysis_by_id(analysis_id)
+def api_get_analysis(analysis_id: str) -> dict:
+    rec = get_analysis_by_id_or_key(analysis_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Analysis not found")
     rec.pop("payload", None)
@@ -1846,14 +1880,14 @@ def api_get_analysis(analysis_id: int) -> dict:
 
 
 @app.get("/api/analysis/{analysis_id}/report-html")
-def api_get_report_html(analysis_id: int) -> dict:
+def api_get_report_html(analysis_id: str) -> dict:
     """
     Pipeline:
       1. Reconcile board FENs against ground-truth game positions if needed
       2. Replace :::board{...}::: and {{BOARD:...}} markers with inline <figure> HTML
       3. Convert remaining Markdown to HTML
     """
-    rec = get_analysis_by_id(analysis_id)
+    rec = get_analysis_by_id_or_key(analysis_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Analysis not found")
     report_md = rec.get("report_md", "")
@@ -1911,8 +1945,8 @@ def append_qa_to_report_markdown(
 
 
 @app.post("/api/analysis/{analysis_id}/ask-move", response_model=AskMoveResponse)
-def api_ask_move(analysis_id: int, req: AskMoveRequest) -> AskMoveResponse:
-    rec = get_analysis_by_id(analysis_id)
+def api_ask_move(analysis_id: str, req: AskMoveRequest) -> AskMoveResponse:
+    rec = get_analysis_by_id_or_key(analysis_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
@@ -1955,10 +1989,11 @@ def api_ask_move(analysis_id: int, req: AskMoveRequest) -> AskMoveResponse:
 
 
 @app.post("/api/analysis/{analysis_id}/append-qa", response_model=AppendQAResponse)
-def api_append_qa(analysis_id: int, req: AppendQARequest) -> AppendQAResponse:
-    rec = get_analysis_by_id(analysis_id)
+def api_append_qa(analysis_id: str, req: AppendQARequest) -> AppendQAResponse:
+    rec = get_analysis_by_id_or_key(analysis_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Analysis not found")
+    real_id = rec["id"]
 
     report_md = rec.get("report_md", "")
     model_name = rec.get("model_name", "gemini-2.5-pro")
@@ -1978,7 +2013,7 @@ def api_append_qa(analysis_id: int, req: AppendQARequest) -> AppendQAResponse:
             new_report_md, pgn_text=pgn_text, payload=payload_json
         )
 
-    update_analysis_report(analysis_id, new_report_md, model_name)
+    update_analysis_report(real_id, new_report_md, model_name)
     md_with_boards = replace_board_tags_with_html(new_report_md, size=380)
     report_html = _md.markdown(
         md_with_boards,
@@ -1994,8 +2029,8 @@ def api_append_qa(analysis_id: int, req: AppendQARequest) -> AppendQAResponse:
 
 
 @app.get("/api/analysis/{analysis_id}/export/pdf")
-def api_export_pdf(analysis_id: int) -> Response:
-    rec = get_analysis_by_id(analysis_id)
+def api_export_pdf(analysis_id: str) -> Response:
+    rec = get_analysis_by_id_or_key(analysis_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Analysis not found")
     report_md = rec.get("report_md", "")
@@ -2016,8 +2051,8 @@ def api_export_pdf(analysis_id: int) -> Response:
 
 
 @app.get("/api/analysis/{analysis_id}/export/zip")
-def api_export_zip(analysis_id: int) -> Response:
-    rec = get_analysis_by_id(analysis_id)
+def api_export_zip(analysis_id: str) -> Response:
+    rec = get_analysis_by_id_or_key(analysis_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Analysis not found")
     report_md = rec.get("report_md", "")
@@ -2067,12 +2102,25 @@ def api_render_board(
 
 
 @app.get("/api/llm/models")
-def api_list_models() -> dict:
+def api_list_models(
+    provider: str | None = Query(None),
+    base_url: str | None = Query(None),
+    api_key: str | None = Query(None),
+) -> dict:
     settings = get_settings()
-    models = list_openai_compat_models(
-        base_url=settings.get("llm_base_url"),
-        api_key=settings.get("llm_api_key") or None,
-    )
+    active_provider = provider or settings.get("llm_provider", "openai-compat")
+    active_api_key = api_key if api_key is not None else settings.get("llm_api_key")
+    active_base_url = base_url if base_url is not None else settings.get("llm_base_url")
+
+    if active_provider == "gemini":
+        models = get_available_gemini_models(
+            api_key=active_api_key or None,
+        )
+    else:
+        models = list_openai_compat_models(
+            base_url=active_base_url,
+            api_key=active_api_key or None,
+        )
     return {"models": models}
 
 

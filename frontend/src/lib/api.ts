@@ -47,7 +47,14 @@ export const verifyUsername = (platform: string, username: string) =>
     `/settings/verify-username?platform=${encodeURIComponent(platform)}&username=${encodeURIComponent(username)}`,
     { method: 'POST' },
   );
-export const listModels = () => req<{ models: string[] }>('/llm/models');
+export const listModels = (provider?: string, baseUrl?: string, apiKey?: string) => {
+  const params = new URLSearchParams();
+  if (provider) params.set('provider', provider);
+  if (baseUrl) params.set('base_url', baseUrl);
+  if (apiKey) params.set('api_key', apiKey);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return req<{ models: string[] }>(`/llm/models${qs}`);
+};
 
 // ── GitHub Sync ────────────────────────────────────────────────────────────────
 export const testGitHubConnection = (payload?: {
@@ -59,10 +66,13 @@ export const testGitHubConnection = (payload?: {
     method: 'POST',
     body: JSON.stringify(payload ?? {}),
   });
-export const syncGameToGitHub = (analysisId: number, force = false) =>
-  req<GitHubSyncResult>(`/github/sync/${analysisId}${force ? '?force=true' : ''}`, {
-    method: 'POST',
-  });
+export const syncGameToGitHub = (analysisId: number | string, force = false) =>
+  req<GitHubSyncResult>(
+    `/github/sync/${encodeURIComponent(analysisId)}${force ? '?force=true' : ''}`,
+    {
+      method: 'POST',
+    },
+  );
 export const syncAllToGitHub = (force = false) =>
   req<GitHubSyncAllResult>(`/github/sync-all${force ? '?force=true' : ''}`, { method: 'POST' });
 export const pullFromGitHub = (force = false) =>
@@ -73,11 +83,13 @@ export const getGames = (params: Record<string, string | number>) => {
   const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
   return req<GamesResponse>(`/games?${qs}`);
 };
-export const deleteGame = (id: number, isPending = false) =>
-  req<{ ok: boolean }>(isPending ? `/games/pending/${id}` : `/games/${id}`, { method: 'DELETE' });
+export const deleteGame = (id: number | string, isPending = false) =>
+  req<{ ok: boolean }>(isPending ? `/games/pending/${id}` : `/games/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 
-export const updateGamePlatform = (id: number, platform: string, isPending = false) =>
-  req<{ ok: boolean }>(`/games/${id}/platform`, {
+export const updateGamePlatform = (id: number | string, platform: string, isPending = false) =>
+  req<{ ok: boolean }>(`/games/${encodeURIComponent(id)}/platform`, {
     method: 'PATCH',
     body: JSON.stringify({ platform, is_pending: isPending }),
   });
@@ -145,22 +157,27 @@ export const getAvailableTags = () =>
 
 export const getJobStatus = (jobId: string) => req<JobStatus>(`/jobs/${jobId}`);
 
-export const getAnalysis = (id: number) => req<AnalysisRecord>(`/analysis/${id}`);
+export const getAnalysis = (id: number | string) =>
+  req<AnalysisRecord>(`/analysis/${encodeURIComponent(id)}`);
 
-export const getReportHtml = (id: number) =>
-  req<{ report_html: string; report_md: string }>(`/analysis/${id}/report-html`);
+export const getReportHtml = (id: number | string) =>
+  req<{ report_html: string; report_md: string }>(
+    `/analysis/${encodeURIComponent(id)}/report-html`,
+  );
 
-export const exportPdfUrl = (id: number) => `${BASE}/analysis/${id}/export/pdf`;
-export const exportZipUrl = (id: number) => `${BASE}/analysis/${id}/export/zip`;
+export const exportPdfUrl = (id: number | string) =>
+  `${BASE}/analysis/${encodeURIComponent(id)}/export/pdf`;
+export const exportZipUrl = (id: number | string) =>
+  `${BASE}/analysis/${encodeURIComponent(id)}/export/zip`;
 
-export const askMoveQuestion = (analysisId: number, data: AskMoveRequest) =>
-  req<AskMoveResponse>(`/analysis/${analysisId}/ask-move`, {
+export const askMoveQuestion = (analysisId: number | string, data: AskMoveRequest) =>
+  req<AskMoveResponse>(`/analysis/${encodeURIComponent(analysisId)}/ask-move`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
 
-export const appendQAToReport = (analysisId: number, data: AppendQARequest) =>
-  req<AppendQAResponse>(`/analysis/${analysisId}/append-qa`, {
+export const appendQAToReport = (analysisId: number | string, data: AppendQARequest) =>
+  req<AppendQAResponse>(`/analysis/${encodeURIComponent(analysisId)}/append-qa`, {
     method: 'POST',
     body: JSON.stringify(data),
   });

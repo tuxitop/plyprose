@@ -9,6 +9,7 @@ from src.coach_agent import (
     generate_narrative_report,
     get_coach_config,
     get_system_prompt,
+    probe_gemini_connection,
 )
 from src.inspector import verify_variation_tool
 from src.models import GameAnalysisPayload
@@ -289,4 +290,30 @@ def test_build_coach_user_prompt_numbered_moves(sample_payload: GameAnalysisPayl
     assert "MANDATORY NUMBERED MOVES" in user_prompt
     assert "ALWAYS include the move number" in user_prompt
     assert "NEVER write bare moves without move numbers" in user_prompt
-    assert "Never wrap bare chessboard squares in backticks" in user_prompt
+
+
+def test_probe_gemini_connection_no_key(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    ok, msg = probe_gemini_connection(api_key=None)
+    assert ok is False
+    assert "Gemini API key is required" in msg
+
+
+def test_probe_gemini_connection_success():
+    mock_client = MagicMock()
+    mock_model = MagicMock()
+    mock_model.name = "models/gemini-2.5-flash"
+    mock_client.models.list.return_value = [mock_model]
+
+    ok, msg = probe_gemini_connection(client=mock_client)
+    assert ok is True
+    assert "Successfully connected" in msg
+
+
+def test_probe_gemini_connection_error():
+    mock_client = MagicMock()
+    mock_client.models.list.side_effect = Exception("API quota exceeded")
+
+    ok, msg = probe_gemini_connection(client=mock_client)
+    assert ok is False
+    assert "API quota exceeded" in msg

@@ -47,7 +47,12 @@ All spatial, tactical, and engine facts MUST be computed deterministically via `
   - Use the modern `google-genai` SDK (`from google import genai` and `from google.genai import types`) for Gemini. Do NOT use the deprecated `google-generativeai` package.
   - For custom OpenAI-compatible endpoints, use the `openai` Python SDK with a configurable `base_url` and a manual tool-calling loop in `src/openai_agent.py`, routed through `src/llm.py`.
 
-### 5. Semantic Versioning Policy (`MAJOR.MINOR.PATCH`)
+### 5. Documentation & Specification Synchronization Policy
+
+- **Living Documentation:** Whenever configuration options, environment variable usage, endpoints, URL routing, or architectural behaviors are modified, `README.md` and `SPEC.md` must be kept strictly updated in the same changeset. Never leave documentation obsolete or out of sync with code changes.
+- **Git Commit Discipline:** All code, specification, and documentation changes must be cleanly committed to git before concluding a task (`git commit` with descriptive commit message).
+
+### 6. Semantic Versioning Policy (`MAJOR.MINOR.PATCH`)
 
 PlyProse follows strict Semantic Versioning (`MAJOR.MINOR.PATCH`). When updating the project version, ensure all manifest declarations remain synchronized across the codebase:
 
@@ -75,13 +80,14 @@ PlyProse follows strict Semantic Versioning (`MAJOR.MINOR.PATCH`). When updating
   - **Foundational Architecture Changes:** Replacing the primary engine interface, overhaul of core LLM prompt/fact serialization contracts, or replacing backend/frontend frameworks.
   - **Platform Support Drops:** Dropping support for previously supported runtimes (e.g., Python 3.11 or Node 18).
 
-### 6. Mandatory Verification Checklist
+### 7. Mandatory Verification Checklist
 
 Before completing any task, execute:
 
 1. `./scripts/lint.sh` (executes Ruff lint, Ruff format check, MyPy type check, ESLint, TypeScript check, Prettier check).
 2. `.venv/bin/pytest` (all unit and integration tests must pass with 0 failures and 0 warnings).
 3. `npm --prefix frontend run build` (guarantees production asset compilation succeeds).
+4. `git commit` to ensure all changes, specs, and docs are cleanly tracked in version control.
 
 ---
 

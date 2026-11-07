@@ -99,24 +99,36 @@ npm install
 cd ..
 ```
 
-### 3. Configure Environment Variables
+### 3. Application Settings & Configuration
 
-Create a `.env` file at the root of the project (refer to [`.env.example`](.env.example)):
+PlyProse persists all user configurations, API credentials, Stockfish parameters, and platform profiles dynamically in the SQLite database (`outputs/history.db`). **You do not need to configure `.env` to get started!** All settings can be viewed, tested, and updated directly via the in-app **Settings** interface.
+
+#### Dynamic In-App Settings (`/settings`):
+* **Player Rating & Profiles:** Enter or auto-detect your Lichess and Chess.com usernames and ratings (Blitz / Rapid). The LLM automatically tailors coaching depth and narrative tone to your rating tier.
+* **Stockfish Engine Limits & Backward Analysis:**
+  * Configure evaluation halting conditions: **Both** (first threshold reached), **Depth-only**, or **Time-only**.
+  * Enable **Backward Analysis** (evaluating from ply $N$ back to ply $0$) to maximize Stockfish transposition table hits and evaluate endgame positions with pre-populated cache.
+  * Local Stockfish path is auto-detected on system PATH (`/usr/games/stockfish`, `/usr/local/bin/stockfish`, etc.) and displays the active engine version (e.g., `Stockfish 19`).
+* **LLM Provider Switching:**
+  * Toggle between **Google Gemini** (Gemini 2.5 Flash / Pro) and **OpenAI-Compatible Endpoints** (Ollama, LM Studio, vLLM, OpenRouter, Groq).
+  * In-UI connection testing (`Test Connection`) validates credentials and fetches live model lists without restarting servers.
+* **Automated GitHub Synchronization:**
+  * Connect a GitHub repository and personal access token to automatically backup markdown coaching masterclasses, PGN files, and analysis JSON.
+* **Cross-Instance Consistent URLs:**
+  * Game analysis pages use deterministic URLs (`/analysis/{game_key}`) resolved via platform game ID (e.g. Lichess/Chess.com URL slug) or SHA-256 PGN hash, allowing identical game links across different browser sessions and PlyProse instances. Full browser Back/Forward navigation is seamlessly supported.
+
+#### Optional Environment Variables (`.env`):
+If you wish to seed initial defaults prior to launching the database, you can create a `.env` file (see [`.env.example`](.env.example)):
 
 ```bash
-# Gemini API Key (get one free at https://aistudio.google.com/)
+# Path to your local Stockfish executable (optional; backend auto-detects system paths)
+STOCKFISH_PATH="/usr/games/stockfish"
+
+# Optional Initial Fallback Keys
 GEMINI_API_KEY="your-gemini-api-key"
-
-# Path to your local Stockfish executable
-STOCKFISH_PATH="/usr/games/stockfish" # or /usr/local/bin/stockfish, etc.
-
-# Optional: Custom OpenAI-compatible endpoint (Ollama, LM Studio, etc.)
 OPENAI_COMPAT_BASE_URL="http://localhost:11434/v1"
-OPENAI_COMPAT_API_KEY="optional-or-not-needed"
-OPENAI_COMPAT_MODEL="qwen2.5:latest"
+OPENAI_COMPAT_API_KEY=""
 ```
-
-*(Note: LLM providers, API keys, platforms, and usernames can also be configured and changed at runtime through the application's **Settings** page).*
 
 ---
 

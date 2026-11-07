@@ -32,7 +32,7 @@ import type { Theme } from '../hooks/useTheme';
 import type { AnalysisRecord } from '../types';
 
 interface AnalysisPageProps {
-  analysisId: number;
+  analysisId: number | string;
   theme: Theme;
   onToggleTheme: () => void;
   onBack: () => void;
@@ -192,7 +192,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
       record.pgn_text,
       record.side || 'auto',
       record.platform || 'manual',
-      analysisId,
+      record.id,
       undefined,
       skipEngine,
     )

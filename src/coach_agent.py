@@ -474,6 +474,26 @@ def get_available_gemini_models(
         return list(DEFAULT_GEMINI_MODELS)
 
 
+def probe_gemini_connection(
+    api_key: str | None = None,
+    client: genai.Client | None = None,
+) -> tuple[bool, str]:
+    """
+    Validates Gemini connectivity and API key validity.
+    Returns (True, message) on success, (False, error_message) on failure.
+    """
+    key = api_key or os.environ.get("GEMINI_API_KEY")
+    if not key and client is None:
+        return False, "Gemini API key is required. Please enter an API key in Settings."
+    try:
+        if client is None:
+            client = genai.Client(api_key=key)
+        _ = next(iter(client.models.list()))
+        return True, "Successfully connected to Google Gemini."
+    except Exception as exc:
+        return False, f"Google Gemini connection failed: {exc}"
+
+
 def extract_move_qa_context(
     pgn_text: str,
     payload: GameAnalysisPayload | None,
@@ -750,4 +770,5 @@ __all__ = [
     "get_available_gemini_models",
     "get_coach_config",
     "get_system_prompt",
+    "probe_gemini_connection",
 ]

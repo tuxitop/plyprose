@@ -6,6 +6,7 @@ import pytest
 from src.analyzer import (
     _classify_swing,
     analyze_pgn,
+    get_stockfish_version,
 )
 from src.models import GameAnalysisPayload, TacticalFacts
 
@@ -346,3 +347,71 @@ def test_best_move_played_never_negative_critical_moment():
                 "Great Move",
                 "Checkmate",
             )
+
+
+@pytest.mark.skipif(
+    not os.path.exists(STOCKFISH_PATH),
+    reason="Stockfish binary not found at default path",
+)
+def test_analyze_pgn_depth_only_and_time_only():
+    pgn_str = """[Event "Depth test"]
+[White "Player1"]
+[Black "Player2"]
+[Result "1-0"]
+
+1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7# 1-0"""
+
+    # 1. Depth only
+    payload_depth = analyze_pgn(
+        pgn_str=pgn_str,
+        stockfish_path=STOCKFISH_PATH,
+        user_color="Both",
+        time_per_move=None,
+        depth=10,
+    )
+    assert payload_depth.total_plies == 7
+    assert len(payload_depth.ply_evals) == 8
+
+    # 2. Time only
+    payload_time = analyze_pgn(
+        pgn_str=pgn_str,
+        stockfish_path=STOCKFISH_PATH,
+        user_color="Both",
+        time_per_move=0.03,
+        depth=None,
+    )
+    assert payload_time.total_plies == 7
+
+    # 3. Both depth and time
+    payload_both = analyze_pgn(
+        pgn_str=pgn_str,
+        stockfish_path=STOCKFISH_PATH,
+        user_color="Both",
+        time_per_move=0.05,
+        depth=10,
+    )
+    assert payload_both.total_plies == 7
+
+    # 4. Forward traversal (backward_analysis=False)
+    progress_recorded: list[tuple[int, int]] = []
+    payload_forward = analyze_pgn(
+        pgn_str=pgn_str,
+        stockfish_path=STOCKFISH_PATH,
+        user_color="Both",
+        time_per_move=0.03,
+        backward_analysis=False,
+        progress_callback=lambda cur, tot: progress_recorded.append((cur, tot)),
+    )
+    assert payload_forward.total_plies == 7
+    assert len(progress_recorded) == 8
+    assert progress_recorded[0] == (1, 8)
+    assert progress_recorded[-1] == (8, 8)
+
+
+def test_get_stockfish_version():
+    if os.path.exists(STOCKFISH_PATH):
+        version = get_stockfish_version(STOCKFISH_PATH)
+        assert version is not None
+        assert "stockfish" in version.lower()
+    else:
+        assert get_stockfish_version("/invalid/path/stockfish") is None

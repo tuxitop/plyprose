@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import functools
 import io
 import os
 import re
+import shutil
 from collections.abc import Callable
+from typing import Any
 
 import chess
 import chess.engine
@@ -176,11 +179,44 @@ def _classify_swing(
     return "Inaccuracy"
 
 
+@functools.lru_cache(maxsize=8)
+def get_stockfish_version(stockfish_path: str | None = None) -> str | None:
+    """
+    Detects the version name of the configured or system Stockfish engine binary.
+    Returns e.g. 'Stockfish 19' or None if unavailable.
+    """
+    resolved = stockfish_path
+    if not resolved:
+        resolved = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish")
+    if not resolved or not os.path.isfile(resolved) or not os.access(resolved, os.X_OK):
+        for candidate in (
+            "/usr/sbin/stockfish",
+            "/usr/games/stockfish",
+            "/usr/local/bin/stockfish",
+            "/opt/homebrew/bin/stockfish",
+        ):
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                resolved = candidate
+                break
+    if not resolved or not os.path.isfile(resolved) or not os.access(resolved, os.X_OK):
+        return None
+
+    try:
+        engine = chess.engine.SimpleEngine.popen_uci(resolved)
+        name = engine.id.get("name")
+        engine.quit()
+        return name
+    except Exception:
+        return None
+
+
 def analyze_pgn(
     pgn_str: str,
     stockfish_path: str = "/usr/sbin/stockfish",
     user_color: str = "Both",
-    time_per_move: float = 0.15,
+    time_per_move: float | None = 0.15,
+    depth: int | None = None,
+    backward_analysis: bool = True,
     engine: chess.engine.SimpleEngine | None = None,
     swing_threshold_cp: int = 80,
     platform: str | None = None,
@@ -203,11 +239,18 @@ def analyze_pgn(
         pgn_str: Raw PGN string.
         stockfish_path: Path to the Stockfish engine executable.
         user_color: "White", "Black", or "Both" (case-insensitive).
-        time_per_move: Analysis time limit per position in seconds.
+        time_per_move: Optional analysis time limit per position in seconds.
+        depth: Optional search depth limit per position.
+        backward_analysis: If True (default), evaluates moves in reverse (ply N down to 0)
+                           to leverage transposition tables and eliminate horizon spikes.
+                           If False, evaluates moves forwards (0 to ply N).
         engine: Optional pre-existing SimpleEngine instance. If None,
                 launches an engine using stockfish_path.
         swing_threshold_cp: Minimum centipawn loss for a move to be recorded
                 as a CriticalMoment (default 80).
+        platform: Optional chess platform string (e.g. Chess.com, Lichess).
+        filter_by_user_color: Whether to limit critical moment detection to user's moves.
+        progress_callback: Optional callback(current, total) reporting progress.
 
     Returns:
         GameAnalysisPayload containing full game metadata and detected CriticalMoments.
@@ -327,7 +370,14 @@ def analyze_pgn(
                 ply_times_spent=[None],
             )
 
-        limit = chess.engine.Limit(time=max(0.01, time_per_move))
+        limit_kwargs: dict[str, Any] = {}
+        if time_per_move is not None and time_per_move > 0:
+            limit_kwargs["time"] = max(0.01, float(time_per_move))
+        if depth is not None and depth > 0:
+            limit_kwargs["depth"] = int(depth)
+        if not limit_kwargs:
+            limit_kwargs["time"] = 0.15
+        limit = chess.engine.Limit(**limit_kwargs)
 
         # Replay moves to collect board states for all plies (0..total_plies)
         boards: list[chess.Board] = [game.board()]
@@ -344,17 +394,17 @@ def analyze_pgn(
         except Exception:
             pass
 
-        # Pass 1: Backwards analysis from final position (ply N) down to starting position (ply 0).
-        # This matches Lichess's fishnet pattern: analyzing in reverse populates the engine's TT
-        # with endgame knowledge, eliminating horizon spikes and propagating mate depths backward.
+        # Pass 1: Position analysis. If backward_analysis is True (default),
+        # analyzes from final position down to starting position (Lichess fishnet pattern).
+        # Otherwise analyzes in standard forward order (ply 0 up to total_plies).
         engine_infos: dict[int, chess.engine.InfoDict] = {}
-        for ply_idx in range(total_plies, -1, -1):
+        ply_range = range(total_plies, -1, -1) if backward_analysis else range(total_plies + 1)
+        for step_idx, ply_idx in enumerate(ply_range, start=1):
             info = active_engine.analyse(boards[ply_idx], limit)
             engine_infos[ply_idx] = info
             if progress_callback is not None:
                 try:
-                    done_count = total_plies - ply_idx + 1
-                    progress_callback(done_count, total_plies + 1)
+                    progress_callback(step_idx, total_plies + 1)
                 except Exception:
                     pass
 
@@ -616,4 +666,4 @@ def analyze_pgn(
             active_engine.quit()
 
 
-__all__ = ["analyze_pgn"]
+__all__ = ["analyze_pgn", "get_stockfish_version"]

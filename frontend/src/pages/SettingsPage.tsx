@@ -98,15 +98,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   const baseUrl = settings?.llm_base_url;
   const apiKey = settings?.llm_api_key;
+  const provider = settings?.llm_provider;
   const hasSettings = Boolean(settings);
 
   useEffect(() => {
     if (hasSettings) {
-      listModels()
+      listModels(provider, baseUrl, apiKey)
         .then(r => setModels(r.models))
         .catch(() => setModels([]));
     }
-  }, [hasSettings, baseUrl, apiKey]);
+  }, [hasSettings, baseUrl, apiKey, provider]);
 
   if (!settings) {
     return (
@@ -139,6 +140,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       llm_base_url: settings.llm_base_url,
       llm_api_key: settings.llm_api_key,
       llm_model: settings.llm_model,
+      gemini_api_key: settings.gemini_api_key,
+      gemini_model: settings.gemini_model,
+      openai_base_url: settings.openai_base_url,
+      openai_api_key: settings.openai_api_key,
+      openai_model: settings.openai_model,
     });
     setTestingConn(true);
     setConnStatus({ ok: null, message: 'Testing…' });
@@ -146,7 +152,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       const res = await testConnection();
       setConnStatus({ ok: res.ok, message: res.message });
       if (res.ok) {
-        const m = await listModels();
+        const m = await listModels(
+          settings.llm_provider,
+          settings.llm_base_url,
+          settings.llm_api_key,
+        );
         setModels(m.models);
       }
     } finally {
@@ -243,8 +253,74 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     }
   };
 
-  const hasSuggestions =
-    detectedRatings?.suggestions && Object.keys(detectedRatings.suggestions).length > 0;
+  const pgnRatings = detectedRatings?.pgn_ratings ?? {};
+  const liveRatings = detectedRatings?.live_ratings ?? {};
+  const suggestions = detectedRatings?.suggestions ?? {};
+
+  const detectedRatingCards = [
+    {
+      key: 'chesscom_blitz',
+      settingKey: 'elo_chesscom_blitz' as const,
+      label: 'Chess.com Blitz',
+      rating:
+        suggestions.elo_chesscom_blitz ??
+        liveRatings.chesscom_blitz ??
+        pgnRatings.chesscom_blitz?.rating,
+      date: pgnRatings.chesscom_blitz?.played_at,
+      source: pgnRatings.chesscom_blitz
+        ? 'PGN Games'
+        : liveRatings.chesscom_blitz
+          ? 'Live Profile'
+          : undefined,
+    },
+    {
+      key: 'chesscom_rapid',
+      settingKey: 'elo_chesscom_rapid' as const,
+      label: 'Chess.com Rapid',
+      rating:
+        suggestions.elo_chesscom_rapid ??
+        liveRatings.chesscom_rapid ??
+        pgnRatings.chesscom_rapid?.rating,
+      date: pgnRatings.chesscom_rapid?.played_at,
+      source: pgnRatings.chesscom_rapid
+        ? 'PGN Games'
+        : liveRatings.chesscom_rapid
+          ? 'Live Profile'
+          : undefined,
+    },
+    {
+      key: 'lichess_blitz',
+      settingKey: 'elo_lichess_blitz' as const,
+      label: 'Lichess Blitz',
+      rating:
+        suggestions.elo_lichess_blitz ??
+        liveRatings.lichess_blitz ??
+        pgnRatings.lichess_blitz?.rating,
+      date: pgnRatings.lichess_blitz?.played_at,
+      source: pgnRatings.lichess_blitz
+        ? 'PGN Games'
+        : liveRatings.lichess_blitz
+          ? 'Live Profile'
+          : undefined,
+    },
+    {
+      key: 'lichess_rapid',
+      settingKey: 'elo_lichess_rapid' as const,
+      label: 'Lichess Rapid',
+      rating:
+        suggestions.elo_lichess_rapid ??
+        liveRatings.lichess_rapid ??
+        pgnRatings.lichess_rapid?.rating,
+      date: pgnRatings.lichess_rapid?.played_at,
+      source: pgnRatings.lichess_rapid
+        ? 'PGN Games'
+        : liveRatings.lichess_rapid
+          ? 'Live Profile'
+          : undefined,
+    },
+  ].filter(c => typeof c.rating === 'number' && c.rating > 0);
+
+  const hasSuggestions = detectedRatingCards.length > 0;
 
   return (
     <div className="max-w-3xl mx-auto w-full p-6 flex flex-col gap-6">
@@ -310,121 +386,46 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {detectedRatings?.pgn_ratings?.chesscom_blitz && (
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-blue-100 dark:border-blue-900/60">
-                    <div>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                        Chess.com Blitz:{' '}
-                      </span>
-                      <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
-                        {detectedRatings.pgn_ratings.chesscom_blitz.rating}
-                      </span>
-                      {detectedRatings.pgn_ratings.chesscom_blitz.played_at && (
-                        <span className="text-[10px] text-slate-400 block">
-                          {detectedRatings.pgn_ratings.chesscom_blitz.played_at.slice(0, 10)}
+                {detectedRatingCards.map(c => {
+                  const isApplied = settings[c.settingKey] === c.rating;
+                  return (
+                    <div
+                      key={c.key}
+                      className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-blue-100 dark:border-blue-900/60"
+                    >
+                      <div>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          {c.label}:{' '}
                         </span>
+                        <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
+                          {c.rating}
+                        </span>
+                        {c.date ? (
+                          <span className="text-[10px] text-slate-400 block">
+                            {c.date.slice(0, 10)} {c.source ? `(${c.source})` : ''}
+                          </span>
+                        ) : c.source ? (
+                          <span className="text-[10px] text-slate-400 block">
+                            Source: {c.source}
+                          </span>
+                        ) : null}
+                      </div>
+                      {isApplied ? (
+                        <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-900">
+                          <CheckCircle size={11} /> Applied
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => update({ [c.settingKey]: c.rating })}
+                          className="text-[11px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline cursor-pointer"
+                        >
+                          Use
+                        </button>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        update({
-                          elo_chesscom_blitz: detectedRatings.pgn_ratings.chesscom_blitz.rating,
-                        })
-                      }
-                      className="text-[11px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline cursor-pointer"
-                    >
-                      Use
-                    </button>
-                  </div>
-                )}
-
-                {detectedRatings?.pgn_ratings?.chesscom_rapid && (
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-blue-100 dark:border-blue-900/60">
-                    <div>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                        Chess.com Rapid:{' '}
-                      </span>
-                      <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
-                        {detectedRatings.pgn_ratings.chesscom_rapid.rating}
-                      </span>
-                      {detectedRatings.pgn_ratings.chesscom_rapid.played_at && (
-                        <span className="text-[10px] text-slate-400 block">
-                          {detectedRatings.pgn_ratings.chesscom_rapid.played_at.slice(0, 10)}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        update({
-                          elo_chesscom_rapid: detectedRatings.pgn_ratings.chesscom_rapid.rating,
-                        })
-                      }
-                      className="text-[11px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline cursor-pointer"
-                    >
-                      Use
-                    </button>
-                  </div>
-                )}
-
-                {detectedRatings?.pgn_ratings?.lichess_blitz && (
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-blue-100 dark:border-blue-900/60">
-                    <div>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                        Lichess Blitz:{' '}
-                      </span>
-                      <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
-                        {detectedRatings.pgn_ratings.lichess_blitz.rating}
-                      </span>
-                      {detectedRatings.pgn_ratings.lichess_blitz.played_at && (
-                        <span className="text-[10px] text-slate-400 block">
-                          {detectedRatings.pgn_ratings.lichess_blitz.played_at.slice(0, 10)}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        update({
-                          elo_lichess_blitz: detectedRatings.pgn_ratings.lichess_blitz.rating,
-                        })
-                      }
-                      className="text-[11px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline cursor-pointer"
-                    >
-                      Use
-                    </button>
-                  </div>
-                )}
-
-                {detectedRatings?.pgn_ratings?.lichess_rapid && (
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-blue-100 dark:border-blue-900/60">
-                    <div>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                        Lichess Rapid:{' '}
-                      </span>
-                      <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
-                        {detectedRatings.pgn_ratings.lichess_rapid.rating}
-                      </span>
-                      {detectedRatings.pgn_ratings.lichess_rapid.played_at && (
-                        <span className="text-[10px] text-slate-400 block">
-                          {detectedRatings.pgn_ratings.lichess_rapid.played_at.slice(0, 10)}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        update({
-                          elo_lichess_rapid: detectedRatings.pgn_ratings.lichess_rapid.rating,
-                        })
-                      }
-                      className="text-[11px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline cursor-pointer"
-                    >
-                      Use
-                    </button>
-                  </div>
-                )}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -637,24 +638,81 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       </section>
 
       {/* Stockfish Engine */}
-      <section className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
-        <div className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-            Stockfish Engine
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Analysis halts when <strong>either</strong> threshold is reached first.
-          </p>
+      <section className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
+        <div className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 px-5 py-3 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              Stockfish Engine
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Configure search depth, calculation time, and evaluation traversal order.
+            </p>
+          </div>
+          {settings.stockfish_version ? (
+            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
+              <CheckCircle size={12} className="text-emerald-500" />
+              {settings.stockfish_version}
+            </span>
+          ) : (
+            <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-2.5 py-1 rounded-full">
+              Engine binary not detected
+            </span>
+          )}
         </div>
-        <div className="p-5 flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
+        <div className="p-5 flex flex-col gap-5">
+          {/* Threshold Limit Mode */}
+          <div>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
+              Evaluation Threshold Mode
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: 'both', label: 'Depth & Time (whichever reached first)' },
+                { id: 'depth', label: 'Fixed Depth Only' },
+                { id: 'time', label: 'Fixed Time Only' },
+              ].map(mode => {
+                const active = (settings.stockfish_limit_mode || 'both') === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() =>
+                      update({
+                        stockfish_limit_mode: mode.id as 'both' | 'depth' | 'time',
+                      })
+                    }
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:border-slate-500'
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div
+              className={
+                (settings.stockfish_limit_mode || 'both') === 'time'
+                  ? 'opacity-40 pointer-events-none'
+                  : ''
+              }
+            >
               <label
                 htmlFor="stockfish-depth-range"
                 className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2 cursor-pointer"
               >
                 Search Depth{' '}
                 <span className="text-slate-400 dark:text-slate-500 font-normal">(10–25)</span>
+                {(settings.stockfish_limit_mode || 'both') === 'time' && (
+                  <span className="text-[10px] text-amber-500 ml-1.5 font-normal">
+                    (Disabled in time-only mode)
+                  </span>
+                )}
               </label>
               <input
                 id="stockfish-depth-range"
@@ -662,6 +720,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 min={10}
                 max={25}
                 step={1}
+                disabled={(settings.stockfish_limit_mode || 'both') === 'time'}
                 value={settings.stockfish_depth}
                 onChange={e => update({ stockfish_depth: Number(e.target.value) })}
                 className="w-full accent-slate-800 dark:accent-slate-200"
@@ -674,13 +733,24 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <span>25</span>
               </div>
             </div>
-            <div>
+            <div
+              className={
+                (settings.stockfish_limit_mode || 'both') === 'depth'
+                  ? 'opacity-40 pointer-events-none'
+                  : ''
+              }
+            >
               <label
                 htmlFor="stockfish-time-range"
                 className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2 cursor-pointer"
               >
                 Time per Move{' '}
                 <span className="text-slate-400 dark:text-slate-500 font-normal">(sec)</span>
+                {(settings.stockfish_limit_mode || 'both') === 'depth' && (
+                  <span className="text-[10px] text-amber-500 ml-1.5 font-normal">
+                    (Disabled in depth-only mode)
+                  </span>
+                )}
               </label>
               <input
                 id="stockfish-time-range"
@@ -688,6 +758,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 min={0.05}
                 max={2.0}
                 step={0.05}
+                disabled={(settings.stockfish_limit_mode || 'both') === 'depth'}
                 value={settings.stockfish_time}
                 onChange={e => update({ stockfish_time: Number(e.target.value) })}
                 className="w-full accent-slate-800 dark:accent-slate-200"
@@ -702,20 +773,43 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             </div>
           </div>
 
-          <Input
-            label="Stockfish Binary Path"
-            value={settings.stockfish_path}
-            onChange={e => update({ stockfish_path: e.target.value })}
-            placeholder="/usr/sbin/stockfish"
-            hint="Absolute path to the Stockfish executable on this machine."
-          />
+          {/* Backward Analysis Traversal */}
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+            <label
+              htmlFor="stockfish-backward-analysis"
+              className="flex items-start gap-3 cursor-pointer select-none"
+            >
+              <input
+                id="stockfish-backward-analysis"
+                type="checkbox"
+                checked={settings.stockfish_backward_analysis ?? true}
+                onChange={e => update({ stockfish_backward_analysis: e.target.checked })}
+                className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-700 dark:bg-slate-800 cursor-pointer"
+              />
+              <div>
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 block">
+                  Backward Analysis (Evaluate starting from end of game)
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                  Evaluates moves in reverse (from final ply N down to starting position 0).
+                  Populates the engine&apos;s transposition table with endgame knowledge,
+                  eliminating horizon spikes and propagating forced mate depths backward (Lichess
+                  fishnet standard).
+                </span>
+              </div>
+            </label>
+          </div>
         </div>
       </section>
 
       {/* LLM Provider */}
-      <section className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+      <section className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
         <div className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 px-5 py-3">
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">LLM Provider</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Configure your AI coaching model and credentials. All settings are stored securely in
+            your local database.
+          </p>
         </div>
         <div className="p-5 flex flex-col gap-4">
           <div>
@@ -726,13 +820,38 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               {providers.map(p => (
                 <button
                   key={p}
-                  onClick={() => update({ llm_provider: p })}
-                  className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors cursor-pointer
-                    ${
-                      settings.llm_provider === p
-                        ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
-                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:border-slate-500'
-                    }`}
+                  type="button"
+                  onClick={() => {
+                    if (p === 'gemini') {
+                      update({
+                        llm_provider: 'gemini',
+                        llm_api_key: settings.gemini_api_key ?? settings.llm_api_key,
+                        llm_model:
+                          settings.gemini_model ??
+                          (settings.llm_model.startsWith('gemini')
+                            ? settings.llm_model
+                            : 'gemini-2.5-flash'),
+                      });
+                    } else {
+                      update({
+                        llm_provider: 'openai-compat',
+                        llm_base_url:
+                          settings.openai_base_url ??
+                          (settings.llm_base_url || 'http://localhost:11434/v1'),
+                        llm_api_key: settings.openai_api_key ?? '',
+                        llm_model:
+                          settings.openai_model ??
+                          (settings.llm_model.startsWith('gemini')
+                            ? 'gpt-4o-mini'
+                            : settings.llm_model),
+                      });
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors cursor-pointer ${
+                    settings.llm_provider === p
+                      ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100 shadow-sm'
+                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:border-slate-500'
+                  }`}
                 >
                   {p === 'openai-compat' ? 'OpenAI-Compatible' : 'Google Gemini'}
                 </button>
@@ -740,58 +859,165 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             </div>
           </div>
 
-          <Input
-            label="Base URL"
-            value={settings.llm_base_url}
-            onChange={e => update({ llm_base_url: e.target.value })}
-            placeholder="http://localhost:11434/v1"
-            hint="Endpoint exposing /chat/completions. Works with Ollama, LM Studio, OpenAI, OpenRouter, etc."
-          />
-
-          <Input
-            label="API Key"
-            type={showKey ? 'text' : 'password'}
-            value={settings.llm_api_key}
-            onChange={e => update({ llm_api_key: e.target.value })}
-            placeholder="sk-… or leave empty for local servers"
-            rightElement={
-              <button
-                type="button"
-                onClick={() => setShowKey(v => !v)}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-0.5 cursor-pointer"
-                aria-label={showKey ? 'Hide API key' : 'Show API key'}
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            }
-          />
-
-          <div>
-            <Input
-              label="Model Name"
-              value={settings.llm_model}
-              onChange={e => update({ llm_model: e.target.value })}
-              placeholder="gpt-4o, deepseek-r1, claude-3-5-sonnet, …"
-            />
-            {models.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {models.slice(0, 8).map(m => (
-                  <button
-                    key={m}
-                    onClick={() => update({ llm_model: m })}
-                    className={`px-2 py-0.5 rounded text-[10px] border transition-colors font-mono cursor-pointer
-                      ${
-                        settings.llm_model === m
-                          ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:border-slate-500'
-                      }`}
-                  >
-                    {m}
-                  </button>
-                ))}
+          {settings.llm_provider === 'gemini' ? (
+            <>
+              <div className="p-3.5 rounded-lg bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-900/50 text-xs text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
+                <Sparkles size={15} className="text-blue-500 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-semibold text-blue-950 dark:text-blue-100">
+                    Direct Google GenAI Integration
+                  </div>
+                  <div className="text-[11px] text-blue-800/90 dark:text-blue-300 mt-0.5">
+                    Google Gemini connects directly via the Google GenAI SDK. Base URL is not
+                    required.
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
+
+              <Input
+                label="Google Gemini API Key"
+                type={showKey ? 'text' : 'password'}
+                value={settings.llm_api_key}
+                onChange={e =>
+                  update({
+                    llm_api_key: e.target.value,
+                    gemini_api_key: e.target.value,
+                  })
+                }
+                placeholder="AIzaSy…"
+                hint="Stored securely in your local settings database. Obtain a key from Google AI Studio (aistudio.google.com)."
+                rightElement={
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(v => !v)}
+                    className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                    aria-label={showKey ? 'Hide API key' : 'Show API key'}
+                  >
+                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                }
+              />
+
+              <div>
+                <Input
+                  label="Gemini Model Name"
+                  value={settings.llm_model}
+                  onChange={e =>
+                    update({
+                      llm_model: e.target.value,
+                      gemini_model: e.target.value,
+                    })
+                  }
+                  placeholder="gemini-2.5-flash, gemini-2.5-pro, gemini-3.8-flash, …"
+                />
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {(models.filter(m => m.toLowerCase().includes('gemini')).length > 0
+                    ? models.filter(m => m.toLowerCase().includes('gemini'))
+                    : ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.8-flash', 'gemini-3.7-flash']
+                  )
+                    .slice(0, 8)
+                    .map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() =>
+                          update({
+                            llm_model: m,
+                            gemini_model: m,
+                          })
+                        }
+                        className={`px-2 py-0.5 rounded text-[10px] border transition-colors font-mono cursor-pointer ${
+                          settings.llm_model === m
+                            ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:border-slate-500'
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <Input
+                label="Base URL"
+                value={settings.llm_base_url}
+                onChange={e =>
+                  update({
+                    llm_base_url: e.target.value,
+                    openai_base_url: e.target.value,
+                  })
+                }
+                placeholder="http://localhost:11434/v1"
+                hint="Endpoint exposing /chat/completions. Works with Ollama, LM Studio, OpenAI, OpenRouter, etc."
+              />
+
+              <Input
+                label="API Key"
+                type={showKey ? 'text' : 'password'}
+                value={settings.llm_api_key}
+                onChange={e =>
+                  update({
+                    llm_api_key: e.target.value,
+                    openai_api_key: e.target.value,
+                  })
+                }
+                placeholder="sk-… or leave empty for local servers"
+                hint="Stored in local settings database. Not required for local Ollama / LM Studio instances."
+                rightElement={
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(v => !v)}
+                    className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                    aria-label={showKey ? 'Hide API key' : 'Show API key'}
+                  >
+                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                }
+              />
+
+              <div>
+                <Input
+                  label="Model Name"
+                  value={settings.llm_model}
+                  onChange={e =>
+                    update({
+                      llm_model: e.target.value,
+                      openai_model: e.target.value,
+                    })
+                  }
+                  placeholder="gpt-4o, deepseek-r1, claude-3-5-sonnet, …"
+                />
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {(models.filter(m => !m.toLowerCase().includes('gemini')).length > 0
+                    ? models.filter(m => !m.toLowerCase().includes('gemini'))
+                    : ['gpt-4o-mini', 'gpt-4o', 'deepseek-r1']
+                  )
+                    .slice(0, 8)
+                    .map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() =>
+                          update({
+                            llm_model: m,
+                            openai_model: m,
+                          })
+                        }
+                        className={`px-2 py-0.5 rounded text-[10px] border transition-colors font-mono cursor-pointer ${
+                          settings.llm_model === m
+                            ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:border-slate-500'
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="flex items-center gap-3 flex-wrap">
             <Button variant="secondary" loading={testingConn} onClick={handleTestConnection}>

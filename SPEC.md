@@ -94,11 +94,19 @@ class GameAnalysisPayload(BaseModel):
 
 ### Module C: `src/analyzer.py`
 
-- **`analyze_pgn(pgn_str: str, stockfish_path: str, user_color: str = "Both", time_per_move: float = 0.15) -> GameAnalysisPayload`**
+- **`analyze_pgn(pgn_str: str, stockfish_path: str, user_color: str = "Both", time_per_move: float = 0.15, max_depth: int | None = 18, limit_mode: str = "both", backward_analysis: bool = True) -> GameAnalysisPayload`**
 - Parses the PGN via `chess.pgn.read_game()`.
 - Runs Stockfish via `chess.engine.SimpleEngine.popen_uci(stockfish_path)`.
+- Supports configurable evaluation limits via `limit_mode`:
+  - `"both"`: Halts when either `time_per_move` or `max_depth` is reached (standard UCI Limit).
+  - `"depth"`: Fixes evaluation to `chess.engine.Limit(depth=max_depth)`.
+  - `"time"`: Fixes evaluation to `chess.engine.Limit(time=time_per_move)`.
+- Supports `backward_analysis` (evaluating positions from ply $N$ back down to ply $0$):
+  - Populates Stockfish's transposition tables so deep tactical calculations in complex middlegames benefit from cached endgame / post-tactical analysis.
 - Evaluates every position. When the centipawn swing against the moving side is `>= 80` cp (or a mate status changes), records a `CriticalMoment`.
 - Populates `facts_before_move`, `facts_after_played_move`, `facts_after_best_move`, and `facts_at_end_of_pv` using `extract_tactical_facts`.
+- **`get_stockfish_version(stockfish_path: str | None = None) -> str | None`**:
+  - Deterministically executes Stockfish UCI initialization and extracts the engine banner (e.g. `Stockfish 19`). Auto-detects standard system paths (`/usr/games/stockfish`, `/usr/local/bin/stockfish`, `/usr/bin/stockfish`).
 
 ### Module D: `src/coach_agent.py`
 
@@ -131,6 +139,18 @@ class GameAnalysisPayload(BaseModel):
 - **Web Architecture (`api/` and `frontend/`)**:
 - Backend: FastAPI application (`api/main.py`) exposing REST endpoints for game analysis, history, PGN parsing, and LLM configuration.
 - Frontend: React/Vite/Tailwind single-page application (`frontend/`) with interactive chessboard, critical moment viewer, analysis controls, and PDF/Markdown report export.
+
+### Module F: Storage, Dynamic Settings & Cross-Instance Routing
+
+- **Dynamic Settings Persistence (`api/settings_db.py`)**:
+  - Settings (player ratings, platform usernames, Stockfish parameters, LLM credentials, GitHub sync options) are persisted dynamically in the SQLite database table `settings`.
+  - The UI auto-detects Stockfish binaries and provides engine version feedback rather than exposing raw backend file paths.
+- **Cross-Instance Game Identification & URLs (`src/storage.py`)**:
+  - `compute_game_hash(pgn_text: str) -> str`: Produces a deterministic 12-character SHA-256 hash from cleaned PGN moves.
+  - `get_game_key(rec: dict) -> str`: Resolves the canonical instance-independent identifier: `external_id` (Lichess/Chess.com slug), folder name from `github_path`, or 12-char PGN hash.
+  - `get_analysis_by_id_or_key(identifier: int | str)`: Resolves analyses transparently via numeric SQLite ID, platform external ID, GitHub path, or PGN hash.
+  - REST endpoints (`/api/analysis/{analysis_id}`, `/api/analysis/{analysis_id}/report-html`, etc.) accept string keys.
+  - Frontend SPA routes (`/analysis/:key`) support deterministic cross-instance URLs and full browser History API navigation (`popstate` listener).
 
 ---
 

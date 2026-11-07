@@ -201,7 +201,7 @@ export interface InteractiveBoardProps {
     branchPly: number;
     moves: string[];
   } | null;
-  analysisId?: number;
+  analysisId?: number | string;
   onReportUpdated?: (reportHtml: string, reportMd: string) => void;
   onScrollToSection?: (sectionName: string) => void;
 }

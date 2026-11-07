@@ -6,10 +6,12 @@ from src.models import GameAnalysisPayload
 from src.storage import (
     clear_all_analyses,
     compute_analysis_hash,
+    compute_game_hash,
     delete_analysis,
     find_analysis,
     get_all_analyses,
     get_analysis_by_id,
+    get_analysis_by_id_or_key,
     init_db,
     save_analysis,
     update_analysis_github_sync,
@@ -199,3 +201,56 @@ def test_compute_analysis_hash_and_github_sync(tmp_path, sample_payload: GameAna
     rec_updated = get_analysis_by_id(rec_id, db_path=db_file)
     assert rec_updated["github_path"] == "chess.com/blitz/folder"
     assert rec_updated["github_synced_hash"] == hash1
+
+
+def test_game_hash_and_get_analysis_by_id_or_key(tmp_path, sample_payload: GameAnalysisPayload):
+    db_file = str(tmp_path / "test_id_or_key.db")
+    pgn1 = '[Site "Lichess"]\n[Link "https://lichess.org/abcdefgh"]\n\n1. e4 e5 2. Nf3 *'
+    rec_id1 = save_analysis(
+        pgn_text=pgn1,
+        payload=sample_payload,
+        report_md="Lichess report",
+        model_name="model",
+        db_path=db_file,
+    )
+
+    pgn2 = "1. d4 d5 2. c4 e6 *"
+    rec_id2 = save_analysis(
+        pgn_text=pgn2,
+        payload=sample_payload,
+        report_md="Manual report",
+        model_name="model",
+        db_path=db_file,
+    )
+
+    # 1. Resolve by numeric id
+    rec = get_analysis_by_id_or_key(rec_id1, db_path=db_file)
+    assert rec is not None
+    assert rec["id"] == rec_id1
+    assert rec["game_key"] == "abcdefgh"
+
+    # 2. Resolve by numeric id as string
+    rec = get_analysis_by_id_or_key(str(rec_id1), db_path=db_file)
+    assert rec is not None
+    assert rec["id"] == rec_id1
+
+    # 3. Resolve by external_id
+    rec = get_analysis_by_id_or_key("abcdefgh", db_path=db_file)
+    assert rec is not None
+    assert rec["id"] == rec_id1
+
+    # 4. Resolve manual game by 12-char PGN hash
+    hash2 = compute_game_hash(pgn2)
+    assert len(hash2) == 12
+    rec = get_analysis_by_id_or_key(hash2, db_path=db_file)
+    assert rec is not None
+    assert rec["id"] == rec_id2
+    assert rec["game_key"] == "pgn_b6e042c6"
+
+    # Also resolves by game_key directly
+    rec_by_key = get_analysis_by_id_or_key(rec["game_key"], db_path=db_file)
+    assert rec_by_key is not None
+    assert rec_by_key["id"] == rec_id2
+
+    # 5. Non-existent returns None
+    assert get_analysis_by_id_or_key("nonexistent_key_123", db_path=db_file) is None

@@ -19,11 +19,11 @@ interface GamesTableProps {
   activeGameKey?: string | null;
   activeJobProgress: number;
   activeJobMessage: string;
-  onViewReport: (id: number) => void;
+  onViewReport: (id: number | string) => void;
   onAnalyze: (game: GameRecord, skipEngine?: boolean) => void;
   onDelete: (game: GameRecord) => void;
   onSyncToGitHub?: (game: GameRecord) => void;
-  syncingGameId?: number | null;
+  syncingGameId?: number | string | null;
   onTagClick?: (tag: string) => void;
   onCancelJob?: (jobId: string) => void;
 }
@@ -267,7 +267,7 @@ export function GamesTable({
                   <div className="flex flex-col gap-0.5">
                     {isAnalyzed ? (
                       <a
-                        href={`/analysis/${g.id}`}
+                        href={`/analysis/${encodeURIComponent(g.game_key || g.id)}`}
                         onClick={e => {
                           if (isAnyAnalyzing) {
                             e.preventDefault();
@@ -277,7 +277,7 @@ export function GamesTable({
                             return;
                           }
                           e.preventDefault();
-                          onViewReport(g.id);
+                          onViewReport(g.game_key || g.id);
                         }}
                         className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
                         title="View Report (Ctrl+click to open in new tab)"
@@ -388,7 +388,7 @@ export function GamesTable({
                     ) : isAnalyzed ? (
                       <>
                         <a
-                          href={`/analysis/${g.id}`}
+                          href={`/analysis/${encodeURIComponent(g.game_key || g.id)}`}
                           onClick={e => {
                             if (isAnyAnalyzing) {
                               e.preventDefault();
@@ -398,7 +398,7 @@ export function GamesTable({
                               return;
                             }
                             e.preventDefault();
-                            onViewReport(g.id);
+                            onViewReport(g.game_key || g.id);
                           }}
                           title="View Report (Ctrl+click or middle-click to open in new tab)"
                           aria-label="View Report"

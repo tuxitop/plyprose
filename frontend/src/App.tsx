@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TopNav } from './components/TopNav';
 import { GamesPage } from './pages/GamesPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -6,26 +6,45 @@ import { AnalysisPage } from './pages/AnalysisPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './hooks/useTheme';
 
-type Route = { page: 'games' } | { page: 'settings' } | { page: 'analysis'; id: number };
+type Route = { page: 'games' } | { page: 'settings' } | { page: 'analysis'; id: number | string };
+
+function parseRoute(path: string): Route {
+  if (path.startsWith('/analysis/')) {
+    const raw = path.replace('/analysis/', '').trim();
+    if (raw) {
+      const decoded = decodeURIComponent(raw);
+      const num = Number(decoded);
+      return {
+        page: 'analysis',
+        id: !Number.isNaN(num) && String(num) === decoded ? num : decoded,
+      };
+    }
+  }
+  if (path === '/settings') return { page: 'settings' };
+  return { page: 'games' };
+}
 
 export default function App() {
-  const [route, setRoute] = useState<Route>(() => {
-    const path = window.location.pathname;
-    if (path.startsWith('/analysis/')) {
-      const id = parseInt(path.replace('/analysis/', ''), 10);
-      if (!isNaN(id)) return { page: 'analysis', id };
-    }
-    if (path === '/settings') return { page: 'settings' };
-    return { page: 'games' };
-  });
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoute(parseRoute(window.location.pathname));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const { theme, toggle: toggleTheme } = useTheme();
 
   const navigate = (r: Route) => {
     setRoute(r);
-    if (r.page === 'games') window.history.pushState({}, '', '/');
-    else if (r.page === 'settings') window.history.pushState({}, '', '/settings');
-    else if (r.page === 'analysis') window.history.pushState({}, '', `/analysis/${r.id}`);
+    let target = '/';
+    if (r.page === 'settings') target = '/settings';
+    else if (r.page === 'analysis') target = `/analysis/${encodeURIComponent(r.id)}`;
+    if (window.location.pathname !== target) {
+      window.history.pushState({}, '', target);
+    }
   };
 
   return (

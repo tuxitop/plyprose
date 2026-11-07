@@ -19,7 +19,7 @@ import {
 import type { CategoryFilter, GameRecord, Platform, ResultFilter, StatusFilter } from '../types';
 
 interface GamesPageProps {
-  onViewReport: (id: number) => void;
+  onViewReport: (id: number | string) => void;
 }
 
 export function GamesPage({ onViewReport }: GamesPageProps) {
