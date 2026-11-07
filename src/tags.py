@@ -586,6 +586,19 @@ def reconcile_move_classifications(
                 else:
                     cm.classification = "Best Move"
 
+        # Invariant: A player can never blunder or make an inaccuracy when playing the engine's best move
+        if cm.best_move_san == cm.move_played_san and cm.classification in (
+            "Blunder",
+            "Mistake",
+            "Inaccuracy",
+            "Missed Win",
+            "Missed Tactic",
+        ):
+            if "#" in cm.move_played_san or "checkmate" in (cm.classification or "").lower():
+                cm.classification = "Checkmate"
+            else:
+                cm.classification = "Best Move"
+
 
 def resolve_game_tags(
     ai_tags: list[str] | None,

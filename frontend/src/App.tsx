@@ -3,6 +3,7 @@ import { TopNav } from './components/TopNav';
 import { GamesPage } from './pages/GamesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AnalysisPage } from './pages/AnalysisPage';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './hooks/useTheme';
 
 type Route = { page: 'games' } | { page: 'settings' } | { page: 'analysis'; id: number };
@@ -42,12 +43,14 @@ export default function App() {
         )}
         {route.page === 'settings' && <SettingsPage onBack={() => navigate({ page: 'games' })} />}
         {route.page === 'analysis' && (
-          <AnalysisPage
-            analysisId={route.id}
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            onBack={() => navigate({ page: 'games' })}
-          />
+          <ErrorBoundary fallbackTitle="Could not load game analysis view">
+            <AnalysisPage
+              analysisId={route.id}
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onBack={() => navigate({ page: 'games' })}
+            />
+          </ErrorBoundary>
         )}
       </main>
     </div>

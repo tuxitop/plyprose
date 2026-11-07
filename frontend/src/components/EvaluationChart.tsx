@@ -19,9 +19,12 @@ export function EvaluationChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredPly, setHoveredPly] = useState<number | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const height = 96;
   const width = 400; // Reference viewBox coordinate space
+  const paddingY = 8;
+  const innerHeight = height - paddingY * 2;
 
   // Map centipawns to SVG Y coordinate (White is bottom, Black is top)
   const cpToY = useCallback(
@@ -35,11 +38,11 @@ export function EvaluationChart({
         // Standard winning probability sigmoid
         winProb = 1 / (1 + Math.exp(-0.00368208 * clampedCp));
       }
-      // winProb = 1 (White winning) -> Y = 0 (top, 100% white fill)
-      // winProb = 0 (Black winning / White checkmated) -> Y = height (bottom, 0% white fill)
-      return (1 - winProb) * height;
+      // White winning (winProb = 1) -> y = paddingY (clearly visible curve, not clipped at border)
+      // Black winning (winProb = 0) -> y = height - paddingY (clearly visible curve)
+      return paddingY + (1 - winProb) * innerHeight;
     },
-    [height],
+    [innerHeight, paddingY],
   );
 
   // Compute (x, y) coordinates for all points
@@ -53,6 +56,26 @@ export function EvaluationChart({
     });
   }, [evals, width, cpToY]);
 
+  const totalPoints = points.length;
+  const totalMoves = Math.max(1, Math.floor((totalPoints - 1) / 2));
+  const moveStep = totalMoves <= 25 ? 5 : totalMoves <= 60 ? 10 : 20;
+
+  // Move ticks along X-axis to clearly display the game progression timeline
+  const moveTicks = useMemo(() => {
+    if (totalPoints <= 1) return [];
+    const ticks: { ply: number; moveNum: number; x: number }[] = [];
+    ticks.push({ ply: 1, moveNum: 1, x: (1 / Math.max(1, totalPoints - 1)) * width });
+    for (let m = moveStep; m < totalMoves; m += moveStep) {
+      const ply = m * 2;
+      if (ply < totalPoints - 1) {
+        ticks.push({ ply, moveNum: m, x: (ply / Math.max(1, totalPoints - 1)) * width });
+      }
+    }
+    const lastPly = totalPoints - 1;
+    ticks.push({ ply: lastPly, moveNum: totalMoves, x: width });
+    return ticks;
+  }, [totalPoints, totalMoves, moveStep, width]);
+
   // Build smooth cubic bezier curve
   const { linePath, fillPath } = useMemo(() => {
     if (points.length === 0) return { linePath: '', fillPath: '' };
@@ -60,7 +83,7 @@ export function EvaluationChart({
       const y = points[0].y;
       return {
         linePath: `M 0 ${y} L ${width} ${y}`,
-        fillPath: `M 0 ${y} L ${width} ${y} L ${width} ${height} L 0 ${height} Z`,
+        fillPath: `M 0 ${y} L ${width} ${height} L 0 ${height} Z`,
       };
     }
 
@@ -100,13 +123,17 @@ export function EvaluationChart({
 
       setHoveredPly(clampedPly);
       setHoverPos({ x: (clampedPly / Math.max(1, points.length - 1)) * width, y: relY });
+      if (isDragging) {
+        onSelectPly(clampedPly);
+      }
     },
-    [points.length, width],
+    [points.length, width, isDragging, onSelectPly],
   );
 
   const handleMouseLeave = useCallback(() => {
     setHoveredPly(null);
     setHoverPos(null);
+    setIsDragging(false);
   }, []);
 
   const handleClick = useCallback(
@@ -134,13 +161,14 @@ export function EvaluationChart({
     let evalStr: string;
     if (!isHovered && liveEval) {
       evalStr = liveEval;
-    } else if (Math.abs(cp) >= 9000) {
+    } else if (Math.abs(cp) >= 9900) {
       const rawMate = cp > 0 ? 10000 - cp : -(10000 + cp);
       const mate = rawMate === 0 ? (cp > 0 ? 1 : -1) : rawMate;
       evalStr = mate > 0 ? `+M${mate}` : `-M${Math.abs(mate)}`;
     } else {
-      const pawn = (cp / 100).toFixed(1);
-      evalStr = cp > 0 ? `+${pawn}` : pawn;
+      const clampedCp = Math.max(-1000, Math.min(1000, cp));
+      const pawn = (clampedCp / 100).toFixed(1);
+      evalStr = clampedCp > 0 ? `+${pawn}` : pawn;
     }
 
     return {
@@ -163,6 +191,9 @@ export function EvaluationChart({
         <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
           <span className="w-2 h-2 rounded-full bg-blue-500" />
           Game Evaluation Trajectory
+          <span className="font-normal text-slate-400 dark:text-slate-500 text-[10px]">
+            ({totalMoves} moves · {totalPoints} plies)
+          </span>
         </span>
         {tooltipData && (
           <span className="font-mono text-xs">
@@ -170,7 +201,7 @@ export function EvaluationChart({
               <span className="text-slate-500">Start (0.0)</span>
             ) : (
               <span>
-                {tooltipData.moveNumber}.{tooltipData.color === 'b' ? '..' : ''}{' '}
+                Move {tooltipData.moveNumber}.{tooltipData.color === 'b' ? '..' : ''}{' '}
                 <strong className="text-slate-800 dark:text-slate-200">{tooltipData.san}</strong>{' '}
                 <span
                   className={`font-bold ${
@@ -182,6 +213,9 @@ export function EvaluationChart({
                   }`}
                 >
                   ({tooltipData.evalStr})
+                </span>
+                <span className="text-[10px] text-slate-400 ml-1.5">
+                  [ply {tooltipData.ply}/{totalPoints - 1}]
                 </span>
               </span>
             )}
@@ -197,6 +231,8 @@ export function EvaluationChart({
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
           className="w-full h-full block"
+          onMouseDown={() => setIsDragging(true)}
+          onMouseUp={() => setIsDragging(false)}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
           onClick={handleClick}
@@ -219,8 +255,35 @@ export function EvaluationChart({
             opacity="0.45"
           />
 
+          {/* Timeline move grid vertical dashed lines & labels */}
+          {moveTicks.map((t, i) => (
+            <g key={i}>
+              <line
+                x1={t.x}
+                y1="0"
+                x2={t.x}
+                y2={height}
+                stroke="#64748b"
+                strokeDasharray="2 3"
+                strokeWidth="0.75"
+                opacity="0.25"
+              />
+              <text
+                x={Math.min(width - 12, Math.max(12, t.x))}
+                y={height - 2.5}
+                textAnchor="middle"
+                fill="#94a3b8"
+                fontSize="7.5"
+                fontFamily="monospace"
+                opacity="0.75"
+              >
+                m{t.moveNum}
+              </text>
+            </g>
+          ))}
+
           {/* Smooth Evaluation Divider Curve */}
-          <path d={linePath} fill="none" stroke="#64748b" strokeWidth="1.75" />
+          <path d={linePath} fill="none" stroke="#475569" strokeWidth="2" />
 
           {/* Hover indicator line */}
           {hoverPos && (
@@ -240,7 +303,7 @@ export function EvaluationChart({
           <line x1={activeX} y1="0" x2={activeX} y2={height} stroke="#2563eb" strokeWidth="1.75" />
           <circle
             cx={activeX}
-            cy={Math.max(3.5, Math.min(height - 3.5, activeY))}
+            cy={Math.max(4, Math.min(height - 4, activeY))}
             r="3.5"
             fill="#2563eb"
             stroke="#ffffff"

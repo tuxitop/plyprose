@@ -53,6 +53,64 @@ def test_classify_swing_missed_win_and_tactic():
     )
 
 
+def test_forced_mate_logical_thresholds():
+    import chess
+    import chess.engine
+
+    from src.analyzer import _compute_loss_and_mate_change
+
+    # Case 1: Player has deep mate in 12, but plays move staying +8.0 pawns ahead (+800 cp).
+    # Missing M12 when still winning by +8.0 is NOT a blunder or critical swing!
+    s_before = chess.engine.PovScore(chess.engine.Mate(12), chess.WHITE)
+    s_after = chess.engine.PovScore(chess.engine.Cp(800), chess.WHITE)
+    _loss, mate_blunder = _compute_loss_and_mate_change(
+        s_before.white(), s_after.white(), chess.WHITE
+    )
+    assert mate_blunder is False
+
+    # Case 2: Player has simple mate in 1, but drops to +0.2 pawns (+20 cp).
+    # That IS a true missed win!
+    s_m1 = chess.engine.PovScore(chess.engine.Mate(1), chess.WHITE)
+    s_drawish = chess.engine.PovScore(chess.engine.Cp(20), chess.WHITE)
+    _loss_m1, mate_blunder_m1 = _compute_loss_and_mate_change(
+        s_m1.white(), s_drawish.white(), chess.WHITE
+    )
+    assert mate_blunder_m1 is True
+
+    # Case 3: Black is hopelessly lost at -9.94 pawns (-994 cp).
+    # Opponent now finds mate in 16. Black was already dead lost; finding M16 is NOT a blunder by Black.
+    s_lost = chess.engine.PovScore(chess.engine.Cp(994), chess.WHITE)  # White +994, Black -994
+    s_m16 = chess.engine.PovScore(chess.engine.Mate(16), chess.WHITE)  # White mate in 16
+    _loss_lost, mate_blunder_lost = _compute_loss_and_mate_change(
+        s_lost.white(), s_m16.white(), chess.BLACK
+    )
+    assert mate_blunder_lost is False
+
+    # Case 4: Equal position (White +0.1) blundering into direct mate in 3.
+    # Allowing a short mate from an equal position IS a blunder.
+    s_eq = chess.engine.PovScore(chess.engine.Cp(10), chess.WHITE)
+    s_mated_in_3 = chess.engine.PovScore(chess.engine.Mate(-3), chess.WHITE)
+    _loss_blunder, mate_blunder_blunder = _compute_loss_and_mate_change(
+        s_eq.white(), s_mated_in_3.white(), chess.WHITE
+    )
+    assert mate_blunder_blunder is True
+
+    # Case 5 (User Scenario): Had Mate in 6, played move staying at +7.9 pawns (+790 cp).
+    # Centipawn loss is negligible (~10 cp), NOT a blunder or mistake!
+    s_m6 = chess.engine.PovScore(chess.engine.Mate(6), chess.WHITE)
+    s_79 = chess.engine.PovScore(chess.engine.Cp(790), chess.WHITE)
+    loss_79, mate_79 = _compute_loss_and_mate_change(s_m6.white(), s_79.white(), chess.WHITE)
+    assert mate_79 is False
+    assert loss_79 <= 20  # negligible centipawn loss
+
+    # Case 6 (User Scenario): Had Mate in 6, played move dropping to +4.0 pawns (+400 cp).
+    # Dropped 4 pawns (400 cp loss), so this MUST be classified as a Blunder!
+    s_40 = chess.engine.PovScore(chess.engine.Cp(400), chess.WHITE)
+    loss_40, mate_40 = _compute_loss_and_mate_change(s_m6.white(), s_40.white(), chess.WHITE)
+    assert loss_40 >= 300
+    assert _classify_swing(loss_cp=loss_40, forced_mate_status_changed=mate_40) == "Blunder"
+
+
 # -----------------------------------------------------------------------------
 # 2. Integration Tests with Stockfish
 # -----------------------------------------------------------------------------
@@ -248,3 +306,43 @@ def test_analyze_pgn_missing_stockfish_binary():
     pgn_str = "1. e4 e5 2. Nf3 Nc6"
     with pytest.raises(FileNotFoundError, match="Stockfish binary not found"):
         analyze_pgn(pgn_str, stockfish_path="/nonexistent/path/to/stockfish")
+
+
+@pytest.mark.skipif(
+    not os.path.exists(STOCKFISH_PATH),
+    reason="Stockfish binary not found at default path",
+)
+def test_best_move_played_never_negative_critical_moment():
+    # In an endgame where Black is lost, playing the top engine move (e.g. capturing a knight)
+    # must never be flagged as a Blunder, Mistake, or Inaccuracy.
+    pgn_str = """[Event "Endgame test"]
+[White "White"]
+[Black "Black"]
+[Result "1-0"]
+[SetUp "1"]
+[FEN "8/8/8/8/p5P1/5P1K/1kN4P/R7 b - - 4 56"]
+
+56... Kxc2 57. Rxa4 1-0"""
+
+    payload = analyze_pgn(
+        pgn_str=pgn_str,
+        stockfish_path=STOCKFISH_PATH,
+        user_color="Both",
+        time_per_move=0.03,
+    )
+
+    # Neither 56... Kxc2 nor 57. Rxa4 should be flagged as a negative blunder/mistake/inaccuracy
+    for cm in payload.critical_moments:
+        if cm.move_played_san in ("Kxc2", "Rxa4"):
+            assert cm.classification not in (
+                "Blunder",
+                "Mistake",
+                "Inaccuracy",
+                "Missed Win",
+                "Missed Tactic",
+            )
+            assert cm.best_move_san != cm.move_played_san or cm.classification in (
+                "Best Move",
+                "Great Move",
+                "Checkmate",
+            )

@@ -2,6 +2,7 @@ import { ExternalLink, FileText, Github, Play, RefreshCw, Trash2, X } from 'luci
 import { Badge } from './Badge';
 import { TagCapsule } from './TagCapsule';
 import {
+  extractOpeningCodeAndName,
   platformBadgeVariant,
   platformLabel,
   resultBadgeVariant,
@@ -68,7 +69,7 @@ function MiniEvalChart({ evals, movesCount }: { evals?: number[]; movesCount?: n
 
   return (
     <div
-      className="inline-block w-28 sm:w-36 md:w-48 lg:w-56 max-w-full h-7 sm:h-8 md:h-9 rounded border border-slate-200 dark:border-slate-700/80 overflow-hidden bg-slate-800 align-middle shadow-xs transition-all"
+      className="inline-block w-32 sm:w-40 md:w-48 max-w-full h-7 sm:h-8 rounded border border-slate-200 dark:border-slate-700/80 overflow-hidden bg-slate-800 align-middle shadow-xs transition-all"
       title={`Evaluation Trajectory (${movesCount ? `${movesCount} moves / ` : ''}${evals.length} plies)`}
     >
       <svg
@@ -152,12 +153,12 @@ export function GamesTable({
         <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
           <tr>
             <th className="py-2.5 px-3 w-8">#</th>
-            <th className="py-2.5 px-3 w-36 sm:w-40 md:w-44">Platform & Speed</th>
+            <th className="py-2.5 px-3 w-52 sm:w-56 md:w-60">Platform & Speed</th>
             <th className="py-2.5 px-3 w-10 text-center">Side</th>
-            <th className="py-2.5 px-3">Players</th>
-            <th className="py-2.5 px-3 w-20">Result</th>
-            <th className="py-2.5 px-3 w-32 sm:w-44 md:w-56 text-center">Eval</th>
-            <th className="py-2.5 px-3 w-32 text-right">Actions</th>
+            <th className="py-2.5 px-3 min-w-[210px] sm:min-w-[240px] md:min-w-[270px]">Players</th>
+            <th className="py-2.5 px-3 w-16 sm:w-20">Result</th>
+            <th className="py-2.5 px-3 w-36 sm:w-44 md:w-52 text-center">Eval</th>
+            <th className="py-2.5 px-3 w-28 text-right">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -177,6 +178,7 @@ export function GamesTable({
                 : g.ply_evals && g.ply_evals.length > 1
                   ? Math.floor(g.ply_evals.length / 2)
                   : 0);
+            const openingInfo = extractOpeningCodeAndName(g.opening_name, g.pgn_text);
 
             return (
               <tr
@@ -187,8 +189,8 @@ export function GamesTable({
                   {idx + 1}
                 </td>
 
-                <td className="py-3 px-3 w-36 sm:w-40 md:w-44">
-                  <div className="flex flex-col gap-0.5">
+                <td className="py-3 px-3 w-52 sm:w-56 md:w-60">
+                  <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-1.5 whitespace-nowrap">
                       <Badge
                         variant={platformBadgeVariant(g.platform)}
@@ -224,6 +226,21 @@ export function GamesTable({
                         </span>
                       ) : null}
                     </div>
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-mono whitespace-nowrap">
+                      {formatGameTime(g.played_at, g.date, g.created_at)}
+                      {movesCount ? ` · ${movesCount} moves` : ''}
+                      {openingInfo ? (
+                        <>
+                          {' · '}
+                          <span
+                            title={openingInfo.fullName}
+                            className="cursor-help hover:text-slate-700 dark:hover:text-slate-200 transition-colors underline decoration-dotted decoration-slate-400/60 dark:decoration-slate-500/60 underline-offset-2 font-semibold"
+                          >
+                            {openingInfo.code}
+                          </span>
+                        </>
+                      ) : null}
+                    </span>
                   </div>
                 </td>
 
@@ -246,18 +263,36 @@ export function GamesTable({
                   )}
                 </td>
 
-                <td className="py-3 px-3">
+                <td className="py-3 px-3 min-w-[210px] sm:min-w-[240px] md:min-w-[270px]">
                   <div className="flex flex-col gap-0.5">
-                    <span className="font-medium text-slate-900 dark:text-slate-100">
-                      {white}{' '}
-                      <span className="text-slate-400 dark:text-slate-500 font-normal">vs</span>{' '}
-                      {black}
-                    </span>
-                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">
-                      {formatGameTime(g.played_at, g.date, g.created_at)}
-                      {movesCount ? ` · ${movesCount} moves` : ''}
-                      {g.opening_name ? ` · ${g.opening_name.slice(0, 25)}` : ''}
-                    </span>
+                    {isAnalyzed ? (
+                      <a
+                        href={`/analysis/${g.id}`}
+                        onClick={e => {
+                          if (isAnyAnalyzing) {
+                            e.preventDefault();
+                            return;
+                          }
+                          if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) {
+                            return;
+                          }
+                          e.preventDefault();
+                          onViewReport(g.id);
+                        }}
+                        className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+                        title="View Report (Ctrl+click to open in new tab)"
+                      >
+                        {white}{' '}
+                        <span className="text-slate-400 dark:text-slate-500 font-normal">vs</span>{' '}
+                        {black}
+                      </a>
+                    ) : (
+                      <span className="font-medium text-slate-900 dark:text-slate-100">
+                        {white}{' '}
+                        <span className="text-slate-400 dark:text-slate-500 font-normal">vs</span>{' '}
+                        {black}
+                      </span>
+                    )}
                     {g.tags && g.tags.length > 0 && (
                       <div className="flex items-center gap-1 flex-wrap mt-0.5">
                         {sortTagsNegativeFirst(g.tags)
@@ -309,13 +344,13 @@ export function GamesTable({
                   </div>
                 </td>
 
-                <td className="py-3 px-3">
+                <td className="py-3 px-3 w-16 sm:w-20">
                   <Badge variant={resultBadgeVariant(g.result, g.side, white, black)}>
                     {resultLabel(g.result, g.side, white, black)}
                   </Badge>
                 </td>
 
-                <td className="py-3 px-3 text-center">
+                <td className="py-3 px-3 w-36 sm:w-44 md:w-52 text-center">
                   {isAnalyzed ? (
                     <MiniEvalChart evals={g.ply_evals} movesCount={movesCount} />
                   ) : (
@@ -325,7 +360,7 @@ export function GamesTable({
                   )}
                 </td>
 
-                <td className="py-3 px-3 text-right">
+                <td className="py-3 px-3 w-28 text-right">
                   <div className="flex items-center justify-end gap-1">
                     {isThisGameAnalyzing ? (
                       <div className="flex items-center gap-1.5">
@@ -352,16 +387,27 @@ export function GamesTable({
                       </div>
                     ) : isAnalyzed ? (
                       <>
-                        <button
-                          type="button"
-                          disabled={isAnyAnalyzing}
-                          onClick={() => onViewReport(g.id)}
-                          title="View Report"
+                        <a
+                          href={`/analysis/${g.id}`}
+                          onClick={e => {
+                            if (isAnyAnalyzing) {
+                              e.preventDefault();
+                              return;
+                            }
+                            if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) {
+                              return;
+                            }
+                            e.preventDefault();
+                            onViewReport(g.id);
+                          }}
+                          title="View Report (Ctrl+click or middle-click to open in new tab)"
                           aria-label="View Report"
-                          className="p-1.5 rounded-md text-slate-700 hover:text-slate-950 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+                          className={`p-1.5 rounded-md text-slate-700 hover:text-slate-950 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800 transition-colors inline-flex items-center justify-center cursor-pointer ${
+                            isAnyAnalyzing ? 'opacity-40 pointer-events-none' : ''
+                          }`}
                         >
                           <FileText size={15} />
-                        </button>
+                        </a>
                         <button
                           type="button"
                           disabled={isAnyAnalyzing}

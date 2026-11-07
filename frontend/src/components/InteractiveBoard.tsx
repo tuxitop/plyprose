@@ -35,18 +35,22 @@ import {
   Send,
   Check,
   Plus,
-  HelpCircle,
   ExternalLink,
+  Trophy,
+  Clock,
 } from 'lucide-react';
+import { MoveBadgeGlyph } from './MoveBadgeGlyph';
 import { askMoveQuestion, appendQAToReport } from '../lib/api';
 import {
   formatPlyEval,
   formatSecondsToClock,
+  getBaseClockSeconds,
   getClassificationBadge,
+  getClassificationTextColor,
   sortTagsNegativeFirst,
 } from '../lib/badges';
 import { classifyReportMove } from '../lib/chessNav';
-import { getQuickQuestions, renderCoachAnswerHtml } from '../lib/coachFormat';
+import { getDeterministicMoveExplanation, renderCoachAnswerHtml } from '../lib/coachFormat';
 import type { AskMoveResponse } from '../types';
 import { StockfishService, type EngineLine } from '../lib/stockfishService';
 import { EvaluationChart } from './EvaluationChart';
@@ -75,6 +79,16 @@ export interface CriticalMomentData {
   clock_seconds_remaining?: number | null;
   time_spent_seconds?: number | null;
   tags?: string[];
+  facts_before_move?: {
+    hanging_pieces?: string[];
+    is_check?: boolean;
+    fen?: string;
+  };
+  facts_after_played_move?: {
+    hanging_pieces?: string[];
+    is_check?: boolean;
+    fen?: string;
+  };
 }
 
 export interface GamePly {
@@ -98,6 +112,75 @@ export interface VariationPly {
   color: 'w' | 'b';
   from?: Key;
   to?: Key;
+}
+
+export interface SubVariation {
+  branchPlyIndex: number;
+  parentFen: string;
+  moves: VariationPly[];
+}
+
+function simulateVariationMoves(
+  baseFen: string,
+  moves: string[],
+  baseMoveNumber: number,
+  baseColor: 'w' | 'b',
+): VariationPly[] {
+  const sim = new Chess(baseFen);
+  const result: VariationPly[] = [];
+  for (let i = 0; i < moves.length; i++) {
+    try {
+      const moveRes = sim.move(moves[i]);
+      if (!moveRes) break;
+      const moveNumber =
+        baseColor === 'b'
+          ? baseMoveNumber + 1 + Math.floor(i / 2)
+          : baseMoveNumber + Math.floor((i + 1) / 2);
+      result.push({
+        plyIndex: i,
+        fen: sim.fen(),
+        san: moveRes.san,
+        moveNumber,
+        color: moveRes.color,
+        from: moveRes.from as Key,
+        to: moveRes.to as Key,
+      });
+    } catch {
+      break;
+    }
+  }
+  return result;
+}
+
+function getAdvantageText(cp: number, mate?: number | null) {
+  if (mate !== undefined && mate !== null) {
+    if (mate > 0)
+      return { label: 'Winning Attack', shortScore: `+M${mate}`, isWhite: true, isEqual: false };
+    return {
+      label: 'Massively Better',
+      shortScore: `-M${Math.abs(mate)}`,
+      isWhite: false,
+      isEqual: false,
+    };
+  }
+  const clampedCp = Math.max(-1000, Math.min(1000, cp));
+  const abs = Math.abs(clampedCp);
+  const isWhite = clampedCp >= 0;
+  const scoreStr =
+    clampedCp > 0 ? `+${(clampedCp / 100).toFixed(1)}` : (clampedCp / 100).toFixed(1);
+  if (abs <= 30) {
+    return { label: 'Equal Position', shortScore: '0.0', isWhite: true, isEqual: true };
+  }
+  if (abs <= 100) {
+    return { label: 'Slightly Better', shortScore: scoreStr, isWhite, isEqual: false };
+  }
+  if (abs <= 250) {
+    return { label: 'Clearly Better', shortScore: scoreStr, isWhite, isEqual: false };
+  }
+  if (abs <= 500) {
+    return { label: 'Winning Advantage', shortScore: scoreStr, isWhite, isEqual: false };
+  }
+  return { label: 'Massively Better', shortScore: scoreStr, isWhite, isEqual: false };
 }
 
 export interface InteractiveBoardHandle {
@@ -327,33 +410,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       if (bPly < 0 || bPly >= plies.length) return null;
 
       const baseFen = plies[bPly].fen;
-      const sim = new Chess(baseFen);
-      const newVarPlies: VariationPly[] = [];
       const baseMoveNum = plies[bPly].moveNumber;
       const baseColor = plies[bPly].color;
-
-      for (let i = 0; i < moves.length; i++) {
-        try {
-          const moveRes = sim.move(moves[i]);
-          if (!moveRes) break;
-          const moveNumber =
-            baseColor === 'b'
-              ? baseMoveNum + 1 + Math.floor(i / 2)
-              : baseMoveNum + Math.floor((i + 1) / 2);
-
-          newVarPlies.push({
-            plyIndex: i,
-            fen: sim.fen(),
-            san: moveRes.san,
-            moveNumber,
-            color: moveRes.color,
-            from: moveRes.from as Key,
-            to: moveRes.to as Key,
-          });
-        } catch {
-          break;
-        }
-      }
+      const newVarPlies = simulateVariationMoves(baseFen, moves, baseMoveNum, baseColor);
       return newVarPlies.length > 0 ? { branchPly: bPly, varPlies: newVarPlies } : null;
     }, [initialVariation, plies]);
 
@@ -368,38 +427,41 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const [freeChess, setFreeChess] = useState<Chess | null>(() =>
       initialVarData && lastVarIdx >= 0 ? new Chess(initialVarData.varPlies[lastVarIdx].fen) : null,
     );
+    const [subVariations, setSubVariations] = useState<SubVariation[]>([]);
+
+    // Square highlight state & auto-dismiss timer
+    const [highlightedSquare, setHighlightedSquare] = useState<string | null>(null);
+    const highlightedSquareRef = useRef<string | null>(null);
+    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const dismissHighlight = useCallback(() => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = null;
+      }
+      if (highlightedSquareRef.current) {
+        highlightedSquareRef.current = null;
+        setHighlightedSquare(null);
+      }
+    }, []);
+
+    useEffect(() => {
+      return () => {
+        if (highlightTimerRef.current) {
+          clearTimeout(highlightTimerRef.current);
+          highlightTimerRef.current = null;
+        }
+      };
+    }, []);
 
     const startVariation = useCallback(
       (bPly: number, moves: string[]) => {
         if (bPly < 0 || bPly >= plies.length || !moves || moves.length === 0) return;
+        dismissHighlight();
         const baseFen = plies[bPly].fen;
-        const sim = new Chess(baseFen);
-        const newVarPlies: VariationPly[] = [];
         const baseMoveNum = plies[bPly].moveNumber;
         const baseColor = plies[bPly].color;
-
-        for (let i = 0; i < moves.length; i++) {
-          try {
-            const moveRes = sim.move(moves[i]);
-            if (!moveRes) break;
-            const moveNumber =
-              baseColor === 'b'
-                ? baseMoveNum + 1 + Math.floor(i / 2)
-                : baseMoveNum + Math.floor((i + 1) / 2);
-
-            newVarPlies.push({
-              plyIndex: i,
-              fen: sim.fen(),
-              san: moveRes.san,
-              moveNumber,
-              color: moveRes.color,
-              from: moveRes.from as Key,
-              to: moveRes.to as Key,
-            });
-          } catch {
-            break;
-          }
-        }
+        const newVarPlies = simulateVariationMoves(baseFen, moves, baseMoveNum, baseColor);
 
         if (newVarPlies.length > 0) {
           const lastIdx = newVarPlies.length - 1;
@@ -408,24 +470,61 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           setCurrentVarIndex(lastIdx);
           setIsFreePlay(true);
           setFreeChess(new Chess(newVarPlies[lastIdx].fen));
+          setSubVariations([]);
           onSelectPly(bPly);
         }
       },
-      [plies, onSelectPly],
+      [plies, onSelectPly, dismissHighlight],
+    );
+
+    const handleSelectVariationMove = useCallback(
+      (bPly: number, fullVarPlies: VariationPly[], targetVarIdx: number) => {
+        dismissHighlight();
+        setBranchPly(bPly);
+        setVariationPlies(fullVarPlies);
+        setCurrentVarIndex(targetVarIdx);
+        setIsFreePlay(true);
+        setFreeChess(new Chess(fullVarPlies[targetVarIdx].fen));
+      },
+      [dismissHighlight],
     );
 
     const resetVariation = useCallback(() => {
+      dismissHighlight();
       setIsFreePlay(false);
       setVariationPlies([]);
       setCurrentVarIndex(-1);
       setFreeChess(null);
-    }, []);
+      setSubVariations([]);
+    }, [dismissHighlight]);
 
     const highlightSquare = useCallback((square: string) => {
-      const sq = square.toLowerCase().trim() as Key;
-      if (cgApiRef.current && /^[a-h][1-8]$/.test(sq)) {
-        cgApiRef.current.selectSquare(sq);
+      const sq = square.toLowerCase().trim();
+      if (!/^[a-h][1-8]$/.test(sq)) return;
+
+      // Clear any pending timer
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = null;
       }
+
+      // Toggle off if already highlighted
+      if (highlightedSquareRef.current === sq) {
+        highlightedSquareRef.current = null;
+        setHighlightedSquare(null);
+        return;
+      }
+
+      // Highlight target square
+      highlightedSquareRef.current = sq;
+      setHighlightedSquare(sq);
+
+      // Auto-dismiss after 3.5 seconds
+      highlightTimerRef.current = setTimeout(() => {
+        highlightedSquareRef.current = null;
+        setHighlightedSquare(null);
+        highlightTimerRef.current = null;
+      }, 3500);
     }, []);
 
     useImperativeHandle(
@@ -441,6 +540,129 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     // Current active ply clamped to range
     const safePly = Math.max(0, Math.min(currentPly, plies.length - 1));
     const currentPlyData = plies[safePly] || plies[0];
+
+    // Precomputed suggested engine variations for each critical moment ply
+    const engineVariationsByPly = useMemo(() => {
+      const map = new Map<number, VariationPly[]>();
+      if (!plies.length) return map;
+
+      for (let i = 1; i < plies.length; i++) {
+        const ply = plies[i];
+        const cm = ply.criticalMoment;
+        if (!cm) continue;
+
+        // Never display an alternative variation for checkmate (the game is over)
+        if (
+          ply.san.includes('#') ||
+          (cm.classification && cm.classification.toLowerCase().includes('checkmate'))
+        ) {
+          continue;
+        }
+
+        // An alternative variation is only meaningful when the move played was suboptimal
+        // (blunder, mistake, inaccuracy, missed win, missed tactic) and differs from the recommendation
+        const isSuboptimal =
+          cm.classification &&
+          ['blunder', 'mistake', 'inaccuracy', 'missed win', 'missed tactic', 'miss'].some(cls =>
+            cm.classification.toLowerCase().includes(cls),
+          );
+
+        const isDifferentMove =
+          cm.best_move_san &&
+          cm.best_move_san !== ply.san &&
+          cm.pv_san &&
+          cm.pv_san.length > 0 &&
+          cm.pv_san[0] !== ply.san;
+
+        if (isSuboptimal && isDifferentMove && cm.pv_san && cm.pv_san.length > 0) {
+          const bPly = i - 1;
+          const baseFen = plies[bPly].fen;
+          const baseMoveNum = plies[bPly].moveNumber;
+          const baseColor = plies[bPly].color;
+          const varPlies = simulateVariationMoves(baseFen, cm.pv_san, baseMoveNum, baseColor);
+          if (varPlies.length > 0) {
+            map.set(i, varPlies);
+          }
+        }
+      }
+      return map;
+    }, [plies]);
+
+    // Player metadata & remaining clock times
+    const pgnHeaders = useMemo(() => {
+      if (!pgnText) return {} as Record<string, string>;
+      try {
+        const c = new Chess();
+        c.loadPgn(pgnText);
+        return c.header();
+      } catch {
+        return {} as Record<string, string>;
+      }
+    }, [pgnText]);
+
+    const whiteName = parsedPayload?.white_player || pgnHeaders?.White || 'White';
+    const blackName = parsedPayload?.black_player || pgnHeaders?.Black || 'Black';
+    const whiteElo = parsedPayload?.white_elo || pgnHeaders?.WhiteElo || '';
+    const blackElo = parsedPayload?.black_elo || pgnHeaders?.BlackElo || '';
+
+    const whiteInitial = (whiteName.trim()[0] || 'W').toUpperCase();
+    const blackInitial = (blackName.trim()[0] || 'B').toUpperCase();
+
+    const baseClockSecs = useMemo(() => {
+      return (
+        getBaseClockSeconds(
+          parsedPayload?.time_control || pgnHeaders?.TimeControl,
+          parsedPayload?.ply_clocks,
+        ) ?? 300
+      );
+    }, [parsedPayload, pgnHeaders]);
+
+    const { whiteClock, blackClock } = useMemo(() => {
+      let wSecs: number | null | undefined = null;
+      let bSecs: number | null | undefined = null;
+
+      if (safePly === 0) {
+        wSecs = baseClockSecs;
+        bSecs = baseClockSecs;
+      } else {
+        for (let p = safePly; p >= 1; p--) {
+          const ply = plies[p];
+          if (
+            ply &&
+            ply.color === 'w' &&
+            ply.clockSecondsRemaining !== undefined &&
+            ply.clockSecondsRemaining !== null
+          ) {
+            wSecs = ply.clockSecondsRemaining;
+            break;
+          }
+        }
+        if (wSecs === null) {
+          wSecs = baseClockSecs;
+        }
+
+        for (let p = safePly; p >= 1; p--) {
+          const ply = plies[p];
+          if (
+            ply &&
+            ply.color === 'b' &&
+            ply.clockSecondsRemaining !== undefined &&
+            ply.clockSecondsRemaining !== null
+          ) {
+            bSecs = ply.clockSecondsRemaining;
+            break;
+          }
+        }
+        if (bSecs === null) {
+          bSecs = baseClockSecs;
+        }
+      }
+
+      return {
+        whiteClock: formatSecondsToClock(wSecs),
+        blackClock: formatSecondsToClock(bSecs),
+      };
+    }, [safePly, plies, baseClockSecs]);
 
     // Active FEN on the board (either free play variation or mainline)
     const activeFen = useMemo(() => {
@@ -547,16 +769,40 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       if (prevPly) {
         try {
           const temp = new Chess(prevPly.fen);
-          if (isValidSquare(currentPlyData.from) && isValidSquare(currentPlyData.to)) {
-            shapes.push({
-              orig: currentPlyData.from,
-              dest: currentPlyData.to,
-              brush: 'red',
-            });
-          }
+          let best: { from: Key; to: Key } | null = null;
           if (cm.best_move_san) {
-            const best = temp.move(cm.best_move_san);
-            if (best && isValidSquare(best.from) && isValidSquare(best.to)) {
+            const bestMoveObj = temp.move(cm.best_move_san);
+            if (bestMoveObj && isValidSquare(bestMoveObj.from) && isValidSquare(bestMoveObj.to)) {
+              best = { from: bestMoveObj.from as Key, to: bestMoveObj.to as Key };
+            }
+          }
+
+          const pFrom = currentPlyData.from;
+          const pTo = currentPlyData.to;
+          const hasValidPlayedMove = Boolean(
+            pFrom && pTo && isValidSquare(pFrom) && isValidSquare(pTo),
+          );
+
+          const isSameMove =
+            best !== null && hasValidPlayedMove && best.from === pFrom && best.to === pTo;
+
+          if (isSameMove && pFrom && pTo) {
+            // Player played the engine's best move: draw a single green arrow
+            shapes.push({
+              orig: pFrom,
+              dest: pTo,
+              brush: 'green',
+            });
+          } else {
+            // Played move was different from best move: show played in red and recommendation in green
+            if (hasValidPlayedMove && pFrom && pTo) {
+              shapes.push({
+                orig: pFrom,
+                dest: pTo,
+                brush: 'red',
+              });
+            }
+            if (best) {
               shapes.push({
                 orig: best.from,
                 dest: best.to,
@@ -598,7 +844,18 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               setIsFreePlay(true);
             } else {
               // User is already exploring a variation.
-              // If user was at move index k, truncate subsequent moves and append the new move
+              // If user was at move index k < length - 1, preserve the previous continuation as sub-variation
+              if (currentVarIndex >= 0 && currentVarIndex < variationPlies.length - 1) {
+                const subBranchPlies = variationPlies.slice(currentVarIndex + 1);
+                setSubVariations(prev => [
+                  ...prev,
+                  {
+                    branchPlyIndex: currentVarIndex,
+                    parentFen: activeFen,
+                    moves: subBranchPlies,
+                  },
+                ]);
+              }
               const basePlies =
                 currentVarIndex >= 0 ? variationPlies.slice(0, currentVarIndex + 1) : [];
               const newVarPly: VariationPly = {
@@ -642,6 +899,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     useEffect(() => {
       if (!boardElRef.current) return;
 
+      const sim = new Chess(activeFen);
+      const inCheck = sim.inCheck();
+      const checkColor: Color | boolean = inCheck
+        ? sim.turn() === 'w'
+          ? 'white'
+          : 'black'
+        : false;
+
       const turnColor: Color = activeFen.split(' ')[1] === 'b' ? 'black' : 'white';
       const lastMove = isFreePlay
         ? currentVarIndex >= 0 && variationPlies[currentVarIndex]
@@ -655,6 +920,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         fen: activeFen,
         orientation: orientation,
         turnColor: turnColor,
+        check: checkColor,
         lastMove: lastMove as Key[] | undefined,
         coordinates: true,
         coordinatesOnSquares: false, // Clean edge coordinates; prevents stacked square coordinates
@@ -842,25 +1108,30 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
     // Reset exploration mode back to game mainline
     const handleResetToMainline = () => {
+      dismissHighlight();
       setIsFreePlay(false);
       setFreeChess(null);
       setVariationPlies([]);
+      setSubVariations([]);
       setCurrentVarIndex(-1);
     };
 
     // Navigation handlers
     const handleGoToPly = useCallback(
       (ply: number) => {
+        dismissHighlight();
         setIsFreePlay(false);
         setFreeChess(null);
         setVariationPlies([]);
+        setSubVariations([]);
         setCurrentVarIndex(-1);
         onSelectPly(Math.max(0, Math.min(ply, plies.length - 1)));
       },
-      [onSelectPly, plies.length],
+      [onSelectPly, plies.length, dismissHighlight],
     );
 
     const handleGoToVariationPly = (vIdx: number) => {
+      dismissHighlight();
       if (variationPlies[vIdx]) {
         setCurrentVarIndex(vIdx);
         setFreeChess(new Chess(variationPlies[vIdx].fen));
@@ -891,6 +1162,64 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
     const handleFirst = () => handleGoToPly(0);
     const handleLast = () => handleGoToPly(plies.length - 1);
+
+    const criticalPlies = useMemo(() => {
+      return plies.filter(p => Boolean(p.criticalMoment)).map(p => p.ply);
+    }, [plies]);
+
+    const prevCriticalPly = useMemo(() => {
+      for (let i = criticalPlies.length - 1; i >= 0; i--) {
+        if (criticalPlies[i] < safePly) {
+          return criticalPlies[i];
+        }
+      }
+      return null;
+    }, [criticalPlies, safePly]);
+
+    const nextCriticalPly = useMemo(() => {
+      for (let i = 0; i < criticalPlies.length; i++) {
+        if (criticalPlies[i] > safePly) {
+          return criticalPlies[i];
+        }
+      }
+      return null;
+    }, [criticalPlies, safePly]);
+
+    const handlePrevCritical = useCallback(() => {
+      if (prevCriticalPly !== null) {
+        handleGoToPly(prevCriticalPly);
+      }
+    }, [prevCriticalPly, handleGoToPly]);
+
+    const handleNextCritical = useCallback(() => {
+      if (nextCriticalPly !== null) {
+        handleGoToPly(nextCriticalPly);
+      }
+    }, [nextCriticalPly, handleGoToPly]);
+
+    const prevCriticalTooltip = useMemo(() => {
+      if (prevCriticalPly !== null) {
+        const p = plies[prevCriticalPly];
+        const cm = p?.criticalMoment;
+        const moveLabel = `${p.moveNumber}.${p.color === 'b' ? '..' : ''} ${p.san}`;
+        return `Previous Critical Moment: ${moveLabel} (${cm?.classification ?? 'Critical'}) (Shift+Left)`;
+      }
+      return criticalPlies.length > 0
+        ? 'No earlier critical moments (Shift+Left)'
+        : 'No critical moments in this game';
+    }, [prevCriticalPly, plies, criticalPlies.length]);
+
+    const nextCriticalTooltip = useMemo(() => {
+      if (nextCriticalPly !== null) {
+        const p = plies[nextCriticalPly];
+        const cm = p?.criticalMoment;
+        const moveLabel = `${p.moveNumber}.${p.color === 'b' ? '..' : ''} ${p.san}`;
+        return `Next Critical Moment: ${moveLabel} (${cm?.classification ?? 'Critical'}) (Shift+Right)`;
+      }
+      return criticalPlies.length > 0
+        ? 'No later critical moments (Shift+Right)'
+        : 'No critical moments in this game';
+    }, [nextCriticalPly, plies, criticalPlies.length]);
 
     const handleFlip = () => {
       const nextOrient = orientation === 'white' ? 'black' : 'white';
@@ -952,14 +1281,24 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const [isAppendingQA, setIsAppendingQA] = useState(false);
     const [appendedSuccess, setAppendedSuccess] = useState(false);
 
-    const quickQuestions = useMemo(() => {
-      return getQuickQuestions(currentPlyData);
+    const moveExplanationMarkdown = useMemo(() => {
+      return getDeterministicMoveExplanation(currentPlyData);
     }, [currentPlyData]);
 
+    const moveExplanationHtml = useMemo(() => {
+      if (!moveExplanationMarkdown) return '';
+      return renderCoachAnswerHtml(moveExplanationMarkdown, pgnText);
+    }, [moveExplanationMarkdown, pgnText]);
+
+    const activeCoachAnswer = useMemo(() => {
+      if (!coachAnswer) return null;
+      return coachAnswer.ply === safePly ? coachAnswer : null;
+    }, [coachAnswer, safePly]);
+
     const coachAnswerHtml = useMemo(() => {
-      if (!coachAnswer?.answer_markdown) return '';
-      return renderCoachAnswerHtml(coachAnswer.answer_markdown, pgnText);
-    }, [coachAnswer, pgnText]);
+      if (!activeCoachAnswer?.answer_markdown) return '';
+      return renderCoachAnswerHtml(activeCoachAnswer.answer_markdown, pgnText);
+    }, [activeCoachAnswer, pgnText]);
 
     const handleAskCoach = useCallback(
       async (overrideQuestion?: string) => {
@@ -994,15 +1333,15 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     );
 
     const handleAppendQA = useCallback(async () => {
-      if (!analysisId || !coachAnswer) return;
+      if (!analysisId || !activeCoachAnswer) return;
 
       setIsAppendingQA(true);
       try {
         const res = await appendQAToReport(analysisId, {
-          formal_question: coachAnswer.formal_question,
-          answer_markdown: coachAnswer.answer_markdown,
-          move_context: coachAnswer.move_context,
-          ply: coachAnswer.ply,
+          formal_question: activeCoachAnswer.formal_question,
+          answer_markdown: activeCoachAnswer.answer_markdown,
+          move_context: activeCoachAnswer.move_context,
+          ply: activeCoachAnswer.ply,
         });
         if (res.ok) {
           setAppendedSuccess(true);
@@ -1014,13 +1353,24 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       } finally {
         setIsAppendingQA(false);
       }
-    }, [analysisId, coachAnswer, onReportUpdated]);
+    }, [analysisId, activeCoachAnswer, onReportUpdated]);
 
     const handleCoachAnswerClick = useCallback(
       (e: React.MouseEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement;
         if (!target) return;
 
+        // 1. Clicked on a chessboard square pill (.chess-square-pill)
+        const sqPill = target.closest('.chess-square-pill');
+        if (sqPill) {
+          const sq = sqPill.getAttribute('data-square');
+          if (sq) {
+            highlightSquare(sq);
+            return;
+          }
+        }
+
+        // 2. Clicked on a chess move button (.chess-move-btn)
         const moveBtn = target.closest('.chess-move-btn');
         if (moveBtn) {
           const moveType = moveBtn.getAttribute('data-move-type');
@@ -1052,9 +1402,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           }
         }
 
+        // 3. Fallback for code elements (including bare squares or moves)
         const codeOrCell = target.closest('code');
         if (codeOrCell) {
           const text = (codeOrCell.textContent || '').trim();
+          if (/^[a-h][1-8]$/i.test(text)) {
+            highlightSquare(text);
+            return;
+          }
           const navTarget = classifyReportMove(text, pgnText, codeOrCell as HTMLElement);
           if (navTarget) {
             if (navTarget.type === 'variation' && navTarget.variationMoves?.length) {
@@ -1068,7 +1423,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           }
         }
       },
-      [startVariation, resetVariation, handleGoToPly, pgnText],
+      [highlightSquare, startVariation, resetVariation, handleGoToPly, pgnText],
     );
 
     // Keyboard navigation
@@ -1077,10 +1432,18 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
         if (e.key === 'ArrowLeft') {
           e.preventDefault();
-          handlePrev();
+          if (e.shiftKey || e.altKey) {
+            handlePrevCritical();
+          } else {
+            handlePrev();
+          }
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
-          handleNext();
+          if (e.shiftKey || e.altKey) {
+            handleNextCritical();
+          } else {
+            handleNext();
+          }
         } else if (e.key === 'ArrowUp') {
           e.preventDefault();
           handleFirst();
@@ -1137,6 +1500,16 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         square: to,
       };
     }, [isFreePlay, currentPlyData, orientation]);
+
+    // Grid coordinates for highlighted square
+    const highlightedSquareCoord = useMemo(() => {
+      if (!highlightedSquare || !/^[a-h][1-8]$/.test(highlightedSquare)) return null;
+      const fileIdx = highlightedSquare.charCodeAt(0) - 'a'.charCodeAt(0);
+      const rankNum = parseInt(highlightedSquare[1], 10);
+      const col = orientation === 'white' ? fileIdx : 7 - fileIdx;
+      const row = orientation === 'white' ? 8 - rankNum : rankNum - 1;
+      return { col, row, square: highlightedSquare };
+    }, [highlightedSquare, orientation]);
 
     // Pre-computed game evaluations for each ply (0..total_plies)
     const gamePlyEvals = useMemo<number[]>(() => {
@@ -1261,12 +1634,13 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         }
         if (top.scoreCp !== null) {
           const cp = top.scoreCp;
-          const pawn = (cp / 100).toFixed(1);
+          const clamped = Math.max(-1000, Math.min(1000, cp));
+          const pawn = (clamped / 100).toFixed(1);
           return {
-            cp,
+            cp: clamped,
             mate: null,
-            formatted: cp > 0 ? `+${pawn}` : pawn,
-            short: cp > 0 ? `+${pawn}` : pawn,
+            formatted: clamped > 0 ? `+${pawn}` : pawn,
+            short: clamped > 0 ? `+${pawn}` : pawn,
             source: 'Live Stockfish 19',
           };
         }
@@ -1275,7 +1649,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       // 2. Analyzed game data from payloadJson
       if (gamePlyEvals && gamePlyEvals[safePly] !== undefined && gamePlyEvals[safePly] !== null) {
         const cp = gamePlyEvals[safePly];
-        if (Math.abs(cp) >= 9000) {
+        if (Math.abs(cp) >= 9900) {
           const rawMate = cp > 0 ? 10000 - cp : -(10000 + cp);
           const mate = rawMate === 0 ? (cp > 0 ? 1 : -1) : rawMate;
           return {
@@ -1287,12 +1661,13 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             source: 'Game Analysis',
           };
         }
-        const pawn = (cp / 100).toFixed(1);
+        const clamped = Math.max(-1000, Math.min(1000, cp));
+        const pawn = (clamped / 100).toFixed(1);
         return {
-          cp,
+          cp: clamped,
           mate: null,
-          formatted: cp > 0 ? `+${pawn}` : pawn,
-          short: cp > 0 ? `+${pawn}` : pawn,
+          formatted: clamped > 0 ? `+${pawn}` : pawn,
+          short: clamped > 0 ? `+${pawn}` : pawn,
           source: 'Game Analysis',
         };
       }
@@ -1323,12 +1698,13 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           cm.eval_after_cp ??
           (cm.eval_after !== undefined ? Math.round(cm.eval_after * 100) : null);
         if (evalCp !== null) {
-          const pawn = (evalCp / 100).toFixed(1);
+          const clamped = Math.max(-1000, Math.min(1000, evalCp));
+          const pawn = (clamped / 100).toFixed(1);
           return {
-            cp: evalCp,
+            cp: clamped,
             mate: null,
-            formatted: evalCp > 0 ? `+${pawn}` : pawn,
-            short: evalCp > 0 ? `+${pawn}` : pawn,
+            formatted: clamped > 0 ? `+${pawn}` : pawn,
+            short: clamped > 0 ? `+${pawn}` : pawn,
             source: 'Critical Moment',
           };
         }
@@ -1346,25 +1722,23 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const evalBarData = useMemo(() => {
       const { cp, mate, formatted, short, source } = currentEval;
       let whitePercent: number;
-      if (mate !== null) {
+      if (mate !== null && mate !== undefined) {
         whitePercent = mate > 0 ? 100 : 0;
       } else {
         const winProb = 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
-        whitePercent = Math.max(4, Math.min(96, winProb));
+        whitePercent = Math.max(0, Math.min(100, winProb));
       }
 
-      const isWhiteBottom = orientation === 'white';
-      const bottomHeightPercent = isWhiteBottom ? whitePercent : 100 - whitePercent;
+      const advantage = getAdvantageText(cp, mate);
 
       return {
         whitePercent,
-        bottomHeightPercent,
-        isWhiteBottom,
         text: formatted,
         shortText: short,
         source,
+        advantage,
       };
-    }, [currentEval, orientation]);
+    }, [currentEval]);
 
     const handleToggleEvalChart = () => {
       setShowEvalChart(prev => {
@@ -1416,7 +1790,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             {isFreePlay && (
               <button
                 onClick={handleResetToMainline}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white transition-colors cursor-pointer shadow-xs"
                 title="Return to Game Mainline"
               >
                 <RotateCcw size={12} />
@@ -1735,13 +2109,68 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           </div>
         )}
 
-        {/* Chessboard Container + Evaluation Bar */}
-        <div className="p-2 bg-slate-100 dark:bg-slate-950 flex justify-center items-center gap-2 shrink-0">
+        {/* Chessboard Section with Top Player Bar and Bottom Horizontal Eval Bar */}
+        <div className="p-2 bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center gap-2 shrink-0">
+          {/* Top Player Info Bar */}
+          <div
+            style={{ width: `${effectiveBoardSize}px` }}
+            className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-lg flex items-center justify-between text-xs select-none shadow-xs"
+          >
+            {/* White Player (Left) */}
+            <div className="flex flex-col items-start min-w-0 pr-2">
+              <span
+                className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[180px] sm:max-w-[220px]"
+                title={whiteName}
+              >
+                {whiteName}
+              </span>
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                <span className="flex items-center gap-1 font-mono">
+                  <Trophy size={11} className="text-amber-500 shrink-0" />
+                  {whiteElo || '—'}
+                </span>
+                <span>-</span>
+                <span className="flex items-center gap-1 font-mono">
+                  <Clock size={11} className="text-slate-400 shrink-0" />
+                  {whiteClock || '—'}
+                </span>
+              </div>
+            </div>
+
+            {/* Black Player (Right) */}
+            <div className="flex flex-col items-end min-w-0 pl-2">
+              <span
+                className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[180px] sm:max-w-[220px] text-right"
+                title={blackName}
+              >
+                {blackName}
+              </span>
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 justify-end">
+                <span className="flex items-center gap-1 font-mono">
+                  <Clock size={11} className="text-slate-400 shrink-0" />
+                  {blackClock || '—'}
+                </span>
+                <span>-</span>
+                <span className="flex items-center gap-1 font-mono">
+                  <Trophy size={11} className="text-amber-500 shrink-0" />
+                  {blackElo || '—'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Chessground Board */}
           <div
             style={{ width: `${effectiveBoardSize}px`, height: `${effectiveBoardSize}px` }}
-            onPointerDownCapture={clearBoardBounds}
+            onPointerDownCapture={() => {
+              clearBoardBounds();
+              dismissHighlight();
+            }}
             onMouseDownCapture={clearBoardBounds}
-            onTouchStartCapture={clearBoardBounds}
+            onTouchStartCapture={() => {
+              clearBoardBounds();
+              dismissHighlight();
+            }}
             onMouseEnter={clearBoardBounds}
             className={`chessground-board-wrap relative board-theme-${boardTheme} ${
               pieceTheme !== 'cburnett' ? `piece-theme-${pieceTheme}` : ''
@@ -1749,60 +2178,112 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           >
             <div ref={boardElRef} className="w-full h-full" />
 
+            {/* High-contrast Square Highlight Overlay */}
+            {highlightedSquareCoord && (
+              <div
+                style={{
+                  left: `${highlightedSquareCoord.col * 12.5}%`,
+                  top: `${highlightedSquareCoord.row * 12.5}%`,
+                  width: '12.5%',
+                  height: '12.5%',
+                }}
+                className="chess-square-highlight absolute pointer-events-none"
+              >
+                <span className="absolute top-0.5 right-0.5 px-1 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[9px] font-mono tracking-tight shadow-sm select-none leading-none border border-amber-300">
+                  {highlightedSquareCoord.square}
+                </span>
+              </div>
+            )}
+
             {/* Floating Move Classification Badge on Landing Square (only for moves that stand out) */}
             {activeBadge && (
               <div
                 style={{
                   left: `${activeBadge.col * 12.5 + 12.5}%`,
                   top: `${activeBadge.row * 12.5}%`,
-                  transform: 'translate(-85%, -15%)',
+                  transform: 'translate(-80%, -20%)',
                 }}
-                className={`absolute z-10 w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] text-white shadow-lg border-2 border-white dark:border-slate-900 pointer-events-none select-none ${activeBadge.bgClass}`}
+                className={`absolute z-10 w-6 h-6 rounded-full flex items-center justify-center text-white shadow-md pointer-events-none select-none ${activeBadge.bgClass}`}
                 title={`${activeBadge.label}: ${currentPlyData.san}`}
               >
-                {activeBadge.symbol}
+                <MoveBadgeGlyph type={activeBadge.type} className="w-[18px] h-[18px]" />
               </div>
             )}
           </div>
 
-          {/* Vertical Evaluation Bar on Right */}
+          {/* Horizontal Evaluation Bar below Board */}
           <div
-            style={{ height: `${effectiveBoardSize}px` }}
-            className={`w-7 sm:w-8 rounded-sm overflow-hidden flex flex-col justify-end border border-slate-300 dark:border-slate-700 relative select-none shadow-sm shrink-0 cursor-default group transition-colors ${
-              evalBarData.isWhiteBottom ? 'bg-slate-900' : 'bg-white'
-            }`}
+            style={{ width: `${effectiveBoardSize}px` }}
+            className="h-7 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 relative flex items-center select-none shadow-xs cursor-default bg-slate-900 shrink-0"
             title={`Evaluation: ${evalBarData.text} (${evalBarData.source})`}
           >
-            {/* Subtle 50% Center Equilibrium Line */}
-            <div className="absolute top-1/2 inset-x-0 h-px bg-slate-400/60 pointer-events-none z-10" />
+            {/* White Initial [W| on Left */}
+            <div className="flex items-center justify-center px-2.5 z-20 pointer-events-none shrink-0 bg-slate-100 dark:bg-slate-200 h-full border-r border-slate-400/80 dark:border-slate-500/80">
+              <span className="font-bold text-xs tracking-tight text-slate-800 dark:text-slate-900">
+                {whiteInitial}
+              </span>
+            </div>
 
-            {/* Bottom Dynamic Portion */}
-            <div
-              style={{ height: `${evalBarData.bottomHeightPercent}%` }}
-              className={`w-full transition-all duration-300 ease-out ${
-                evalBarData.isWhiteBottom ? 'bg-white' : 'bg-slate-900'
-              }`}
-            />
+            {/* Evaluation Fill Bar (starts at left | and ends at right |) */}
+            <div className="flex-1 h-full relative overflow-hidden flex items-center bg-slate-900 dark:bg-slate-950">
+              <div
+                style={{ width: `${evalBarData.whitePercent}%` }}
+                className={`h-full bg-slate-100 dark:bg-slate-200 ${
+                  evalBarData.whitePercent > 0 && evalBarData.whitePercent < 100
+                    ? 'border-r border-slate-400/80 dark:border-slate-500/80'
+                    : ''
+                } transition-all duration-300 ease-out shrink-0`}
+              />
+              <div
+                style={{ width: `${100 - evalBarData.whitePercent}%` }}
+                className="h-full bg-slate-900 dark:bg-slate-950 transition-all duration-300 ease-out shrink-0"
+              />
 
-            {/* Numeric eval label positioned in dominant side's territory */}
-            <div
-              className={`absolute inset-x-0 text-center font-sans font-bold leading-tight z-20 px-0.5 select-none whitespace-nowrap overflow-hidden text-ellipsis pointer-events-none ${
-                evalBarData.shortText.length >= 5
-                  ? 'text-[8.5px] tracking-tight'
-                  : evalBarData.shortText.length === 4
-                    ? 'text-[9.5px]'
-                    : 'text-[10.5px]'
-              } ${
-                evalBarData.whitePercent >= 50
-                  ? evalBarData.isWhiteBottom
-                    ? 'bottom-1.5 text-slate-900'
-                    : 'top-1.5 text-slate-900'
-                  : evalBarData.isWhiteBottom
-                    ? 'top-1.5 text-white'
-                    : 'bottom-1.5 text-white'
-              }`}
-            >
-              {evalBarData.shortText}
+              {/* Dynamic Advantage Text & Score */}
+              <div className="absolute inset-0 flex items-center justify-between text-[11px] font-sans font-semibold pointer-events-none z-10">
+                {evalBarData.advantage.isEqual ? (
+                  <span className="w-full text-center text-slate-700 dark:text-slate-300 font-medium">
+                    Equal Position 0.0
+                  </span>
+                ) : evalBarData.advantage.isWhite ? (
+                  <>
+                    <span className="text-slate-800 dark:text-slate-900 truncate max-w-[45%] pl-2">
+                      {evalBarData.advantage.label}
+                    </span>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: `calc(${100 - evalBarData.whitePercent}% + 6px)`,
+                      }}
+                      className="text-slate-800 dark:text-slate-900 font-bold font-mono text-[11px]"
+                    >
+                      {evalBarData.advantage.shortScore}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        left: `calc(${evalBarData.whitePercent}% + 6px)`,
+                      }}
+                      className="text-white font-bold font-mono text-[11px]"
+                    >
+                      {evalBarData.advantage.shortScore}
+                    </span>
+                    <span className="text-slate-200 truncate max-w-[45%] ml-auto pr-2">
+                      {evalBarData.advantage.label}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Black Initial |B] on Right */}
+            <div className="flex items-center justify-center px-2.5 z-20 pointer-events-none shrink-0 bg-slate-900 dark:bg-slate-950 h-full border-l border-slate-600/80 dark:border-slate-700/80">
+              <span className="font-bold text-xs tracking-tight text-slate-200">
+                {blackInitial}
+              </span>
             </div>
           </div>
         </div>
@@ -1814,22 +2295,34 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               onClick={handleFirst}
               disabled={safePly === 0 && !isFreePlay}
               title="First Move (Up Arrow)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors"
+              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default"
             >
               <ChevronsLeft size={15} />
+            </button>
+            <button
+              onClick={handlePrevCritical}
+              disabled={prevCriticalPly === null}
+              title={prevCriticalTooltip}
+              aria-label="Previous Critical Moment"
+              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
+            >
+              <ChevronLeft size={12} className="-mr-0.5" />
+              <span className="font-extrabold text-[11px] font-mono leading-none select-none">
+                !
+              </span>
             </button>
             <button
               onClick={handlePrev}
               disabled={safePly === 0 && !isFreePlay}
               title="Previous Move (Left Arrow)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors"
+              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default"
             >
               <ChevronLeft size={15} />
             </button>
             <button
               onClick={() => setIsAutoplaying(p => !p)}
               title={isAutoplaying ? 'Pause Autoplay (Space)' : 'Autoplay Game (Space)'}
-              className={`p-1.5 rounded transition-colors ${
+              className={`p-1.5 rounded transition-colors cursor-pointer ${
                 isAutoplaying
                   ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
@@ -1841,15 +2334,27 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               onClick={handleNext}
               disabled={safePly >= plies.length - 1 && !isFreePlay}
               title="Next Move (Right Arrow)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors"
+              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default"
             >
               <ChevronRight size={15} />
+            </button>
+            <button
+              onClick={handleNextCritical}
+              disabled={nextCriticalPly === null}
+              title={nextCriticalTooltip}
+              aria-label="Next Critical Moment"
+              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
+            >
+              <span className="font-extrabold text-[11px] font-mono leading-none select-none">
+                !
+              </span>
+              <ChevronRight size={12} className="-ml-0.5" />
             </button>
             <button
               onClick={handleLast}
               disabled={safePly >= plies.length - 1 && !isFreePlay}
               title="Last Move (Down Arrow)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors"
+              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default"
             >
               <ChevronsRight size={15} />
             </button>
@@ -1975,12 +2480,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                 <tbody>
                   {/* Branch variation at starting position (before move 1) */}
                   {isFreePlay && branchPly === 0 && variationPlies.length > 0 && (
-                    <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
-                      <td
-                        colSpan={3}
-                        className="py-1.5 px-2.5 bg-amber-500/10 dark:bg-amber-500/15 border-l-2 border-amber-500"
-                      >
-                        <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
+                    <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-200 dark:border-slate-800">
+                      <td colSpan={3} className="py-1 px-1.5">
+                        <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700">
                           <span className="text-slate-400 dark:text-slate-500 font-sans">(</span>
                           {variationPlies.map((vm, vIdx) => {
                             const isActive = currentVarIndex === vIdx;
@@ -1991,9 +2493,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                   e.currentTarget.blur();
                                   handleGoToVariationPly(vIdx);
                                 }}
-                                className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
                                   isActive
-                                    ? 'bg-amber-600 text-white font-bold shadow-xs'
+                                    ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
                                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                                 }`}
                               >
@@ -2030,12 +2532,76 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                       ? formatPlyEval(gamePlyEvals[pair.black.ply])
                       : null;
 
-                    const whitePv = pair.white?.criticalMoment?.pv_san;
-                    const blackPv = pair.black?.criticalMoment?.pv_san;
+                    const whiteEngineVar = pair.white
+                      ? engineVariationsByPly.get(pair.white.ply)
+                      : undefined;
+                    const blackEngineVar = pair.black
+                      ? engineVariationsByPly.get(pair.black.ply)
+                      : undefined;
 
-                    // Check if this move is where the current exploration variation branched off
-                    const isBranchRow =
-                      isFreePlay && pair.moveNumber === Math.floor((branchPly - 1) / 2) + 1;
+                    const pairVariations: Array<{
+                      id: string;
+                      branchPly: number;
+                      moves: VariationPly[];
+                    }> = [];
+
+                    // White engine suggestion preloaded
+                    if (whiteEngineVar && whiteEngineVar.length > 0) {
+                      pairVariations.push({
+                        id: `w-engine-${pair.moveNumber}`,
+                        branchPly: pair.white!.ply - 1,
+                        moves: whiteEngineVar,
+                      });
+                    }
+
+                    // White user exploration
+                    if (
+                      pair.white &&
+                      isFreePlay &&
+                      branchPly === pair.white.ply - 1 &&
+                      variationPlies.length > 0
+                    ) {
+                      const isDup =
+                        whiteEngineVar &&
+                        whiteEngineVar.length === variationPlies.length &&
+                        whiteEngineVar.every((m, idx) => m.san === variationPlies[idx].san);
+                      if (!isDup) {
+                        pairVariations.push({
+                          id: `w-user-${pair.moveNumber}`,
+                          branchPly: pair.white.ply - 1,
+                          moves: variationPlies,
+                        });
+                      }
+                    }
+
+                    // Black engine suggestion preloaded
+                    if (blackEngineVar && blackEngineVar.length > 0) {
+                      pairVariations.push({
+                        id: `b-engine-${pair.moveNumber}`,
+                        branchPly: pair.black!.ply - 1,
+                        moves: blackEngineVar,
+                      });
+                    }
+
+                    // Black user exploration
+                    if (
+                      pair.black &&
+                      isFreePlay &&
+                      branchPly === pair.black.ply - 1 &&
+                      variationPlies.length > 0
+                    ) {
+                      const isDup =
+                        blackEngineVar &&
+                        blackEngineVar.length === variationPlies.length &&
+                        blackEngineVar.every((m, idx) => m.san === variationPlies[idx].san);
+                      if (!isDup) {
+                        pairVariations.push({
+                          id: `b-user-${pair.moveNumber}`,
+                          branchPly: pair.black.ply - 1,
+                          moves: variationPlies,
+                        });
+                      }
+                    }
 
                     return (
                       <Fragment key={pair.moveNumber}>
@@ -2060,13 +2626,23 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                 }`}
                               >
                                 <div className="flex items-center gap-1.5 min-w-0">
-                                  <span className="truncate">{pair.white.san}</span>
+                                  <span
+                                    className={`truncate ${
+                                      whiteActive
+                                        ? 'text-white font-bold'
+                                        : whiteBadge
+                                          ? getClassificationTextColor(whiteBadge.type)
+                                          : 'text-slate-800 dark:text-slate-200'
+                                    }`}
+                                  >
+                                    {pair.white.san}
+                                  </span>
                                   {whiteBadge && (
                                     <span
-                                      className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white shrink-0 ${whiteBadge.bgClass}`}
+                                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${whiteBadge.bgClass}`}
                                       title={whiteBadge.label}
                                     >
-                                      {whiteBadge.symbol}
+                                      <MoveBadgeGlyph type={whiteBadge.type} className="w-3 h-3" />
                                     </span>
                                   )}
                                 </div>
@@ -2101,13 +2677,23 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                 }`}
                               >
                                 <div className="flex items-center gap-1.5 min-w-0">
-                                  <span className="truncate">{pair.black.san}</span>
+                                  <span
+                                    className={`truncate ${
+                                      blackActive
+                                        ? 'text-white font-bold'
+                                        : blackBadge
+                                          ? getClassificationTextColor(blackBadge.type)
+                                          : 'text-slate-800 dark:text-slate-200'
+                                    }`}
+                                  >
+                                    {pair.black.san}
+                                  </span>
                                   {blackBadge && (
                                     <span
-                                      className={`text-[9px] font-black px-1 py-0.2 rounded font-sans text-white shrink-0 ${blackBadge.bgClass}`}
+                                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${blackBadge.bgClass}`}
                                       title={blackBadge.label}
                                     >
-                                      {blackBadge.symbol}
+                                      <MoveBadgeGlyph type={blackBadge.type} className="w-3 h-3" />
                                     </span>
                                   )}
                                 </div>
@@ -2127,132 +2713,96 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           </td>
                         </tr>
 
-                        {/* Coach Suggested Variation for White move if critical moment has pv_san */}
-                        {pair.white?.criticalMoment?.pv_san &&
-                          pair.white.criticalMoment.pv_san.length > 0 &&
-                          !isBranchRow && (
-                            <tr className="bg-blue-50/25 dark:bg-blue-950/25 border-b border-slate-100 dark:border-slate-800/40">
-                              <td
-                                colSpan={3}
-                                className="py-1 px-2.5 bg-blue-500/5 dark:bg-blue-500/10 border-l-2 border-blue-400 dark:border-blue-500"
-                              >
-                                <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
-                                  <span className="text-blue-600 dark:text-blue-400 font-sans font-semibold text-[10px] flex items-center gap-1 mr-1">
-                                    <Sparkles size={10} className="text-blue-500" />
-                                    {pair.white.criticalMoment.classification || 'Better'}:
-                                  </span>
-                                  <button
-                                    onClick={() => {
-                                      if (whitePv) {
-                                        startVariation(pair.white!.ply - 1, whitePv);
-                                      }
-                                    }}
-                                    className="text-blue-700 dark:text-blue-300 hover:underline cursor-pointer flex flex-wrap items-center gap-0.5"
-                                    title="Play suggested variation on board"
+                        {/* Indented Variations underneath move pair */}
+                        {pairVariations.length > 0 && (
+                          <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800/40">
+                            <td colSpan={3} className="py-1 px-1.5">
+                              <div className="ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700 flex flex-col gap-1 text-[11px] font-mono leading-relaxed">
+                                {pairVariations.map(variation => (
+                                  <div
+                                    key={variation.id}
+                                    className="flex flex-wrap items-center gap-1"
                                   >
-                                    <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                      (
-                                    </span>
-                                    {pair.white.criticalMoment.pv_san.map((m, mIdx) => (
-                                      <span key={mIdx} className="mr-0.5">
-                                        {mIdx % 2 === 0
-                                          ? `${pair.moveNumber + Math.floor(mIdx / 2)}. `
-                                          : ''}
-                                        {m}
-                                      </span>
-                                    ))}
-                                    <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                      )
-                                    </span>
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
+                                    {variation.moves.map((vm, vIdx) => {
+                                      const isMoveActive =
+                                        isFreePlay &&
+                                        branchPly === variation.branchPly &&
+                                        activeFen === vm.fen;
 
-                        {/* Coach Suggested Variation for Black move if critical moment has pv_san */}
-                        {pair.black?.criticalMoment?.pv_san &&
-                          pair.black.criticalMoment.pv_san.length > 0 &&
-                          !isBranchRow && (
-                            <tr className="bg-blue-50/25 dark:bg-blue-950/25 border-b border-slate-100 dark:border-slate-800/40">
-                              <td
-                                colSpan={3}
-                                className="py-1 px-2.5 bg-blue-500/5 dark:bg-blue-500/10 border-l-2 border-blue-400 dark:border-blue-500"
-                              >
-                                <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
-                                  <span className="text-blue-600 dark:text-blue-400 font-sans font-semibold text-[10px] flex items-center gap-1 mr-1">
-                                    <Sparkles size={10} className="text-blue-500" />
-                                    {pair.black.criticalMoment.classification || 'Better'}:
-                                  </span>
-                                  <button
-                                    onClick={() => {
-                                      if (blackPv) {
-                                        startVariation(pair.black!.ply - 1, blackPv);
-                                      }
-                                    }}
-                                    className="text-blue-700 dark:text-blue-300 hover:underline cursor-pointer flex flex-wrap items-center gap-0.5"
-                                    title="Play suggested variation on board"
-                                  >
-                                    <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                      (
-                                    </span>
-                                    {pair.black.criticalMoment.pv_san.map((m, mIdx) => (
-                                      <span key={mIdx} className="mr-0.5">
-                                        {mIdx === 0
-                                          ? `${pair.moveNumber}... `
-                                          : mIdx % 2 === 1
-                                            ? `${pair.moveNumber + Math.floor((mIdx + 1) / 2)}. `
-                                            : ''}
-                                        {m}
-                                      </span>
-                                    ))}
-                                    <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                      )
-                                    </span>
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
+                                      const subVars = subVariations.filter(
+                                        sv => sv.parentFen === vm.fen || sv.branchPlyIndex === vIdx,
+                                      );
 
-                        {/* Lichess-Style Inline Variation Row directly beneath the move pair row */}
-                        {isBranchRow && variationPlies.length > 0 && (
-                          <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
-                            <td
-                              colSpan={3}
-                              className="py-1.5 px-2.5 bg-amber-500/10 dark:bg-amber-500/15 border-l-2 border-amber-500"
-                            >
-                              <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed">
-                                <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                  (
-                                </span>
-                                {variationPlies.map((vm, vIdx) => {
-                                  const isActive = currentVarIndex === vIdx;
-                                  return (
-                                    <button
-                                      key={vIdx}
-                                      onClick={e => {
-                                        e.currentTarget.blur();
-                                        handleGoToVariationPly(vIdx);
-                                      }}
-                                      className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                        isActive
-                                          ? 'bg-amber-600 text-white font-bold shadow-xs'
-                                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                      }`}
-                                    >
-                                      {vm.color === 'w'
-                                        ? `${vm.moveNumber}. `
-                                        : vIdx === 0
-                                          ? `${vm.moveNumber}... `
-                                          : ''}
-                                      {vm.san}
-                                    </button>
-                                  );
-                                })}
-                                <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                  )
-                                </span>
+                                      return (
+                                        <Fragment key={vIdx}>
+                                          <button
+                                            onClick={e => {
+                                              e.currentTarget.blur();
+                                              handleSelectVariationMove(
+                                                variation.branchPly,
+                                                variation.moves,
+                                                vIdx,
+                                              );
+                                            }}
+                                            className={`px-1 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
+                                              isMoveActive
+                                                ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
+                                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                            }`}
+                                            title={`Go to ${vm.san}`}
+                                          >
+                                            {vm.color === 'w'
+                                              ? `${vm.moveNumber}. `
+                                              : vIdx === 0
+                                                ? `${vm.moveNumber}... `
+                                                : ''}
+                                            {vm.san}
+                                          </button>
+
+                                          {/* Render nested sub-variations in parentheses */}
+                                          {subVars.map((sv, sIdx) => (
+                                            <span
+                                              key={sIdx}
+                                              className="text-slate-500 dark:text-slate-400 font-sans inline-flex items-center gap-0.5 text-[10.5px]"
+                                            >
+                                              <span>(</span>
+                                              {sv.moves.map((svm, svIdx) => {
+                                                const isSubActive =
+                                                  isFreePlay && activeFen === svm.fen;
+                                                return (
+                                                  <button
+                                                    key={svIdx}
+                                                    onClick={e => {
+                                                      e.currentTarget.blur();
+                                                      handleSelectVariationMove(
+                                                        variation.branchPly,
+                                                        sv.moves,
+                                                        svIdx,
+                                                      );
+                                                    }}
+                                                    className={`px-1 py-0.2 rounded transition-colors cursor-pointer font-mono ${
+                                                      isSubActive
+                                                        ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold'
+                                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                                    }`}
+                                                  >
+                                                    {svm.color === 'w'
+                                                      ? `${svm.moveNumber}. `
+                                                      : svIdx === 0
+                                                        ? `${svm.moveNumber}... `
+                                                        : ''}
+                                                    {svm.san}
+                                                  </button>
+                                                );
+                                              })}
+                                              <span>)</span>
+                                            </span>
+                                          ))}
+                                        </Fragment>
+                                      );
+                                    })}
+                                  </div>
+                                ))}
                               </div>
                             </td>
                           </tr>
@@ -2267,7 +2817,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         ) : (
           <div className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-slate-900 flex flex-col text-xs">
             {/* Context Header */}
+            {/* Context Header */}
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 shrink-0">
+              {/* Line 1: Analyzing move & return to moves button */}
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                   <span className="text-slate-500 font-normal">Analyzing:</span>
@@ -2299,57 +2851,76 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                   </button>
                 </div>
               </div>
-              {currentPlyData.criticalMoment?.best_move_san && (
-                <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                  <span>Engine alternative:</span>
-                  <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
-                    {currentPlyData.criticalMoment.best_move_san}
+
+              {/* Line 2: Spent & Clock on left, Tags on right */}
+              <div className="mt-1.5 flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-mono">
+                  <span>
+                    ⏱️ Spent:{' '}
+                    {currentPlyData.timeSpentSeconds !== undefined &&
+                    currentPlyData.timeSpentSeconds !== null
+                      ? `${currentPlyData.timeSpentSeconds}s`
+                      : '—'}
                   </span>
+                  {currentPlyData.clockSecondsRemaining !== undefined &&
+                    currentPlyData.clockSecondsRemaining !== null && (
+                      <span className="text-slate-400 dark:text-slate-500">
+                        · Clock: {formatSecondsToClock(currentPlyData.clockSecondsRemaining)}
+                      </span>
+                    )}
                 </div>
-              )}
-              {currentPlyData.timeSpentSeconds !== undefined &&
-                currentPlyData.timeSpentSeconds !== null && (
-                  <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-mono">
-                    <span>⏱️ Spent: {currentPlyData.timeSpentSeconds}s</span>
-                    {currentPlyData.clockSecondsRemaining !== undefined &&
-                      currentPlyData.clockSecondsRemaining !== null && (
-                        <span className="text-slate-400 dark:text-slate-500">
-                          · Clock: {formatSecondsToClock(currentPlyData.clockSecondsRemaining)}
-                        </span>
-                      )}
-                  </div>
-                )}
-              {currentPlyData.criticalMoment?.tags &&
-                currentPlyData.criticalMoment.tags.length > 0 && (
-                  <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                    {sortTagsNegativeFirst(currentPlyData.criticalMoment.tags).map(t => (
-                      <TagCapsule key={t} tag={t} size="sm" />
-                    ))}
+                {currentPlyData.criticalMoment?.tags &&
+                  currentPlyData.criticalMoment.tags.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap justify-end">
+                      {sortTagsNegativeFirst(currentPlyData.criticalMoment.tags).map(t => (
+                        <TagCapsule key={t} tag={t} size="sm" />
+                      ))}
+                    </div>
+                  )}
+              </div>
+
+              {/* Line 3: Engine alternative beneath Line 2 */}
+              {currentPlyData.criticalMoment?.best_move_san &&
+                currentPlyData.criticalMoment.best_move_san !== currentPlyData.san &&
+                !currentPlyData.san.includes('#') &&
+                !currentPlyData.criticalMoment.classification
+                  ?.toLowerCase()
+                  .includes('checkmate') &&
+                ['blunder', 'mistake', 'inaccuracy', 'missed win', 'missed tactic', 'miss'].some(
+                  cls => currentPlyData.criticalMoment?.classification?.toLowerCase().includes(cls),
+                ) && (
+                  <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                    <span>Engine alternative:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          currentPlyData.criticalMoment?.pv_san &&
+                          currentPlyData.criticalMoment.pv_san.length > 0
+                        ) {
+                          startVariation(safePly - 1, currentPlyData.criticalMoment.pv_san);
+                        }
+                      }}
+                      title="Click to load engine alternative line on board"
+                      className="font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
+                    >
+                      {currentPlyData.criticalMoment.best_move_san}
+                    </button>
                   </div>
                 )}
             </div>
 
-            {/* Suggested quick questions */}
-            <div className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1.5 flex items-center gap-1">
-                <HelpCircle size={11} />
-                <span>Suggested Questions</span>
+            {/* Deterministic Tactical Explanation (Always visible before Ask Coach) */}
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1.5">
+                <Sparkles size={12} />
+                <span>Move Breakdown</span>
               </div>
-              <div className="flex flex-col gap-1">
-                {quickQuestions.map((q, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      setUserQuestion(q);
-                      void handleAskCoach(q);
-                    }}
-                    disabled={isAskingCoach}
-                    className="text-left text-[11px] px-2 py-1.5 rounded bg-slate-50 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 dark:bg-slate-800/60 dark:hover:bg-blue-950/50 dark:hover:text-blue-300 border border-slate-200/80 dark:border-slate-700/80 transition-colors text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50"
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
+              <div
+                className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto"
+                onClick={handleCoachAnswerClick}
+                dangerouslySetInnerHTML={{ __html: moveExplanationHtml }}
+              />
             </div>
 
             {/* Custom Question Input Form */}
@@ -2439,7 +3010,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                 </div>
               )}
 
-              {coachAnswer && !isAskingCoach && (
+              {activeCoachAnswer && !isAskingCoach && (
                 <div className="flex flex-col gap-3">
                   {/* Formal Question Title */}
                   <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-md border border-slate-200 dark:border-slate-700">
@@ -2447,10 +3018,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                       Coaching Question
                     </div>
                     <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs leading-snug">
-                      {coachAnswer.formal_question}
+                      {activeCoachAnswer.formal_question}
                     </div>
                     <div className="text-[10px] text-slate-400 mt-1">
-                      {coachAnswer.move_context}
+                      {activeCoachAnswer.move_context}
                     </div>
                   </div>
 

@@ -72,6 +72,15 @@ from src.models import (
     GitHubPullResult,
 )
 from src.openai_agent import list_openai_compat_models, probe_openai_compat_connection
+from src.openings import (
+    IdentifyOpeningRequest,
+    IdentifyOpeningResponse,
+    OpeningContinuation,
+    OpeningEntry,
+    detect_opening,
+    get_opening_continuations,
+    search_openings,
+)
 from src.storage import (
     compute_analysis_hash,
     delete_analysis,
@@ -87,7 +96,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.7.0")
+app = FastAPI(title="PlyProse API", version="1.9.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -440,7 +449,25 @@ def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
             try:
                 parsed_game = chess.pgn.read_game(io.StringIO(pgn_text))
                 if parsed_game:
-                    opening_name = parsed_game.headers.get("Opening")
+                    eco = parsed_game.headers.get("ECO")
+                    op = parsed_game.headers.get("Opening")
+                    if not op and parsed_game.headers.get("ECOUrl"):
+                        eco_url = parsed_game.headers.get("ECOUrl", "")
+                        m_slug = re.search(r"/openings/([^\"'\s]+)", eco_url)
+                        if m_slug:
+                            slug = m_slug.group(1).split("...")[0]
+                            slug = re.sub(r"-\d+\..*$", "", slug)
+                            op = slug.replace("-", " ")
+                    if eco and op:
+                        opening_name = f"{eco}: {op}"
+                    elif eco:
+                        opening_name = eco
+                    elif op:
+                        opening_name = op
+                    if not opening_name or (eco and opening_name == eco):
+                        detected = detect_opening(parsed_game)
+                        if detected:
+                            opening_name = detected.full_name
                     moves = list(parsed_game.mainline_moves())
                     if moves:
                         total_plies = len(moves)
@@ -693,6 +720,14 @@ def _enrich(rec: dict, analyzed: bool, platform: str = "manual") -> dict:
             )
             github_sync_status = "synced" if github_synced_hash == curr_hash else "modified"
 
+    opening = rec.get("opening_name")
+    if not opening or (len(opening) <= 3 and re.match(r"^[A-E]\d\d$", opening)):
+        pgn = rec.get("pgn_text")
+        if pgn:
+            matched_opening = detect_opening(pgn)
+            if matched_opening:
+                opening = matched_opening.full_name
+
     return {
         **rec,
         "analyzed": analyzed,
@@ -709,6 +744,7 @@ def _enrich(rec: dict, analyzed: bool, platform: str = "manual") -> dict:
         "speed_seconds": classified["seconds"],
         "speed_icon": classified["icon"],
         "game_url": extract_game_url(rec.get("pgn_text", ""), plat, rec.get("external_id")),
+        "opening_name": opening,
         "ply_evals": rec.get("ply_evals"),
         "total_plies": total_plies,
         "moves_count": moves_count,
@@ -2038,3 +2074,48 @@ def api_list_models() -> dict:
         api_key=settings.get("llm_api_key") or None,
     )
     return {"models": models}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Openings (Deterministic Lichess Openings Tree)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@app.post("/api/openings/identify", response_model=IdentifyOpeningResponse)
+def api_identify_opening(body: IdentifyOpeningRequest) -> IdentifyOpeningResponse:
+    moves_input = body.moves if body.moves else (body.pgn or "")
+    match = detect_opening(moves_input)
+    conts = get_opening_continuations(moves_input)
+    if not match:
+        return IdentifyOpeningResponse(
+            matched=False,
+            continuations=conts,
+        )
+    return IdentifyOpeningResponse(
+        matched=True,
+        eco=match.eco,
+        name=match.name,
+        full_name=match.full_name,
+        ply=match.ply,
+        pgn=match.pgn,
+        uci=match.uci,
+        epd=match.epd,
+        continuations=conts,
+    )
+
+
+@app.get("/api/openings/continuations", response_model=list[OpeningContinuation])
+def api_get_openings_continuations(
+    pgn: str | None = Query(None),
+    moves: str | None = Query(None),
+) -> list[OpeningContinuation]:
+    target = pgn if pgn else (moves or "")
+    return get_opening_continuations(target)
+
+
+@app.get("/api/openings/search", response_model=list[OpeningEntry])
+def api_search_openings(
+    q: str = Query("", description="Opening name or ECO code to search"),
+    limit: int = Query(20, ge=1, le=100),
+) -> list[OpeningEntry]:
+    return search_openings(query=q, limit=limit)

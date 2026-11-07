@@ -12,6 +12,7 @@ import chess.pgn
 from src.fetcher import extract_game_url
 from src.inspector import extract_tactical_facts
 from src.models import CriticalMoment, GameAnalysisPayload
+from src.openings import detect_opening
 from src.tags import extract_deterministic_tags
 
 
@@ -41,6 +42,29 @@ def _parse_time_control(time_control_str: str | None) -> tuple[float | None, flo
         return None, 0.0
 
 
+def _clamped_eval_for_swing(
+    score: chess.engine.Score, turn: chess.Color, max_cp: int = 1000
+) -> int:
+    """
+    Returns the evaluation in centipawns from the player's perspective,
+    clamped to [-max_cp, max_cp] for swing calculation.
+    This prevents artificial 9000-point cliffs when transitioning between
+    hopelessly lost positions and deep forced mates.
+    """
+    if score.is_mate():
+        m = score.mate()
+        if m is not None:
+            val = max_cp if m > 0 else -max_cp
+        else:
+            val = max_cp
+    else:
+        cp = score.score()
+        raw = cp if cp is not None else 0
+        val = max(-max_cp, min(max_cp, raw))
+
+    return val if turn == chess.WHITE else -val
+
+
 def _compute_loss_and_mate_change(
     score_before: chess.engine.Score,
     score_after: chess.engine.Score,
@@ -48,31 +72,60 @@ def _compute_loss_and_mate_change(
     mate_score: int = 10000,
 ) -> tuple[int, bool]:
     """
-    Computes the centipawn loss from the moving player's perspective
-    and checks if the moving player changed the forced mate status unfavorably.
-
-    Returns:
-        (loss_cp, forced_mate_status_changed)
+    Computes centipawn loss from the moving player's perspective
+    and checks if the moving player experienced a genuine forced mate blunder.
     """
-    sw_before = score_before.score(mate_score=mate_score)
-    sw_after = score_after.score(mate_score=mate_score)
+    pov_before = _clamped_eval_for_swing(score_before, turn)
+    pov_after = _clamped_eval_for_swing(score_after, turn)
 
-    if turn == chess.WHITE:
-        pov_before = sw_before
-        pov_after = sw_after
+    m_before = score_before.mate()
+    m_after = score_after.mate()
+    pov_m_before = (
+        (m_before if turn == chess.WHITE else -m_before) if m_before is not None else None
+    )
+    pov_m_after = (m_after if turn == chess.WHITE else -m_after) if m_after is not None else None
+
+    # Calculate centipawn loss:
+    # If the player was in a winning forced mate:
+    if pov_m_before is not None and pov_m_before > 0:
+        if pov_m_after is not None and pov_m_after > 0:
+            # Still in winning forced mate; centipawn loss is minimal/zero
+            loss_cp = max(0, (pov_m_after - pov_m_before) * 10)
+        else:
+            # Exited forced mate sequence.
+            # Missing an immediate mate (M1-M2) has a high baseline (1000 cp / +10.0 pawns).
+            # Deep computer mates (M3+) have a realistic winning baseline (800 cp / +8.0 pawns).
+            # If the player stays at +7.9 or +8.0, the centipawn loss is negligible (~10 cp).
+            # If the player drops to +4.0, they lost ~400 cp, which is a genuine blunder!
+            mate_baseline = 1000 if pov_m_before <= 2 else 800
+            loss_cp = max(0, mate_baseline - pov_after)
     else:
-        pov_before = -sw_before
-        pov_after = -sw_after
+        loss_cp = max(0, pov_before - pov_after)
 
-    loss_cp = pov_before - pov_after
+    # 1. Missed mate against opponent:
+    # Only considered a forced mate blunder if the player actually threw away the win (dropped to < 200 cp),
+    # or missed an obvious mate in 1 or 2.
+    is_mate_lost = False
+    if pov_m_before is not None and pov_m_before > 0:
+        if pov_m_after is None or pov_m_after <= 0:
+            if pov_after < 200:
+                is_mate_lost = True
+            elif pov_m_before <= 2 and pov_after < 500:
+                # Missed an obvious mate in 1 or 2
+                is_mate_lost = True
 
-    # Mate status change against the moving player:
-    # 1. Moving player had a forced mate (>= 9000) and lost it (< 9000).
-    # 2. Moving player was not getting mated (> -9000) and now is getting mated (<= -9000).
-    is_mate_lost = pov_before >= 9000 and pov_after < 9000
-    is_mate_allowed = pov_before > -9000 and pov_after <= -9000
+    # 2. Allowed mate against moving player:
+    # Only considered a blunder if the player was in a playable position (pov_before > -500),
+    # not when the player was already completely dead lost (e.g. down a queen/rook).
+    is_mate_allowed = False
+    if pov_m_after is not None and pov_m_after < 0:
+        opp_mate_in = abs(pov_m_after)
+        was_already_mated = pov_m_before is not None and pov_m_before < 0
+        if not was_already_mated and pov_before > -500:
+            if opp_mate_in <= 6 or pov_before >= 0:
+                is_mate_allowed = True
+
     forced_mate_status_changed = is_mate_lost or is_mate_allowed
-
     return loss_cp, forced_mate_status_changed
 
 
@@ -87,7 +140,7 @@ def _classify_swing(
     Classifies the move swing based on loss in centipawns and tactical context:
     - Missed Win: moving player had clear winning advantage (>= 200 cp or mate) and threw it away
     - Missed Tactic: tactical motif was available in best move but missed in played move
-    - Blunder: >= 300 cp (or forced mate status changed)
+    - Blunder: >= 300 cp (or forced mate blundered against the player)
     - Mistake: >= 150 cp
     - Inaccuracy: >= 80 cp
     """
@@ -99,13 +152,20 @@ def _classify_swing(
     ):
         return "Missed Win"
 
-    # 2. Any move that changes forced mate status against the player is a Blunder
+    # 2. Any move that genuinely blunders a forced mate against the player
     if forced_mate_status_changed:
         return "Blunder"
 
     # 3. Missed Tactic: tactical opportunity available in best line but missed
     if had_tactical_motif and 100 <= loss_cp < 300:
         return "Missed Tactic"
+
+    # In completely lost positions (pov_before <= -500 and pov_after <= -500),
+    # minor centipawn fluctuations (loss_cp < 300) are endgame noise in dead-lost positions,
+    # not genuine inaccuracies or mistakes.
+    if pov_before <= -500 and pov_after <= -500 and not forced_mate_status_changed:
+        if loss_cp < 300:
+            return "Good Move"
 
     if loss_cp >= 300:
         return "Blunder"
@@ -206,6 +266,13 @@ def analyze_pgn(
 
     opening_val = game.headers.get("Opening")
     eco_val = game.headers.get("ECO")
+    if not opening_val and game.headers.get("ECOUrl"):
+        eco_url = game.headers.get("ECOUrl", "")
+        m_slug = re.search(r"/openings/([^\"'\s]+)", eco_url)
+        if m_slug:
+            slug = m_slug.group(1).split("...")[0]
+            slug = re.sub(r"-\d+\..*$", "", slug)
+            opening_val = slug.replace("-", " ").title()
     if opening_val and eco_val:
         opening_name = f"{eco_val}: {opening_val}"
     elif opening_val:
@@ -214,6 +281,11 @@ def analyze_pgn(
         opening_name = eco_val
     else:
         opening_name = None
+
+    if not opening_name or (eco_val and opening_name == eco_val):
+        detected_opening = detect_opening(game)
+        if detected_opening:
+            opening_name = detected_opening.full_name
 
     mainline_nodes = list(game.mainline())
     moves = [node.move for node in mainline_nodes]
@@ -255,13 +327,54 @@ def analyze_pgn(
                 ply_times_spent=[None],
             )
 
-        board = game.board()
         limit = chess.engine.Limit(time=max(0.01, time_per_move))
 
-        # Initial evaluation of the starting position
-        current_info = active_engine.analyse(board, limit)
-        score_0 = current_info["score"].white()
-        ply_evals: list[int | None] = [score_0.score(mate_score=10000)]
+        # Replay moves to collect board states for all plies (0..total_plies)
+        boards: list[chess.Board] = [game.board()]
+        curr_b = game.board()
+        for node in mainline_nodes:
+            curr_b = curr_b.copy()
+            curr_b.push(node.move)
+            boards.append(curr_b)
+
+        # Configure Stockfish hash table (64MB) so transposition table (TT)
+        # carries forward deep tactical refutations and forced mate distances.
+        try:
+            active_engine.configure({"Hash": 64})
+        except Exception:
+            pass
+
+        # Pass 1: Backwards analysis from final position (ply N) down to starting position (ply 0).
+        # This matches Lichess's fishnet pattern: analyzing in reverse populates the engine's TT
+        # with endgame knowledge, eliminating horizon spikes and propagating mate depths backward.
+        engine_infos: dict[int, chess.engine.InfoDict] = {}
+        for ply_idx in range(total_plies, -1, -1):
+            info = active_engine.analyse(boards[ply_idx], limit)
+            engine_infos[ply_idx] = info
+            if progress_callback is not None:
+                try:
+                    done_count = total_plies - ply_idx + 1
+                    progress_callback(done_count, total_plies + 1)
+                except Exception:
+                    pass
+
+        # Build normalized ply evaluations (clamping non-mate centipawns to [-1000, 1000]
+        # matching Lichess/Chess.com standard of +/- 10.0 pawns maximum).
+        ply_evals: list[int | None] = []
+        for p_idx in range(total_plies + 1):
+            score_white = engine_infos[p_idx]["score"].white()
+            if score_white.is_mate():
+                m = score_white.mate()
+                if m is not None and m > 0:
+                    val = 10000 - min(100, m)
+                elif m is not None and m < 0:
+                    val = -10000 + min(100, abs(m))
+                else:
+                    val = 10000
+            else:
+                cp = score_white.score()
+                val = max(-1000, min(1000, cp if cp is not None else 0))
+            ply_evals.append(val)
 
         base_time, inc_time = _parse_time_control(time_control)
         prev_clock: dict[chess.Color, float | None] = {
@@ -271,15 +384,11 @@ def analyze_pgn(
         ply_clocks: list[float | None] = [base_time]
         ply_times_spent: list[float | None] = [None]
 
+        # Pass 2: Forward pass to extract clock times and identify critical swings
         for ply_idx, node in enumerate(mainline_nodes, start=1):
-            if progress_callback is not None:
-                try:
-                    progress_callback(ply_idx, total_plies)
-                except Exception:
-                    pass
-
             move = node.move
-            board_before = board.copy()
+            board_before = boards[ply_idx - 1]
+            board = boards[ply_idx]
             turn = board_before.turn
             color_str = "White" if turn == chess.WHITE else "Black"
             move_num = board_before.fullmove_number
@@ -295,12 +404,10 @@ def analyze_pgn(
             ply_clocks.append(clk)
             ply_times_spent.append(time_spent)
 
-            # Push move to reach played position
-            board.push(move)
-            next_info = active_engine.analyse(board, limit)
+            current_info = engine_infos[ply_idx - 1]
+            next_info = engine_infos[ply_idx]
             score_before_white = current_info["score"].white()
             score_after_white = next_info["score"].white()
-            ply_evals.append(score_after_white.score(mate_score=10000))
 
             # Check if this player's color should be analyzed
             should_analyze_color = (
@@ -310,16 +417,27 @@ def analyze_pgn(
             )
 
             if should_analyze_color:
-                loss_cp, mate_changed = _compute_loss_and_mate_change(
-                    score_before_white, score_after_white, turn
-                )
-                sw_before = score_before_white.score(mate_score=10000)
-                sw_after = score_after_white.score(mate_score=10000)
-                pov_before = sw_before if turn == chess.WHITE else -sw_before
-                pov_after = sw_after if turn == chess.WHITE else -sw_after
+                pv_moves = current_info.get("pv", [])
+                best_move = pv_moves[0] if pv_moves else None
+                is_best_move_played = bool(best_move is not None and best_move == move)
+
+                if is_best_move_played:
+                    loss_cp = 0
+                    mate_changed = False
+                else:
+                    loss_cp, mate_changed = _compute_loss_and_mate_change(
+                        score_before_white, score_after_white, turn
+                    )
+
+                pov_before = _clamped_eval_for_swing(score_before_white, turn)
+                pov_after = _clamped_eval_for_swing(score_after_white, turn)
 
                 is_checkmate = board.is_checkmate() or "#" in san_played
-                is_negative_swing = loss_cp >= swing_threshold_cp or mate_changed
+                is_negative_swing = not is_best_move_played and (
+                    loss_cp >= swing_threshold_cp or mate_changed
+                )
+                if pov_before <= -500 and pov_after <= -500 and not mate_changed and loss_cp < 300:
+                    is_negative_swing = False
 
                 # Check for positive / celebratory critical moves (Checkmate, Brilliant, Great Move)
                 is_positive_shot = False
@@ -389,6 +507,9 @@ def analyze_pgn(
                     if is_positive_shot:
                         best_move_san = san_played
                         classification = positive_classification
+                    elif is_best_move_played or best_move_san == san_played:
+                        best_move_san = san_played
+                        classification = "Best Move"
                     else:
                         best_has_pins = any(
                             p.is_pinned for p in facts_after_best_move.attacked_or_pinned_pieces
@@ -427,16 +548,20 @@ def analyze_pgn(
                         )
 
                     # Extract opponent's best refutation continuation after the played move
-                    ref_moves = next_info.get("pv", [])
                     refutation_san: list[str] = []
-                    if ref_moves:
-                        ref_board = board.copy()
-                        for ref_m in ref_moves[:6]:
-                            if ref_m in ref_board.legal_moves:
-                                refutation_san.append(ref_board.san(ref_m))
-                                ref_board.push(ref_m)
-                            else:
-                                break
+                    if is_checkmate:
+                        pv_san = []
+                        refutation_san = []
+                    else:
+                        ref_moves = next_info.get("pv", [])
+                        if ref_moves:
+                            ref_board = board.copy()
+                            for ref_m in ref_moves[:6]:
+                                if ref_m in ref_board.legal_moves:
+                                    refutation_san.append(ref_board.san(ref_m))
+                                    ref_board.push(ref_m)
+                                else:
+                                    break
 
                     moment = CriticalMoment(
                         ply=ply_idx,

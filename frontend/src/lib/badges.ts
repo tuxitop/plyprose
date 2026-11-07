@@ -82,41 +82,62 @@ export function platformLabel(platform?: string): string {
 
 export function formatPlyEval(evalCp: number | null | undefined): string | null {
   if (evalCp === null || evalCp === undefined) return null;
-  if (evalCp >= 9000) {
+  if (evalCp >= 9900) {
     const mate = 10000 - evalCp;
     return `+M${Math.max(1, mate)}`;
   }
-  if (evalCp <= -9000) {
+  if (evalCp <= -9900) {
     const mate = 10000 + evalCp;
     return `-M${Math.max(1, Math.abs(mate))}`;
   }
-  const pawn = (evalCp / 100).toFixed(1);
-  return evalCp > 0 ? `+${pawn}` : pawn;
+  // Clamp displayed non-mate pawn evaluations to [-10.0, +10.0] pawns,
+  // following standard chess platforms (Lichess/Chess.com)
+  const clampedCp = Math.max(-1000, Math.min(1000, evalCp));
+  const pawn = (clampedCp / 100).toFixed(1);
+  return clampedCp > 0 ? `+${pawn}` : pawn;
 }
 
-export function getClassificationBadge(classification?: string) {
+export type ClassificationType =
+  'blunder' | 'mistake' | 'inaccuracy' | 'miss' | 'brilliant' | 'great' | 'best' | 'checkmate';
+
+export interface ClassificationBadge {
+  symbol: string;
+  label: string;
+  bgClass: string;
+  type: ClassificationType;
+}
+
+export function getClassificationBadge(classification?: string): ClassificationBadge | null {
   if (!classification) return null;
   const lower = classification.toLowerCase();
   if (lower.includes('checkmate') || classification.includes('#')) {
-    return { symbol: '#', label: 'Checkmate', bgClass: 'bg-emerald-600' };
+    return { symbol: '#', label: 'Checkmate', bgClass: 'bg-emerald-600', type: 'checkmate' };
   }
   if (lower.includes('missed win') || lower.includes('missed tactic') || lower.includes('miss')) {
-    return { symbol: '❌', label: classification, bgClass: 'bg-rose-700' };
+    return { symbol: '⨉', label: classification, bgClass: 'bg-rose-700', type: 'miss' };
   }
   if (lower.includes('blunder')) {
-    return { symbol: '??', label: 'Blunder', bgClass: 'bg-rose-600' };
+    return { symbol: '??', label: 'Blunder', bgClass: 'bg-rose-600', type: 'blunder' };
   }
   if (lower.includes('mistake')) {
-    return { symbol: '?', label: 'Mistake', bgClass: 'bg-orange-500' };
+    return { symbol: '?', label: 'Mistake', bgClass: 'bg-orange-500', type: 'mistake' };
   }
   if (lower.includes('inaccuracy')) {
-    return { symbol: '?!', label: 'Inaccuracy', bgClass: 'bg-amber-500 text-slate-900' };
+    return {
+      symbol: '?!',
+      label: 'Inaccuracy',
+      bgClass: 'bg-amber-500 text-slate-900',
+      type: 'inaccuracy',
+    };
   }
   if (lower.includes('brilliant')) {
-    return { symbol: '!!', label: 'Brilliant', bgClass: 'bg-cyan-500' };
+    return { symbol: '!!', label: 'Brilliant', bgClass: 'bg-cyan-500', type: 'brilliant' };
   }
   if (lower.includes('great') || lower.includes('critical turning point')) {
-    return { symbol: '!', label: 'Great Move', bgClass: 'bg-blue-600' };
+    return { symbol: '!', label: 'Great Move', bgClass: 'bg-blue-600', type: 'great' };
+  }
+  if (lower.includes('best move') || lower === 'best') {
+    return { symbol: '★', label: 'Best Move', bgClass: 'bg-emerald-600', type: 'best' };
   }
   return null;
 }
@@ -126,6 +147,46 @@ export function formatSecondsToClock(seconds: number | null | undefined): string
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+export function getBaseClockSeconds(
+  timeControlStr?: string | null,
+  plyClocks?: (number | null)[] | null,
+): number | null {
+  if (plyClocks && typeof plyClocks[0] === 'number' && plyClocks[0] > 0) {
+    return plyClocks[0];
+  }
+  if (!timeControlStr) return null;
+  const tc = timeControlStr.trim();
+  const m = tc.match(/^(\d+)(?:\+(\d+))?/);
+  if (m) {
+    const val = parseInt(m[1], 10);
+    if (val >= 30) return val;
+    return val * 60;
+  }
+  return null;
+}
+
+export function getClassificationTextColor(type?: ClassificationType | null): string {
+  if (!type) return '';
+  switch (type) {
+    case 'blunder':
+      return 'text-rose-600 dark:text-rose-400 font-bold';
+    case 'mistake':
+      return 'text-orange-600 dark:text-orange-400 font-bold';
+    case 'inaccuracy':
+      return 'text-amber-600 dark:text-amber-400 font-bold';
+    case 'miss':
+      return 'text-rose-700 dark:text-rose-400 font-bold';
+    case 'brilliant':
+      return 'text-cyan-600 dark:text-cyan-400 font-bold';
+    case 'great':
+      return 'text-blue-600 dark:text-blue-400 font-bold';
+    case 'best':
+      return 'text-emerald-600 dark:text-emerald-400 font-bold';
+    case 'checkmate':
+      return 'text-emerald-600 dark:text-emerald-400 font-bold';
+  }
 }
 
 export interface TagBadgeConfig {
@@ -349,7 +410,7 @@ export function renderTagCapsuleHtml(tag: string, size: 'sm' | 'md' = 'md'): str
 
 export function renderSquarePillHtml(square: string): string {
   const sq = square.toLowerCase().trim();
-  return `<span class="chess-square-pill inline-block px-1.5 py-0.5 mx-0.5 rounded text-[12px] font-mono font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 select-none align-baseline cursor-pointer" data-square="${sq}" title="Board square ${sq}">${sq}</span>`;
+  return `<span class="chess-square-pill inline-block px-1.5 py-0.5 mx-0.5 rounded text-[12px] font-mono font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 hover:bg-amber-100 dark:hover:bg-amber-900/60 hover:border-amber-400 dark:hover:border-amber-600 transition-colors align-baseline cursor-pointer active:scale-95" data-square="${sq}" title="Click to highlight square ${sq} on board (click again to toggle off)">${sq}</span>`;
 }
 
 export function getTagBadge(tag: string): TagBadgeConfig {
@@ -421,5 +482,81 @@ export function getTagBadge(tag: string): TagBadgeConfig {
     bgClass: 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700',
     textClass: 'text-slate-700 dark:text-slate-300',
     category: 'general',
+  };
+}
+
+export interface OpeningDisplayInfo {
+  code: string;
+  fullName: string;
+}
+
+/**
+ * Extracts a concise opening code (e.g. "B54", "C62", "D06") and its full descriptive name
+ * for hover tooltips from opening_name and/or pgn_text headers.
+ */
+export function extractOpeningCodeAndName(
+  openingName?: string | null,
+  pgnText?: string | null,
+): OpeningDisplayInfo | null {
+  const rawOpening = (openingName || '').trim();
+
+  // 1. Check if opening_name contains an ECO code (e.g. "B54: Sicilian Defense", "B54", "C62")
+  let code: string | null = null;
+  const ecoInName = rawOpening.match(/\b([A-E]\d{2})\b/i);
+  if (ecoInName) {
+    code = ecoInName[1].toUpperCase();
+  }
+
+  // 2. Search pgn_text headers for [ECO "..."]
+  if (!code && pgnText) {
+    const ecoInPgn = pgnText.match(/\[ECO\s+"([A-E]\d{2})"/i);
+    if (ecoInPgn) {
+      code = ecoInPgn[1].toUpperCase();
+    }
+  }
+
+  // 3. Resolve the full descriptive name for the tooltip
+  let fullName = rawOpening;
+
+  // If opening_name was just the code or missing, inspect PGN headers for descriptive name
+  if (pgnText && (!fullName || fullName === code)) {
+    const opInPgn = pgnText.match(/\[Opening\s+"([^"]+)"/i);
+    if (opInPgn) {
+      fullName = opInPgn[1].trim();
+    } else {
+      const urlMatch = pgnText.match(/\[ECOUrl\s+"[^"]*\/openings\/([^"'\s]+)"/i);
+      if (urlMatch) {
+        let slug = urlMatch[1].split('...')[0];
+        // Strip trailing move numbers like -4.O-O-Bd7 or -3.Qxd4
+        slug = slug.replace(/-\d+\..*$/, '');
+        fullName = slug.replace(/-/g, ' ');
+      }
+    }
+  }
+
+  // Prepend code to fullName if not already present
+  if (code && fullName && !fullName.toUpperCase().startsWith(code)) {
+    fullName = `${code}: ${fullName}`;
+  } else if (!fullName && code) {
+    fullName = code;
+  }
+
+  // If still no code, fallback to short name
+  if (!code && fullName) {
+    if (fullName.length <= 6) {
+      code = fullName;
+    } else {
+      const firstWord = fullName.split(/[:,\s-]+/)[0];
+      code = firstWord.length <= 7 ? firstWord : fullName.slice(0, 6);
+    }
+  }
+
+  if (!code && !fullName) {
+    return null;
+  }
+
+  return {
+    code: code || fullName,
+    fullName: fullName || code || '',
   };
 }

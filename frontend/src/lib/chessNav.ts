@@ -77,6 +77,21 @@ function cleanSan(s: string): string {
 }
 
 /**
+ * Validates whether a token could plausibly be a chess move in SAN notation.
+ * Filters out time durations (0.8s, 3.4s), pure numbers, and non-chess tokens.
+ */
+export function isPotentialChessMove(cand: string): boolean {
+  if (!cand || cand.length < 2) return false;
+  const s = cleanSan(cand);
+  // Rejections: numbers ending in 's' (e.g. 0.8s, 2s, 3.4s), decimals, pure numbers, or time controls (300+5)
+  if (/^\d+(\.\d+)?s?$/i.test(s) || /^\d+\+?\d*$/i.test(s)) return false;
+  // Castling
+  if (/^(?:O-O(?:-O)?|0-0(?:-0)?)$/i.test(s)) return true;
+  // Standard SAN: optional piece prefix [KQRBN], optional disambiguation, optional capture 'x', target square [a-h][1-8], optional promotion, optional check/mate
+  return /^[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?$/i.test(s);
+}
+
+/**
  * Splits text into move tokens, extracting any leading move number and color.
  * Robust to unicode ellipsis (4…), separated numbers/dots (4 ...), and inner moves.
  * e.g. "37. Nxc3! exf4+" -> { moveNum: 37, isBlack: false, moves: ["Nxc3!", "exf4+"] }
@@ -96,7 +111,7 @@ export function parseMoveTokens(text: string): {
   for (let i = 0; i < rawTokens.length; i++) {
     const cur = rawTokens[i];
     const next = rawTokens[i + 1];
-    if (/^\d+$/.test(cur) && next && /^(\.{1,3})$/.test(next)) {
+    if (/^[1-9]\d*$/.test(cur) && next && /^(\.{1,3})$/.test(next)) {
       tokens.push(cur + next);
       i++;
     } else {
@@ -109,29 +124,36 @@ export function parseMoveTokens(text: string): {
   const moves: string[] = [];
 
   const first = tokens[0];
-  const numMatch = first.match(/^(\d+)\s*(\.{1,3})(.*)$/);
+  const numMatch = first.match(/^([1-9]\d*)\s*(\.{1,3})(.*)$/);
   let startIndex = 0;
 
   if (numMatch) {
-    moveNum = parseInt(numMatch[1], 10);
-    isBlack = numMatch[2].length > 1;
-    const remainder = numMatch[3].trim();
-    startIndex = 1;
-    if (remainder) {
-      moves.push(remainder);
+    const val = parseInt(numMatch[1], 10);
+    if (val > 0) {
+      moveNum = val;
+      isBlack = numMatch[2].length > 1;
+      const remainder = numMatch[3].trim();
+      startIndex = 1;
+      if (remainder && isPotentialChessMove(remainder)) {
+        moves.push(remainder);
+      }
     }
   }
 
   for (let i = startIndex; i < tokens.length; i++) {
     const t = tokens[i];
-    const innerNum = t.match(/^(\d+)\s*(\.{1,3})(.*)$/);
+    const innerNum = t.match(/^([1-9]\d*)\s*(\.{1,3})(.*)$/);
     if (innerNum) {
-      if (innerNum[3].trim()) {
-        moves.push(innerNum[3].trim());
+      const val = parseInt(innerNum[1], 10);
+      if (val > 0) {
+        const remainder = innerNum[3].trim();
+        if (remainder && isPotentialChessMove(remainder)) {
+          moves.push(remainder);
+        }
       }
     } else {
-      // Skip isolated move numbers or dots
-      if (!/^\d+\.?$/.test(t) && !/^\.+$/.test(t)) {
+      // Skip isolated move numbers, dots, or non-chess words/durations
+      if (!/^\d+\.?$/.test(t) && !/^\.+$/.test(t) && isPotentialChessMove(t)) {
         moves.push(t);
       }
     }
@@ -259,16 +281,19 @@ export function classifyReportMove(
   }
 
   // 1. With move number:
-  if (moveNum !== null && rawMoves.length > 0) {
+  if (moveNum !== null && moveNum > 0 && rawMoves.length > 0) {
     const startPly = isBlack ? (moveNum - 1) * 2 + 2 : (moveNum - 1) * 2 + 1;
+    if (startPly < 1 || startPly > history.length) return null;
     const branchPly = startPly - 1;
 
     // Check how many moves match the mainline game moves
     let matchedMainlineCount = 0;
     for (let i = 0; i < rawMoves.length; i++) {
       const plyIndex = startPly + i;
-      if (plyIndex <= history.length) {
-        const playedSan = history[plyIndex - 1].san;
+      if (plyIndex >= 1 && plyIndex <= history.length) {
+        const historyEntry = history[plyIndex - 1];
+        if (!historyEntry) break;
+        const playedSan = historyEntry.san;
         const candSan = cleanSan(rawMoves[i]);
         if (
           playedSan.toLowerCase().replace(/[+#]/g, '') ===
@@ -284,6 +309,7 @@ export function classifyReportMove(
     // Entire sequence was played in the mainline game: show the END of the sequence
     if (matchedMainlineCount === rawMoves.length) {
       const endPly = startPly + rawMoves.length - 1;
+      if (endPly < 1 || endPly > history.length || !history[endPly - 1]) return null;
       const endMoveNum = Math.floor((endPly - 1) / 2) + 1;
       const endIsBlack = endPly % 2 === 0;
       const endSan = history[endPly - 1].san;
@@ -297,7 +323,10 @@ export function classifyReportMove(
     // If the sequence partially matched mainline, then diverged into an alternative variation
     if (matchedMainlineCount > 0) {
       const divBranchPly = startPly + matchedMainlineCount - 1;
-      const branchFen = divBranchPly === 0 ? new Chess().fen() : history[divBranchPly - 1].after;
+      const branchFen =
+        divBranchPly === 0
+          ? new Chess().fen()
+          : (history[divBranchPly - 1]?.after ?? new Chess().fen());
       const sim = new Chess(branchFen);
       const remainingMoves = rawMoves.slice(matchedMainlineCount);
       const validMoves: string[] = [];
@@ -323,7 +352,8 @@ export function classifyReportMove(
 
     // Sequence did not match mainline at all: test if valid variation from branchPly
     if (branchPly >= 0 && branchPly <= history.length) {
-      const branchFen = branchPly === 0 ? new Chess().fen() : history[branchPly - 1].after;
+      const branchFen =
+        branchPly === 0 ? new Chess().fen() : (history[branchPly - 1]?.after ?? new Chess().fen());
       const sim = new Chess(branchFen);
       const validMoves: string[] = [];
       for (const rm of rawMoves) {
@@ -350,7 +380,7 @@ export function classifyReportMove(
   // 2. Standalone moves without move number (e.g. "Nc3", "cxd4", "Nf3")
   if (rawMoves.length > 0) {
     const candidate = cleanSan(rawMoves[0]);
-    if (!candidate) return null;
+    if (!candidate || !isPotentialChessMove(candidate)) return null;
 
     // Reject bare chessboard squares like "e5", "d4", "c3" without move number
     if (/^[a-h][1-8]$/i.test(candidate) && rawMoves.length === 1) {
@@ -377,7 +407,7 @@ export function classifyReportMove(
           let allMatch = true;
           for (let k = 0; k < rawMoves.length; k++) {
             const plyK = match.ply + k;
-            if (plyK > history.length) {
+            if (plyK < 1 || plyK > history.length || !history[plyK - 1]) {
               allMatch = false;
               break;
             }
@@ -390,6 +420,7 @@ export function classifyReportMove(
           }
           if (allMatch) {
             const endPly = match.ply + rawMoves.length - 1;
+            if (endPly < 1 || endPly > history.length || !history[endPly - 1]) continue;
             const endMoveNum = Math.floor((endPly - 1) / 2) + 1;
             const endIsBlack = endPly % 2 === 0;
             return {
@@ -504,7 +535,7 @@ export function decorateReportHtml(html: string, pgnText: string): string {
 
     // A. Detect numbered chess moves in plain text: e.g. "10. Nxc6+", "9... Nf6", "11. Nxd8"
     const movePattern =
-      /(^|[\s(])(\d{1,3}(?:\.{1,3}|\s*\.{1,3}\s*)[A-Za-z0-9#+=x-]+(?:[!?]{1,2})?)(?=[.,;:!?)\]\s]|$)/g;
+      /(^|[\s(])([1-9]\d{0,2}(?:\.{1,3}|\s*\.{1,3}\s*)(?:O-O(?:-O)?|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?[!?]{0,2}))(?=[.,;:!?)\]\s]|$)/g;
 
     modified = modified.replace(
       movePattern,

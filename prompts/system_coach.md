@@ -210,7 +210,7 @@ Format the Critical Moments table with your approved classifications:
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | e.g., `20... Ne3` | Black | Great Move | Discovered knight fork attacking Q and R | Forced win of material | Tactics verified |
 | e.g., `32... Rae8` | Black | Blunder | Left bishop on f3 hanging | Allowed White 33. Qxf3 | Allowed recapture |
-| e.g., `39... Re1#` | Black | Checkmate | Delivered back-rank mate | Ended the game | Board verified |
+| e.g., `39... Re1#` | Black | Checkmate | Delivered ladder checkmate on the back rank | Ended the game | Board verified |
 
 _(Include an annotated `:::board` block below the table for the single most consequential move of the match if not already diagrammed above)._
 
@@ -242,6 +242,9 @@ Any tag that you do not explicitly list and explain here will NOT be assigned to
 - **Missed Win vs Missed Mate:**
   - Use `tactic:missed-win` (**Missed Win**) when you had a decisive winning evaluation advantage (> +3.00 / -3.00) and threw it away with an inaccurate or blundered move.
   - Use `tactic:missed-mate` (**Missed Mate**) when you had a concrete forced checkmate sequence on the board and failed to execute it.
+- **Back-Rank Mate Definition (Corridor Mate):**
+  - Only use `tactic:back-rank-punished` or `tactic:missed-back-rank` for true back-rank (corridor) checkmates where the king is trapped behind its OWN friendly pawns or pieces with no escape squares (*luft*).
+  - Do NOT use back-rank mate if the king was trapped by enemy pieces cutting off adjacent ranks (such as a ladder or heavy-piece cutoff mate); use `tactic:found-mate` for those.
 - **Time Management Habits (Time Sink vs Time Pressure):**
   - Use `time:time-sink` (**Time Sink**) when you spend excessive calculation time (> 45s) on a single move early in the game or when your clock is still healthy (> 60s), without producing a brilliant/great move. (Do NOT call this time pressure!).
   - Use `time:trouble-blunder` (**Time Blunder**) when you blunder while your clock is critically low (remaining time $\le 30$s).

@@ -162,16 +162,60 @@ cg-board square.selected {
   z-index: 1;
 }
 
-/* Highlight checked king square */
+/* Highlight checked king square with an intense crimson glow and inset shadow */
 cg-board square.check {
   background: radial-gradient(
-    ellipse at center,
+    circle at center,
     rgba(255, 0, 0, 1) 0%,
-    rgba(231, 0, 0, 1) 25%,
-    rgba(169, 0, 0, 0) 89%,
-    rgba(158, 0, 0, 0) 100%
+    rgba(239, 68, 68, 0.9) 35%,
+    rgba(220, 38, 38, 0.7) 65%,
+    rgba(185, 28, 28, 0.3) 90%,
+    rgba(185, 28, 28, 0) 100%
   ) !important;
-  z-index: 1;
+  box-shadow:
+    inset 0 0 14px 4px rgba(239, 68, 68, 0.95),
+    0 0 12px rgba(220, 38, 38, 0.7) !important;
+  z-index: 1 !important;
+  animation: king-check-pulse 1.6s infinite ease-in-out;
+}
+
+@keyframes king-check-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* High-contrast board square highlight */
+.chess-square-highlight {
+  box-shadow:
+    inset 0 0 0 3px #f59e0b,
+    inset 0 0 16px 4px rgba(245, 158, 11, 0.55),
+    0 0 12px 2px rgba(245, 158, 11, 0.6) !important;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(251, 191, 36, 0.45) 0%,
+    rgba(245, 158, 11, 0.22) 60%,
+    transparent 100%
+  ) !important;
+  animation: square-highlight-pulse 1.4s infinite ease-in-out;
+  pointer-events: none;
+  z-index: 15;
+}
+
+@keyframes square-highlight-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(0.97);
+  }
 }
 
 /* Legal move destination markers */

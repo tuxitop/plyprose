@@ -26,6 +26,7 @@ import {
 } from '../lib/api';
 import { classifyTimeControl, formatTC, formatGameTimeLocal } from '../lib/timeControl';
 import { InteractiveBoard, type InteractiveBoardHandle } from '../components/InteractiveBoard';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { findPlyByFen, classifyReportMove, decorateReportHtml } from '../lib/chessNav';
 import type { Theme } from '../hooks/useTheme';
 import type { AnalysisRecord } from '../types';
@@ -250,7 +251,18 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
         }
       }
 
-      // Case 2: Clicked on a decorated move button (.chess-move-btn)
+      // Case 2: Clicked on a chessboard square pill (.chess-square-pill)
+      const sqPill = target.closest('.chess-square-pill');
+      if (sqPill) {
+        const sq = sqPill.getAttribute('data-square');
+        if (sq) {
+          setIsBoardOpen(true);
+          boardRef.current?.highlightSquare?.(sq);
+        }
+        return;
+      }
+
+      // Case 3: Clicked on a decorated move button (.chess-move-btn)
       const moveBtn = target.closest('.chess-move-btn');
       if (moveBtn) {
         const moveType = moveBtn.getAttribute('data-move-type');
@@ -293,10 +305,15 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
         }
       }
 
-      // Case 3: Fallback for any undecorated <code> or <td> element containing chess moves
+      // Case 4: Fallback for any undecorated <code> or <td> element containing chess moves or squares
       const codeOrCell = target.closest('code, td');
       if (codeOrCell) {
         const text = (codeOrCell.textContent || '').trim();
+        if (/^[a-h][1-8]$/i.test(text)) {
+          setIsBoardOpen(true);
+          boardRef.current?.highlightSquare?.(text);
+          return;
+        }
         const navTarget = classifyReportMove(text, record.pgn_text, codeOrCell as HTMLElement);
         if (navTarget) {
           if (navTarget.type === 'variation' && navTarget.variationMoves?.length) {
@@ -319,19 +336,6 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
             return;
           }
         }
-      }
-
-      // Case 4: Clicked on a chessboard square pill (.chess-square-pill)
-      const sqPill = target.closest('.chess-square-pill');
-      if (sqPill) {
-        const sq = sqPill.getAttribute('data-square');
-        if (sq) {
-          setIsBoardOpen(true);
-          if (boardRef.current?.highlightSquare) {
-            boardRef.current.highlightSquare(sq);
-          }
-        }
-        return;
       }
     },
     [record],
@@ -649,23 +653,25 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
             <div className="w-0.5 h-10 rounded-full bg-slate-300 dark:bg-slate-700 group-hover:bg-blue-500 group-active:bg-blue-600 transition-colors" />
           </div>
 
-          <InteractiveBoard
-            ref={boardRef}
-            pgnText={record.pgn_text}
-            payloadJson={record.payload_json}
-            currentPly={currentPly}
-            onSelectPly={setCurrentPly}
-            onClose={() => {
-              setIsBoardOpen(false);
-              setInitialVariation(null);
-            }}
-            userSide={record.side || (record.white_player === 'tuxitop' ? 'white' : 'black')}
-            sidebarWidth={sidebarWidth}
-            initialVariation={initialVariation}
-            analysisId={analysisId}
-            onReportUpdated={handleReportUpdated}
-            onScrollToSection={handleScrollToSection}
-          />
+          <ErrorBoundary fallbackTitle="Could not display chessboard sidebar">
+            <InteractiveBoard
+              ref={boardRef}
+              pgnText={record.pgn_text}
+              payloadJson={record.payload_json}
+              currentPly={currentPly}
+              onSelectPly={setCurrentPly}
+              onClose={() => {
+                setIsBoardOpen(false);
+                setInitialVariation(null);
+              }}
+              userSide={record.side || (record.white_player === 'tuxitop' ? 'white' : 'black')}
+              sidebarWidth={sidebarWidth}
+              initialVariation={initialVariation}
+              analysisId={analysisId}
+              onReportUpdated={handleReportUpdated}
+              onScrollToSection={handleScrollToSection}
+            />
+          </ErrorBoundary>
         </aside>
       )}
     </div>
