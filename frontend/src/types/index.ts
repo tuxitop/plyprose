@@ -64,9 +64,11 @@ export interface Settings {
   openai_api_key?: string;
   openai_model?: string;
   github_enabled?: boolean;
+  github_auto_pull?: boolean;
   github_token?: string;
   github_repo?: string;
   github_branch?: string;
+  github_last_synced_sha?: string;
 }
 
 export type SyncTimeRange = '1d' | '1w' | '1month' | 'custom';
@@ -245,6 +247,17 @@ export interface GitHubPullResult {
   purged_pending_count: number;
   total_remote: number;
   errors?: string[];
+  message: string;
+}
+
+export interface GitHubSmartPullResult {
+  ok: boolean;
+  status: 'disabled' | 'up_to_date' | 'pulled' | 'error';
+  remote_sha?: string | null;
+  local_sha?: string | null;
+  imported_count: number;
+  updated_count: number;
+  skipped_count: number;
   message: string;
 }
 

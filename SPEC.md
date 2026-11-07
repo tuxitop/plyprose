@@ -151,6 +151,11 @@ class GameAnalysisPayload(BaseModel):
   - `get_analysis_by_id_or_key(identifier: int | str)`: Resolves analyses transparently via numeric SQLite ID, platform external ID, GitHub path, or PGN hash.
   - REST endpoints (`/api/analysis/{analysis_id}`, `/api/analysis/{analysis_id}/report-html`, etc.) accept string keys.
   - Frontend SPA routes (`/analysis/:key`) support deterministic cross-instance URLs and full browser History API navigation (`popstate` listener).
+- **GitHub Smart Sync & Auto-Pull (`src/github_sync.py`, `api/main.py`)**:
+  - `get_latest_commit_sha() -> str | None`: Queries branch HEAD in 1 lightweight API call.
+  - `POST /api/github/smart-pull`: Verifies remote HEAD commit against local `github_last_synced_sha`; pulls only when remote has new commits.
+  - Auto-Push: Both completed game analyses and follow-up coaching Q&A additions auto-commit to the study repository and record the new commit SHA.
+  - UI auto-pull triggers on app launch and throttled window focus (at most once every 30s).
 
 ---
 

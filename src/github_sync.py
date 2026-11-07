@@ -249,6 +249,23 @@ class GitHubSyncClient:
             else:
                 return False, f"GitHub returned status {resp.status_code}: {resp.text[:150]}"
 
+    def get_latest_commit_sha(self) -> str | None:
+        """
+        Retrieves the latest commit SHA of the target branch in 1 single HTTP request.
+        Returns None if repository or branch does not exist, or on network failure.
+        """
+        if not self.token or not self.repo:
+            return None
+        ref_url = f"{self.base_url}/git/ref/heads/{self.branch}"
+        with self._get_client() as c:
+            try:
+                resp = c.get(ref_url, headers=self.headers)
+                if resp.status_code == 200:
+                    return str(resp.json()["object"]["sha"])
+                return None
+            except Exception:
+                return None
+
     def _ensure_branch_exists(self, c: httpx.Client) -> str:
         """
         Returns the latest commit SHA on the target branch.

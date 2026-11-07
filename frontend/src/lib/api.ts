@@ -10,6 +10,7 @@ import type {
   DetectedRatingsResponse,
   GamesResponse,
   GitHubPullResult,
+  GitHubSmartPullResult,
   GitHubSyncAllResult,
   GitHubSyncResult,
   GitHubTestResult,
@@ -77,6 +78,8 @@ export const syncAllToGitHub = (force = false) =>
   req<GitHubSyncAllResult>(`/github/sync-all${force ? '?force=true' : ''}`, { method: 'POST' });
 export const pullFromGitHub = (force = false) =>
   req<GitHubPullResult>(`/github/pull${force ? '?force=true' : ''}`, { method: 'POST' });
+export const smartPullFromGitHub = () =>
+  req<GitHubSmartPullResult>('/github/smart-pull', { method: 'POST' });
 
 // ── Games ─────────────────────────────────────────────────────────────────────
 export const getGames = (params: Record<string, string | number>) => {

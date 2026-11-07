@@ -340,3 +340,23 @@ def test_github_client_list_remote_games_summary():
     assert by_folder[folder2]["report_blob_sha"] == "sha_report_2"
     assert by_folder[folder2]["pgn_blob_sha"] == "sha_pgn_2"
     assert by_folder[folder2]["payload_blob_sha"] is None
+
+
+def test_github_client_get_latest_commit_sha():
+    c_empty = GitHubSyncClient(token="", repo="")
+    assert c_empty.get_latest_commit_sha() is None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith("/git/ref/heads/main"):
+            return httpx.Response(200, json={"object": {"sha": "sha_commit_abc123"}})
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    gh = GitHubSyncClient(token="ghp_test", repo="alice/chess", branch="main", client=client)
+    assert gh.get_latest_commit_sha() == "sha_commit_abc123"
+
+    client_404 = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(404)))
+    gh_404 = GitHubSyncClient(
+        token="ghp_test", repo="alice/chess", branch="main", client=client_404
+    )
+    assert gh_404.get_latest_commit_sha() is None

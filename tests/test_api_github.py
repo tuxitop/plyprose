@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
+from src.github_sync import GitHubSyncClient
 from src.models import GameAnalysisPayload
 from src.storage import get_all_analyses, get_analysis_by_id, save_analysis, update_analysis_report
 
@@ -752,3 +753,78 @@ def test_github_pull_restores_missing_evals_on_existing_game(test_setup):
         games = games_res.json()["games"]
         matching = next(g for g in games if g["id"] == aid)
         assert matching["ply_evals"] == [20, 45, 60]
+
+
+def test_api_github_smart_pull(test_setup):
+    client, _ = test_setup
+
+    # 1. When GitHub sync is disabled
+    client.put("/api/settings", json={"github_enabled": False})
+    res = client.post("/api/github/smart-pull")
+    assert res.status_code == 200
+    assert res.json()["status"] == "disabled"
+
+    # 2. When enabled but no token/repo
+    client.put(
+        "/api/settings",
+        json={"github_enabled": True, "github_token": "", "github_repo": ""},
+    )
+    res = client.post("/api/github/smart-pull")
+    assert res.status_code == 200
+    assert res.json()["status"] == "disabled"
+
+    # 3. Enabled and configured, remote SHA matches local SHA -> up_to_date
+    client.put(
+        "/api/settings",
+        json={
+            "github_enabled": True,
+            "github_token": "ghp_valid",
+            "github_repo": "user/chess-games",
+            "github_branch": "main",
+            "github_last_synced_sha": "sha_111",
+        },
+    )
+    with patch.object(
+        GitHubSyncClient, "get_latest_commit_sha", return_value="sha_111"
+    ) as mock_sha:
+        res = client.post("/api/github/smart-pull")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ok"] is True
+        assert data["status"] == "up_to_date"
+        assert data["remote_sha"] == "sha_111"
+        mock_sha.assert_called_once()
+
+    # 4. Remote SHA differs -> pulls and updates github_last_synced_sha
+    remote_games = [
+        {
+            "folder": "chess.com/blitz/2026-10/25-0930-a-b-white",
+            "report_blob_sha": "sha_rep",
+            "pgn_blob_sha": "sha_pgn",
+            "payload_blob_sha": None,
+        }
+    ]
+
+    def fake_get_blob(sha: str) -> str:
+        if sha == "sha_rep":
+            return "# Coach Report"
+        if sha == "sha_pgn":
+            return "1. e4 e5 1-0"
+        return ""
+
+    with (
+        patch.object(GitHubSyncClient, "get_latest_commit_sha", return_value="sha_222_new"),
+        patch.object(GitHubSyncClient, "list_remote_games_summary", return_value=remote_games),
+        patch.object(GitHubSyncClient, "get_blob_text", side_effect=fake_get_blob),
+    ):
+        res = client.post("/api/github/smart-pull")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ok"] is True
+        assert data["status"] == "pulled"
+        assert data["imported_count"] == 1
+        assert data["remote_sha"] == "sha_222_new"
+
+    # Verify settings was updated with new SHA
+    st_res = client.get("/api/settings")
+    assert st_res.json()["github_last_synced_sha"] == "sha_222_new"

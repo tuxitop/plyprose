@@ -112,8 +112,10 @@ PlyProse persists all user configurations, API credentials, Stockfish parameters
 * **LLM Provider Switching:**
   * Toggle between **Google Gemini** (Gemini 2.5 Flash / Pro) and **OpenAI-Compatible Endpoints** (Ollama, LM Studio, vLLM, OpenRouter, Groq).
   * In-UI connection testing (`Test Connection`) validates credentials and fetches live model lists without restarting servers.
-* **Automated GitHub Synchronization:**
-  * Connect a GitHub repository and personal access token to automatically backup markdown coaching masterclasses, PGN files, and analysis JSON.
+* **Automated GitHub Synchronization (Smart Push & Pull):**
+  * **Auto-Push:** Finished analyses and follow-up coaching Q&A additions are committed directly to your GitHub repository.
+  * **Smart Auto-Pull:** On app launch or browser tab focus, PlyProse queries the remote branch commit SHA in a single lightweight HTTP request. If another laptop committed updates, local SQLite seamlessly pulls the changes without redundant blob downloads.
+  * Displays the latest synchronized commit SHA badge in Settings.
 * **Cross-Instance Consistent URLs:**
   * Game analysis pages use deterministic URLs (`/analysis/{game_key}`) resolved via platform game ID (e.g. Lichess/Chess.com URL slug) or SHA-256 PGN hash, allowing identical game links across different browser sessions and PlyProse instances. Full browser Back/Forward navigation is seamlessly supported.
 

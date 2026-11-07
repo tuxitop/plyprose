@@ -12,6 +12,7 @@ import {
   getAvailableTags,
   getGames,
   pullFromGitHub,
+  smartPullFromGitHub,
   startAnalysis,
   streamJob,
   syncGameToGitHub,
@@ -90,6 +91,53 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
     return () => {
       ignore = true;
     };
+  }, [fetchGames]);
+
+  useEffect(() => {
+    let ignore = false;
+    const runSmartPull = async () => {
+      try {
+        const res = await smartPullFromGitHub();
+        if (
+          !ignore &&
+          res.status === 'pulled' &&
+          (res.imported_count > 0 || res.updated_count > 0)
+        ) {
+          setSyncMessage({
+            text: `Synced with GitHub: ${res.imported_count} new, ${res.updated_count} updated.`,
+          });
+          void fetchGames();
+        }
+      } catch {
+        // Silently ignore network or offline failures during auto-sync
+      }
+    };
+    void runSmartPull();
+    return () => {
+      ignore = true;
+    };
+  }, [fetchGames]);
+
+  useEffect(() => {
+    let lastCheckTime = Date.now();
+    const handleWindowFocus = async () => {
+      const now = Date.now();
+      if (now - lastCheckTime < 30_000) return;
+      lastCheckTime = now;
+      try {
+        const res = await smartPullFromGitHub();
+        if (res.status === 'pulled' && (res.imported_count > 0 || res.updated_count > 0)) {
+          setSyncMessage({
+            text: `Synced with GitHub: ${res.imported_count} new, ${res.updated_count} updated.`,
+          });
+          void fetchGames();
+        }
+      } catch {
+        // Silently ignore offline
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+    return () => window.removeEventListener('focus', handleWindowFocus);
   }, [fetchGames]);
 
   const handleStatusChange = (s: StatusFilter) => {

@@ -1136,6 +1136,25 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             }
           />
 
+          <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60">
+            <div>
+              <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                Auto-Pull on Launch & Focus
+              </div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                Checks GitHub for new game analyses on launch or tab return (1 lightweight API
+                check).
+              </div>
+            </div>
+            <input
+              id="github-auto-pull-enabled"
+              type="checkbox"
+              checked={settings.github_auto_pull !== false}
+              onChange={e => update({ github_auto_pull: e.target.checked })}
+              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-700 dark:bg-slate-800 cursor-pointer"
+            />
+          </div>
+
           <div className="flex items-center justify-between flex-wrap gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-3 flex-wrap">
               <Button
@@ -1157,6 +1176,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               {ghConnStatus.ok === null && ghConnStatus.message && (
                 <span className="text-xs text-slate-400 dark:text-slate-500">
                   {ghConnStatus.message}
+                </span>
+              )}
+              {settings.github_last_synced_sha && (
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Last synced commit:{' '}
+                  <code className="font-mono text-blue-600 dark:text-blue-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
+                    {settings.github_last_synced_sha.slice(0, 7)}
+                  </code>
                 </span>
               )}
             </div>

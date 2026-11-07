@@ -36,9 +36,11 @@ _DEFAULTS: dict[str, Any] = {
     "openai_api_key": "",
     "openai_model": os.environ.get("OPENAI_COMPAT_MODEL", "gpt-4o-mini"),
     "github_enabled": False,
+    "github_auto_pull": True,
     "github_token": "",
     "github_repo": "",
     "github_branch": "main",
+    "github_last_synced_sha": "",
 }
 
 

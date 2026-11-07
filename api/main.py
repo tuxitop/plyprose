@@ -98,7 +98,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.10.0")
+app = FastAPI(title="PlyProse API", version="1.11.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -155,9 +155,11 @@ class SettingsPayload(BaseModel):
     openai_api_key: str | None = None
     openai_model: str | None = None
     github_enabled: bool | None = None
+    github_auto_pull: bool | None = None
     github_token: str | None = None
     github_repo: str | None = None
     github_branch: str | None = None
+    github_last_synced_sha: str | None = None
 
 
 @app.put("/api/settings")
@@ -246,6 +248,7 @@ def api_github_sync_game(analysis_id: str, force: bool = Query(False)) -> dict:
             commit_message=f"Sync analysis: {rec.get('white_player')} vs {rec.get('black_player')} ({folder})",
         )
         update_analysis_github_sync(real_id, folder, current_hash)
+        update_settings({"github_last_synced_sha": commit_sha})
         return {
             "ok": True,
             "commit_sha": commit_sha,
@@ -282,6 +285,7 @@ def api_github_sync_all(force: bool = Query(False)) -> dict:
     synced = 0
     skipped = 0
     errors: list[str] = []
+    last_commit_sha: str | None = None
 
     for item in analyses:
         rec = get_analysis_by_id(item["id"])
@@ -317,15 +321,19 @@ def api_github_sync_all(force: bool = Query(False)) -> dict:
                 pgn_text=pgn_text,
                 payload_json=payload_json,
             )
-            gh.sync_game(
+            commit_sha = gh.sync_game(
                 folder_path=folder,
                 files=files,
                 commit_message=f"Sync analysis: {rec.get('white_player')} vs {rec.get('black_player')} ({folder})",
             )
             update_analysis_github_sync(rec["id"], folder, current_hash)
+            last_commit_sha = commit_sha
             synced += 1
         except Exception as e:
             errors.append(f"Game #{rec.get('id')}: {e}")
+
+    if last_commit_sha:
+        update_settings({"github_last_synced_sha": last_commit_sha})
 
     msg = (
         f"Synced {synced} game{'s' if synced != 1 else ''} ({skipped} already up to date)."
@@ -345,26 +353,11 @@ def api_github_sync_all(force: bool = Query(False)) -> dict:
     }
 
 
-@app.post("/api/github/pull", response_model=GitHubPullResult)
-def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
+def _execute_github_pull(gh: GitHubSyncClient, force: bool = False) -> GitHubPullResult:
     """
-    Pulls analyzed games from the remote GitHub repository into the local SQLite database.
-    - If a remote game already exists locally with the same hash, skips it without downloading blobs.
-    - If a remote game was sitting in pending_games, cleans it up from pending_games and saves it to analyses.
-    - If a remote game is completely new, imports it directly.
+    Scans the remote repository, compares against local DB, and imports or updates game analyses.
     """
     settings = get_settings()
-    token = settings.get("github_token", "").strip()
-    repo = settings.get("github_repo", "").strip()
-    branch = settings.get("github_branch", "main").strip() or "main"
-
-    if not token or not repo:
-        raise HTTPException(
-            status_code=400,
-            detail="GitHub token and repository must be configured in settings.",
-        )
-
-    gh = GitHubSyncClient(token=token, repo=repo, branch=branch)
     try:
         remote_games = gh.list_remote_games_summary()
     except Exception as e:
@@ -616,6 +609,136 @@ def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
         errors=errors[:5],
         message=summary_msg,
     )
+
+
+@app.post("/api/github/pull", response_model=GitHubPullResult)
+def api_github_pull(force: bool = Query(False)) -> GitHubPullResult:
+    """
+    Pulls analyzed games from the remote GitHub repository into the local SQLite database.
+    - If a remote game already exists locally with the same hash, skips it without downloading blobs.
+    - If a remote game was sitting in pending_games, cleans it up from pending_games and saves it to analyses.
+    - If a remote game is completely new, imports it directly.
+    """
+    settings = get_settings()
+    token = settings.get("github_token", "").strip()
+    repo = settings.get("github_repo", "").strip()
+    branch = settings.get("github_branch", "main").strip() or "main"
+
+    if not token or not repo:
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub token and repository must be configured in settings.",
+        )
+
+    gh = GitHubSyncClient(token=token, repo=repo, branch=branch)
+    try:
+        res = _execute_github_pull(gh, force=force)
+        latest_sha = gh.get_latest_commit_sha()
+        if latest_sha:
+            update_settings({"github_last_synced_sha": latest_sha})
+        return res
+    except Exception as e:
+        logger.exception("Error in api_github_pull: %s", e)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to query GitHub repository: {e}"
+        ) from e
+
+
+class GitHubSmartPullResult(BaseModel):
+    ok: bool
+    status: str  # "disabled", "up_to_date", "pulled", "error"
+    remote_sha: str | None = None
+    local_sha: str | None = None
+    imported_count: int = 0
+    updated_count: int = 0
+    skipped_count: int = 0
+    message: str = ""
+
+
+@app.post("/api/github/smart-pull", response_model=GitHubSmartPullResult)
+def api_github_smart_pull() -> GitHubSmartPullResult:
+    """
+    Smart, lightweight synchronization check.
+    Uses 1 single HTTP request to check remote branch HEAD commit SHA.
+    - If GitHub sync or auto-pull is disabled: returns immediately with status='disabled'.
+    - If remote SHA matches local github_last_synced_sha: returns status='up_to_date' immediately.
+    - If remote SHA differs: executes pull, updates local DB and github_last_synced_sha.
+    """
+    settings = get_settings()
+    if not settings.get("github_enabled"):
+        return GitHubSmartPullResult(
+            ok=True,
+            status="disabled",
+            message="GitHub sync is disabled.",
+        )
+    if not settings.get("github_auto_pull", True):
+        return GitHubSmartPullResult(
+            ok=True,
+            status="disabled",
+            message="GitHub auto-pull is disabled.",
+        )
+    token = settings.get("github_token", "").strip()
+    repo = settings.get("github_repo", "").strip()
+    branch = settings.get("github_branch", "main").strip() or "main"
+
+    if not token or not repo:
+        return GitHubSmartPullResult(
+            ok=True,
+            status="disabled",
+            message="GitHub token or repository is not configured.",
+        )
+
+    gh = GitHubSyncClient(token=token, repo=repo, branch=branch)
+    try:
+        remote_sha = gh.get_latest_commit_sha()
+    except Exception as e:
+        logger.warning("Network error querying GitHub HEAD commit: %s", e)
+        return GitHubSmartPullResult(
+            ok=False,
+            status="error",
+            message=f"Failed to query GitHub commit: {e}",
+        )
+
+    if not remote_sha:
+        return GitHubSmartPullResult(
+            ok=True,
+            status="up_to_date",
+            message="Repository branch not found or empty.",
+        )
+
+    local_sha = settings.get("github_last_synced_sha", "").strip()
+    if local_sha and local_sha == remote_sha:
+        return GitHubSmartPullResult(
+            ok=True,
+            status="up_to_date",
+            remote_sha=remote_sha,
+            local_sha=local_sha,
+            message="Local games are already up to date with GitHub.",
+        )
+
+    # Remote commit differs! Execute pull
+    try:
+        pull_res = _execute_github_pull(gh, force=False)
+        update_settings({"github_last_synced_sha": remote_sha})
+        return GitHubSmartPullResult(
+            ok=pull_res.ok,
+            status="pulled",
+            remote_sha=remote_sha,
+            local_sha=local_sha,
+            imported_count=pull_res.imported_count,
+            updated_count=pull_res.updated_count,
+            skipped_count=pull_res.skipped_count,
+            message=pull_res.message,
+        )
+    except Exception as exc:
+        logger.exception("Error executing GitHub pull in smart-pull: %s", exc)
+        return GitHubSmartPullResult(
+            ok=False,
+            status="error",
+            remote_sha=remote_sha,
+            local_sha=local_sha,
+            message=str(exc),
+        )
 
 
 @app.post("/api/settings/test-connection")
@@ -1708,7 +1831,7 @@ async def _run_analysis_job(
                         repo=settings.get("github_repo", ""),
                         branch=settings.get("github_branch", "main").strip() or "main",
                     )
-                    gh.sync_game(
+                    commit_sha = gh.sync_game(
                         folder_path=folder,
                         files=files,
                         commit_message=f"Sync analysis: {fresh_rec.get('white_player')} vs {fresh_rec.get('black_player')} ({folder})",
@@ -1717,6 +1840,7 @@ async def _run_analysis_job(
                         report_md, pgn_text, payload_json=payload_json
                     )
                     update_analysis_github_sync(analysis_id, folder, current_hash)
+                    update_settings({"github_last_synced_sha": commit_sha})
             except Exception as gh_exc:
                 logger.warning("Failed to auto-sync game %s to GitHub: %s", analysis_id, gh_exc)
 
@@ -2014,6 +2138,45 @@ def api_append_qa(analysis_id: str, req: AppendQARequest) -> AppendQAResponse:
         )
 
     update_analysis_report(real_id, new_report_md, model_name)
+
+    # Auto-sync updated report to GitHub if enabled
+    settings = get_settings()
+    if (
+        settings.get("github_enabled")
+        and settings.get("github_token")
+        and settings.get("github_repo")
+    ):
+        try:
+            folder = rec.get("github_path") or format_game_folder_path(
+                platform=rec.get("platform", "manual"),
+                time_control=rec.get("time_control", ""),
+                played_at=rec.get("played_at"),
+                date_str=rec.get("date"),
+                white_player=rec.get("white_player", "White"),
+                black_player=rec.get("black_player", "Black"),
+                result=rec.get("result", "*"),
+            )
+            files = build_game_repo_files(
+                report_md=new_report_md,
+                pgn_text=pgn_text,
+                payload_json=payload_json,
+            )
+            gh = GitHubSyncClient(
+                token=settings.get("github_token", ""),
+                repo=settings.get("github_repo", ""),
+                branch=settings.get("github_branch", "main").strip() or "main",
+            )
+            commit_sha = gh.sync_game(
+                folder_path=folder,
+                files=files,
+                commit_message=f"Sync coaching Q&A: {rec.get('white_player')} vs {rec.get('black_player')} ({folder})",
+            )
+            curr_hash = compute_analysis_hash(new_report_md, pgn_text, payload_json=payload_json)
+            update_analysis_github_sync(real_id, folder, curr_hash)
+            update_settings({"github_last_synced_sha": commit_sha})
+        except Exception as gh_exc:
+            logger.warning("Failed to auto-sync appended Q&A to GitHub: %s", gh_exc)
+
     md_with_boards = replace_board_tags_with_html(new_report_md, size=380)
     report_html = _md.markdown(
         md_with_boards,
