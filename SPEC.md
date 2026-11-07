@@ -157,6 +157,26 @@ class GameAnalysisPayload(BaseModel):
   - Auto-Push: Both completed game analyses and follow-up coaching Q&A additions auto-commit to the study repository and record the new commit SHA.
   - UI auto-pull triggers on app launch and throttled window focus (at most once every 30s).
 
+### Module G: GitHub Direct Mode & Mobile PWA Reader
+
+- **Zero-Server Architecture (`frontend/src/lib/githubDirect.ts`)**:
+  - The React SPA operates seamlessly in standalone client-only mode on GitHub Pages (`*.github.io`) without requiring a running FastAPI backend.
+  - When the backend API is unreachable or the application is hosted on GitHub Pages, `frontend/src/lib/api.ts` transparently delegates data fetching to `githubDirect.ts`.
+- **Direct GitHub Git Data API & Client-Side Caching**:
+  - Fetches the repository Git tree recursively (`/repos/{owner}/{repo}/git/trees/{branch}?recursive=1`) and individual file blobs (`/repos/{owner}/{repo}/git/blobs/{sha}`).
+  - Uses an in-memory SHA blob cache and metadata cache to minimize GitHub REST API rate-limit consumption.
+- **Privacy & Security Guarantee**:
+  - The PlyProse application codebase is public, while the user's analyzed games study repository can remain strictly private.
+  - The Personal Access Token (PAT) and study repository name reside solely in the user's mobile browser `localStorage` (`plyprose_direct_settings`) and are transmitted exclusively over HTTPS directly to `api.github.com`.
+- **Local Parsing & Diagram Inlining**:
+  - Reconstructs complete `AnalysisRecord` instances directly from `game.pgn`, `report.md`, and `payload.json` stored in the study repository folders.
+  - Inlines relative SVG board diagrams (`./assets/diagram_N.svg`) as UTF-8 data URIs (`data:image/svg+xml;utf8,...`) before client-side Markdown parsing via `marked`, ensuring all board diagrams display flawlessly on mobile devices.
+- **Progressive Web App (PWA) & Mobile UX**:
+  - Web App Manifest (`frontend/public/manifest.json`), SVG application icon, `standalone` display mode, dark theme `#0f172a`, and mobile viewport configurations support seamless "Add to Home Screen" installation on iOS and Android.
+  - Top navigation bar provides an instant "GitHub Direct" status pill and direct credential configuration banner.
+- **Automated GitHub Pages Deployment (`.github/workflows/deploy-pages.yml`)**:
+  - GitHub Actions workflow automatically compiles production assets (`npm --prefix frontend ci && npm --prefix frontend run build`) with relative asset base (`base: './'`) and publishes to GitHub Pages on every push to `main`.
+
 ---
 
 ## 4. Clean Code Standards & Verification Specification

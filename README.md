@@ -18,6 +18,7 @@
 * **Evaluation Trajectory:** Visual graph showing evaluation swings across every ply, highlighting critical turning points and blunder recovery opportunities.
 * **Platform Ingestion:** One-click fetching and batch synchronization from **Lichess** and **Chess.com**, as well as direct PGN pasting and file uploads.
 * **Automated GitHub Study Repository:** Automatically commit your analyzed games, Markdown reports, metadata, and board diagrams directly into a dedicated GitHub repository.
+* **Mobile Reader & Standalone PWA:** Deploy to GitHub Pages or run as a standalone client-side PWA to review and interact with your private study repository directly from your phone—zero server required. Uses direct GitHub Git Data API fetching with local token storage for 100% privacy.
 * **Multi-Format Export:** Export reports to clean Markdown, standalone self-contained HTML with embedded vector SVGs, or publication-quality PDFs via **WeasyPrint**.
 
 ---
@@ -234,6 +235,25 @@ server {
 
 ### 4. Persistent Storage
 Ensure the `outputs/` folder is persisted across container restarts or server deployments. It contains `outputs/history.db` (the SQLite analysis database) and cached reports.
+
+### 5. Serverless Mobile Reader Mode (GitHub Pages & PWA)
+
+PlyProse includes a zero-server mobile reader mode that enables you to review your analyzed games, interactive chessboards, and narrative masterclasses on your mobile phone or tablet without hosting a backend server.
+
+#### Architecture & Privacy Model
+* **Public Codebase / Private Studies:** The PlyProse repository itself can remain public, while your personal game analyses reside in your private GitHub study repository.
+* **Direct Client-Side Fetching:** The mobile browser fetches game PGNs, metadata, and narrative reports directly from GitHub's Git Data API (`api.github.com`).
+* **Zero Credential Exposure:** Your GitHub Personal Access Token (PAT) is stored exclusively in your mobile device's browser `localStorage` (`plyprose_direct_settings`) and is never shared, proxied, or persisted on any server.
+
+#### Enabling GitHub Pages Deployment:
+1. Navigate to your PlyProse repository on GitHub.
+2. Go to **Settings** → **Pages** → **Build and deployment**.
+3. Under **Source**, select **GitHub Actions**.
+4. Push your changes or trigger the included `.github/workflows/deploy-pages.yml` workflow via GitHub Actions.
+5. Once deployed, open your GitHub Pages site URL (e.g., `https://<username>.github.io/<repo>/`) on your phone.
+6. **Install as PWA:** Tap the browser menu (or Share button on iOS Safari) and select **Add to Home Screen** for a full-screen, standalone app experience.
+7. Open **Settings** within the mobile app, enter your Private Study Repository name (`username/repo`) and GitHub Personal Access Token (with `repo` or fine-grained Contents read scope), and tap **Save Settings**.
+8. Browse and study all your synchronized games with full board interactivity, move navigation, and embedded SVG diagrams!
 
 ---
 

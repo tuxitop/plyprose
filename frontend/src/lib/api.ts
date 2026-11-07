@@ -21,8 +21,24 @@ import type {
   SyncOptions,
   SyncResult,
 } from '../types';
+import {
+  getGitHubDirectAnalysis,
+  getGitHubDirectGames,
+  getGitHubDirectReportHtml,
+  getLocalSettings,
+  isGitHubDirectConfigured,
+  saveLocalSettings,
+} from './githubDirect';
 
 const BASE = '/api';
+
+let _serverReachable: boolean | null = null;
+
+export function isDirectMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.hostname.endsWith('github.io')) return true;
+  return _serverReachable === false;
+}
 
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -37,9 +53,37 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
-export const getSettings = () => req<Settings>('/settings');
-export const updateSettings = (data: Partial<Settings>) =>
-  req<Settings>('/settings', { method: 'PUT', body: JSON.stringify(data) });
+export const getSettings = async (): Promise<Settings> => {
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+    _serverReachable = false;
+    return getLocalSettings();
+  }
+  try {
+    const s = await req<Settings>('/settings');
+    _serverReachable = true;
+    saveLocalSettings(s);
+    return s;
+  } catch {
+    _serverReachable = false;
+    return getLocalSettings();
+  }
+};
+
+export const updateSettings = async (data: Partial<Settings>): Promise<Settings> => {
+  if (
+    _serverReachable === false ||
+    (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io'))
+  ) {
+    return saveLocalSettings(data);
+  }
+  try {
+    const res = await req<Settings>('/settings', { method: 'PUT', body: JSON.stringify(data) });
+    saveLocalSettings(res);
+    return res;
+  } catch {
+    return saveLocalSettings(data);
+  }
+};
 export const getDetectedRatings = () => req<DetectedRatingsResponse>('/settings/detected-ratings');
 export const testConnection = () =>
   req<ConnectionTestResult>('/settings/test-connection', { method: 'POST' });
@@ -58,15 +102,43 @@ export const listModels = (provider?: string, baseUrl?: string, apiKey?: string)
 };
 
 // ── GitHub Sync ────────────────────────────────────────────────────────────────
-export const testGitHubConnection = (payload?: {
+export const testGitHubConnection = async (payload?: {
   token?: string;
   repo?: string;
   branch?: string;
-}) =>
-  req<GitHubTestResult>('/github/test-connection', {
+}): Promise<GitHubTestResult> => {
+  if (
+    _serverReachable === false ||
+    (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io'))
+  ) {
+    const s = getLocalSettings();
+    const token = payload?.token || s.github_token;
+    const repo = (payload?.repo || s.github_repo || '').trim().replace(/^\/|\/$/g, '');
+    if (!token) return { ok: false, message: 'GitHub Personal Access Token is required.' };
+    if (!repo || !repo.includes('/')) {
+      return { ok: false, message: "Repository must be in 'owner/repo' format." };
+    }
+    try {
+      const res = await fetch(`https://api.github.com/repos/${repo}`, {
+        headers: {
+          Authorization: `Bearer ${token.trim()}`,
+          Accept: 'application/vnd.github+json',
+        },
+      });
+      if (res.ok) {
+        return { ok: true, message: `Successfully connected to '${repo}'!` };
+      }
+      return { ok: false, message: `GitHub returned status ${res.status}: ${res.statusText}` };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, message: `Connection failed: ${msg}` };
+    }
+  }
+  return req<GitHubTestResult>('/github/test-connection', {
     method: 'POST',
     body: JSON.stringify(payload ?? {}),
   });
+};
 export const syncGameToGitHub = (analysisId: number | string, force = false) =>
   req<GitHubSyncResult>(
     `/github/sync/${encodeURIComponent(analysisId)}${force ? '?force=true' : ''}`,
@@ -78,13 +150,54 @@ export const syncAllToGitHub = (force = false) =>
   req<GitHubSyncAllResult>(`/github/sync-all${force ? '?force=true' : ''}`, { method: 'POST' });
 export const pullFromGitHub = (force = false) =>
   req<GitHubPullResult>(`/github/pull${force ? '?force=true' : ''}`, { method: 'POST' });
-export const smartPullFromGitHub = () =>
-  req<GitHubSmartPullResult>('/github/smart-pull', { method: 'POST' });
+export const smartPullFromGitHub = async (): Promise<GitHubSmartPullResult> => {
+  if (
+    _serverReachable === false ||
+    (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io'))
+  ) {
+    return {
+      ok: true,
+      status: 'up_to_date',
+      imported_count: 0,
+      updated_count: 0,
+      skipped_count: 0,
+      message: 'Running in GitHub Direct mode.',
+    };
+  }
+  try {
+    return await req<GitHubSmartPullResult>('/github/smart-pull', { method: 'POST' });
+  } catch {
+    return {
+      ok: true,
+      status: 'disabled',
+      imported_count: 0,
+      updated_count: 0,
+      skipped_count: 0,
+      message: 'Server offline or sync disabled.',
+    };
+  }
+};
 
 // ── Games ─────────────────────────────────────────────────────────────────────
-export const getGames = (params: Record<string, string | number>) => {
-  const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
-  return req<GamesResponse>(`/games?${qs}`);
+export const getGames = async (params: Record<string, string | number>): Promise<GamesResponse> => {
+  if (
+    _serverReachable === false ||
+    (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io'))
+  ) {
+    return getGitHubDirectGames(params);
+  }
+  try {
+    const qs = new URLSearchParams(
+      Object.entries(params).map(([k, v]) => [k, String(v)]),
+    ).toString();
+    return await req<GamesResponse>(`/games?${qs}`);
+  } catch (e) {
+    if (isGitHubDirectConfigured()) {
+      _serverReachable = false;
+      return getGitHubDirectGames(params);
+    }
+    throw e;
+  }
 };
 export const deleteGame = (id: number | string, isPending = false) =>
   req<{ ok: boolean }>(isPending ? `/games/pending/${id}` : `/games/${encodeURIComponent(id)}`, {
@@ -155,18 +268,61 @@ export const startAnalysis = (
 export const cancelJob = (jobId: string) =>
   req<{ status: string; job_id: string }>(`/jobs/${jobId}/cancel`, { method: 'POST' });
 
-export const getAvailableTags = () =>
-  req<{ tags: string[]; counts: Record<string, number> }>('/tags');
+export const getAvailableTags = async () => {
+  if (
+    _serverReachable === false ||
+    (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io'))
+  ) {
+    return { tags: [], counts: {} };
+  }
+  try {
+    return await req<{ tags: string[]; counts: Record<string, number> }>('/tags');
+  } catch {
+    return { tags: [], counts: {} };
+  }
+};
 
 export const getJobStatus = (jobId: string) => req<JobStatus>(`/jobs/${jobId}`);
 
-export const getAnalysis = (id: number | string) =>
-  req<AnalysisRecord>(`/analysis/${encodeURIComponent(id)}`);
+export const getAnalysis = async (id: number | string): Promise<AnalysisRecord> => {
+  if (
+    _serverReachable === false ||
+    (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io'))
+  ) {
+    return getGitHubDirectAnalysis(id);
+  }
+  try {
+    return await req<AnalysisRecord>(`/analysis/${encodeURIComponent(id)}`);
+  } catch (e) {
+    if (isGitHubDirectConfigured()) {
+      _serverReachable = false;
+      return getGitHubDirectAnalysis(id);
+    }
+    throw e;
+  }
+};
 
-export const getReportHtml = (id: number | string) =>
-  req<{ report_html: string; report_md: string }>(
-    `/analysis/${encodeURIComponent(id)}/report-html`,
-  );
+export const getReportHtml = async (
+  id: number | string,
+): Promise<{ report_html: string; report_md: string }> => {
+  if (
+    _serverReachable === false ||
+    (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io'))
+  ) {
+    return getGitHubDirectReportHtml(id);
+  }
+  try {
+    return await req<{ report_html: string; report_md: string }>(
+      `/analysis/${encodeURIComponent(id)}/report-html`,
+    );
+  } catch (e) {
+    if (isGitHubDirectConfigured()) {
+      _serverReachable = false;
+      return getGitHubDirectReportHtml(id);
+    }
+    throw e;
+  }
+};
 
 export const exportPdfUrl = (id: number | string) =>
   `${BASE}/analysis/${encodeURIComponent(id)}/export/pdf`;

@@ -16,14 +16,17 @@ import {
   startAnalysis,
   streamJob,
   syncGameToGitHub,
+  isDirectMode,
 } from '../lib/api';
+import { isGitHubDirectConfigured } from '../lib/githubDirect';
 import type { CategoryFilter, GameRecord, Platform, ResultFilter, StatusFilter } from '../types';
 
 interface GamesPageProps {
   onViewReport: (id: number | string) => void;
+  onSettings?: () => void;
 }
 
-export function GamesPage({ onViewReport }: GamesPageProps) {
+export function GamesPage({ onViewReport, onSettings }: GamesPageProps) {
   const [status, setStatus] = useState<StatusFilter>('all');
   const [result, setResult] = useState<ResultFilter>('all');
   const [platform, setPlatform] = useState<Platform>('all');
@@ -318,6 +321,25 @@ export function GamesPage({ onViewReport }: GamesPageProps) {
 
   return (
     <div className="flex flex-col gap-4 p-6 max-w-7xl mx-auto w-full">
+      {isDirectMode() && !isGitHubDirectConfigured() && (
+        <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-1.5">
+              <Github size={15} /> Welcome to PlyProse Mobile Reader
+            </div>
+            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+              Connect your private GitHub chess repository in Settings to read your analyzed games
+              directly on mobile.
+            </p>
+          </div>
+          {onSettings && (
+            <Button variant="primary" size="sm" onClick={onSettings}>
+              Configure GitHub Settings
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">My Games</h1>
         <div className="flex items-center gap-2 flex-wrap">

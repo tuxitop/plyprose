@@ -58,7 +58,10 @@ export default function App() {
       )}
       <main className="flex-1 overflow-y-auto min-h-0 flex flex-col">
         {route.page === 'games' && (
-          <GamesPage onViewReport={id => navigate({ page: 'analysis', id })} />
+          <GamesPage
+            onViewReport={id => navigate({ page: 'analysis', id })}
+            onSettings={() => navigate({ page: 'settings' })}
+          />
         )}
         {route.page === 'settings' && <SettingsPage onBack={() => navigate({ page: 'games' })} />}
         {route.page === 'analysis' && (
