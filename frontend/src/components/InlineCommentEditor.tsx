@@ -55,13 +55,13 @@ export const InlineCommentEditor: React.FC<InlineCommentEditorProps> = ({
         onChange={e => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="w-full resize-none rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="w-full resize-none rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
       />
-      <div className="mt-1 flex items-center justify-end gap-1.5">
+      <div className="mt-1.5 flex items-center justify-end gap-1.5">
         <button
           type="button"
           onClick={onCancel}
-          className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-200/70 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1 rounded px-2.5 py-1 sm:px-2 sm:py-0.5 text-xs sm:text-[11px] text-slate-600 hover:bg-slate-200/70 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors cursor-pointer"
         >
           <X size={12} />
           <span>Cancel</span>
@@ -69,7 +69,7 @@ export const InlineCommentEditor: React.FC<InlineCommentEditorProps> = ({
         <button
           type="button"
           onClick={() => onSave(text.trim())}
-          className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-blue-700 shadow-xs transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1 sm:px-2.5 sm:py-0.5 text-xs sm:text-[11px] font-medium text-white hover:bg-blue-700 shadow-xs transition-colors cursor-pointer"
         >
           <Check size={12} />
           <span>Save</span>

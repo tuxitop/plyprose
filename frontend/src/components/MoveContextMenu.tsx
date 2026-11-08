@@ -101,7 +101,7 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
           onClose();
           onAddOrEditNote();
         }}
-        className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
       >
         <MessageSquarePlus size={13} className="shrink-0 text-blue-500" />
         <span>{hasComment ? 'Edit Note' : 'Add Note'}</span>
@@ -114,7 +114,7 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
           onClose();
           onAnnotateWithAI();
         }}
-        className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-slate-700 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 transition-colors text-left disabled:opacity-50"
+        className="w-full flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-slate-700 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 transition-colors text-left disabled:opacity-50"
       >
         {isAiAnnotating ? (
           <Loader2 size={13} className="shrink-0 animate-spin text-purple-500" />
@@ -131,7 +131,7 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
             onClose();
             onDeleteNote();
           }}
-          className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition-colors text-left"
+          className="w-full flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition-colors text-left"
         >
           <Trash2 size={13} className="shrink-0 text-rose-500" />
           <span>Delete Note</span>
@@ -149,7 +149,7 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
                 onClose();
                 onDeleteFromHere();
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-slate-700 dark:text-slate-300 hover:text-amber-600 dark:hover:text-amber-400 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-slate-700 dark:text-slate-300 hover:text-amber-600 dark:hover:text-amber-400 transition-colors text-left"
             >
               <Scissors size={13} className="shrink-0 text-amber-500" />
               <span>Delete from here</span>
@@ -162,7 +162,7 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
                 onClose();
                 onDeleteVariation();
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition-colors text-left"
             >
               <XCircle size={13} className="shrink-0 text-rose-500" />
               <span>Delete variation</span>
@@ -175,7 +175,7 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
                 onClose();
                 onPromoteVariation();
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors text-left"
             >
               <ArrowUpRight size={13} className="shrink-0 text-emerald-500" />
               <span>Promote variation</span>

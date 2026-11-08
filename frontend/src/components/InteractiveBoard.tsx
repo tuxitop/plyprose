@@ -1285,6 +1285,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         varIndex?: number,
       ) => {
         if (!analysisId) return;
+        if (isDirectMode()) {
+          setAiNoticeModal({
+            title: 'Direct Mode Notice',
+            message:
+              'AI move annotation requires the PlyProse backend server. Manual comments, notes, and variations can be created, edited, and auto-saved directly to your GitHub repository.',
+          });
+          return;
+        }
         setIsAiAnnotating(true);
         try {
           const res = await annotateMove(analysisId, { ply, san });
@@ -4115,10 +4123,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                 ) : (
                                   <div
                                     onClick={() => handleStartEditMainlineNote(ply)}
-                                    className="text-[11.5px] text-amber-800 dark:text-amber-300 font-normal leading-relaxed pl-1 py-0.5 cursor-pointer hover:bg-amber-100/40 dark:hover:bg-amber-950/30 rounded transition-colors flex items-start justify-between gap-1 group font-sans"
+                                    className="text-[11.5px] text-amber-800 dark:text-amber-300 font-normal leading-relaxed pl-1 py-0.5 cursor-pointer hover:bg-amber-100/40 dark:hover:bg-amber-950/30 rounded transition-colors flex items-start justify-between gap-1 group font-sans break-words"
                                     title="Click to edit note"
                                   >
-                                    <span className="leading-relaxed">{comment}</span>
+                                    <span className="leading-relaxed break-words">{comment}</span>
                                   </div>
                                 )}
                               </td>
@@ -4818,10 +4826,12 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                   </p>
                 </div>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Please verify that your AI provider endpoint is reachable and your API credentials
-                or local proxy address are correctly configured in Settings.
-              </p>
+              {aiNoticeModal.actionUrl && (
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Please verify that your AI provider endpoint is reachable and your API credentials
+                  or local proxy address are correctly configured in Settings.
+                </p>
+              )}
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
