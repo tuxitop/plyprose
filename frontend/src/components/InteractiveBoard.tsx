@@ -553,6 +553,32 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       setSubVariations([]);
     }, [dismissHighlight]);
 
+    const handleResetToMainline = resetVariation;
+
+    const handleGoToPly = useCallback(
+      (ply: number) => {
+        dismissHighlight();
+        setIsFreePlay(false);
+        setFreeChess(null);
+        setVariationPlies([]);
+        setSubVariations([]);
+        setCurrentVarIndex(-1);
+        onSelectPly(Math.max(0, Math.min(ply, plies.length - 1)));
+      },
+      [onSelectPly, plies.length, dismissHighlight],
+    );
+
+    const handleGoToVariationPly = useCallback(
+      (vIdx: number) => {
+        dismissHighlight();
+        if (variationPlies[vIdx]) {
+          setCurrentVarIndex(vIdx);
+          setFreeChess(new Chess(variationPlies[vIdx].fen));
+        }
+      },
+      [variationPlies, dismissHighlight],
+    );
+
     const highlightSquare = useCallback((square: string) => {
       const sq = square.toLowerCase().trim();
       if (!/^[a-h][1-8]$/.test(sq)) return;
@@ -870,74 +896,222 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
         try {
           const moveRes = chessInst.move({ from: orig, to: dest, promotion: 'q' });
-          if (moveRes) {
-            const nextFen = chessInst.fen();
+          if (!moveRes) return;
+          const nextFen = chessInst.fen();
 
-            if (!isFreePlay) {
-              setBranchPly(safePly);
-              const newVarPly: VariationPly = {
-                plyIndex: 0,
-                fen: nextFen,
-                san: moveRes.san,
-                moveNumber: moveNum,
-                color: moveRes.color,
-                from: orig,
-                to: dest,
-              };
-              setVariationPlies([newVarPly]);
-              setCurrentVarIndex(0);
-              setIsFreePlay(true);
-            } else {
-              // User is already exploring a variation.
-              // If user was at move index k < length - 1, preserve the previous continuation as sub-variation
-              if (currentVarIndex >= 0 && currentVarIndex < variationPlies.length - 1) {
-                const subBranchPlies = variationPlies.slice(currentVarIndex + 1);
-                setSubVariations(prev => [
-                  ...prev,
-                  {
-                    branchPlyIndex: currentVarIndex,
-                    parentFen: activeFen,
-                    moves: subBranchPlies,
+          if (!isFreePlay) {
+            // 1a. If user played the exact next move on the mainline
+            const nextMainPly = safePly + 1 < plies.length ? plies[safePly + 1] : null;
+            if (
+              nextMainPly &&
+              ((nextMainPly.from === orig && nextMainPly.to === dest) ||
+                nextMainPly.san === moveRes.san)
+            ) {
+              handleGoToPly(safePly + 1);
+              if (cgApiRef.current) {
+                const turnColor: Color = nextMainPly.color === 'w' ? 'black' : 'white';
+                cgApiRef.current.set({
+                  fen: nextMainPly.fen,
+                  turnColor,
+                  lastMove: [orig, dest],
+                  movable: {
+                    color: 'both',
+                    dests: getLegalDests(nextMainPly.fen),
                   },
-                ]);
+                });
               }
+              return;
+            }
+
+            // 1b. If user played the first move of the suggested engine variation for this ply
+            const engineVar = engineVariationsByPly.get(safePly + 1);
+            if (
+              engineVar &&
+              engineVar.length > 0 &&
+              ((engineVar[0].from === orig && engineVar[0].to === dest) ||
+                engineVar[0].san === moveRes.san)
+            ) {
+              handleSelectVariationMove(safePly, engineVar, 0);
+              if (cgApiRef.current) {
+                const turnColor: Color = engineVar[0].color === 'w' ? 'black' : 'white';
+                cgApiRef.current.set({
+                  fen: engineVar[0].fen,
+                  turnColor,
+                  lastMove: [orig, dest],
+                  movable: {
+                    color: 'both',
+                    dests: getLegalDests(engineVar[0].fen),
+                  },
+                });
+              }
+              return;
+            }
+
+            // 1c. Starting a new variation from mainline
+            setBranchPly(safePly);
+            const newVarPly: VariationPly = {
+              plyIndex: 0,
+              fen: nextFen,
+              san: moveRes.san,
+              moveNumber: moveNum,
+              color: moveRes.color,
+              from: orig,
+              to: dest,
+            };
+            setVariationPlies([newVarPly]);
+            setCurrentVarIndex(0);
+            setIsFreePlay(true);
+            setFreeChess(chessInst);
+          } else {
+            // 2. User is already exploring a variation (isFreePlay is true)
+
+            // 2a. If user was at variation root (currentVarIndex === -1) and played next mainline move
+            if (currentVarIndex === -1 && branchPly + 1 < plies.length) {
+              const nextMainPly = plies[branchPly + 1];
+              if (
+                (nextMainPly.from === orig && nextMainPly.to === dest) ||
+                nextMainPly.san === moveRes.san
+              ) {
+                handleGoToPly(branchPly + 1);
+                return;
+              }
+            }
+
+            // 2b. If user played the exact next move in the currently loaded variation line
+            const nextVarIndex = currentVarIndex + 1;
+            if (nextVarIndex >= 0 && nextVarIndex < variationPlies.length) {
+              const nextVarPly = variationPlies[nextVarIndex];
+              if (
+                (nextVarPly.from === orig && nextVarPly.to === dest) ||
+                nextVarPly.san === moveRes.san
+              ) {
+                setCurrentVarIndex(nextVarIndex);
+                setFreeChess(chessInst);
+                if (cgApiRef.current) {
+                  const turnColor: Color = nextVarPly.color === 'w' ? 'black' : 'white';
+                  cgApiRef.current.set({
+                    fen: nextVarPly.fen,
+                    turnColor,
+                    lastMove: [orig, dest],
+                    check: chessInst.inCheck() ? turnColor : false,
+                    movable: {
+                      color: 'both',
+                      dests: getLegalDests(nextVarPly.fen),
+                    },
+                  });
+                }
+                return;
+              }
+            }
+
+            // 2c. If user played the first move of an existing sub-variation branching from this position
+            const matchingSubVarIdx = subVariations.findIndex(
+              sv =>
+                (sv.parentFen === activeFen || sv.branchPlyIndex === currentVarIndex) &&
+                sv.moves.length > 0 &&
+                ((sv.moves[0].from === orig && sv.moves[0].to === dest) ||
+                  sv.moves[0].san === moveRes.san),
+            );
+
+            if (matchingSubVarIdx !== -1) {
+              const matchingSv = subVariations[matchingSubVarIdx];
               const basePlies =
                 currentVarIndex >= 0 ? variationPlies.slice(0, currentVarIndex + 1) : [];
-              const newVarPly: VariationPly = {
-                plyIndex: basePlies.length,
-                fen: nextFen,
-                san: moveRes.san,
-                moveNumber: moveNum,
-                color: moveRes.color,
-                from: orig,
-                to: dest,
-              };
-              const nextPlies = [...basePlies, newVarPly];
-              setVariationPlies(nextPlies);
-              setCurrentVarIndex(nextPlies.length - 1);
+              const oldContinuation = variationPlies.slice(currentVarIndex + 1);
+              const updatedSubVariations = subVariations.filter(
+                (_, idx) => idx !== matchingSubVarIdx,
+              );
+              if (oldContinuation.length > 0) {
+                updatedSubVariations.push({
+                  branchPlyIndex: currentVarIndex,
+                  parentFen: activeFen,
+                  moves: oldContinuation,
+                });
+              }
+              setSubVariations(updatedSubVariations);
+              const combinedPlies = [...basePlies, ...matchingSv.moves];
+              setVariationPlies(combinedPlies);
+              setCurrentVarIndex(basePlies.length);
+              setFreeChess(chessInst);
+              if (cgApiRef.current) {
+                const targetPly = matchingSv.moves[0];
+                const turnColor: Color = targetPly.color === 'w' ? 'black' : 'white';
+                cgApiRef.current.set({
+                  fen: targetPly.fen,
+                  turnColor,
+                  lastMove: [orig, dest],
+                  check: chessInst.inCheck() ? turnColor : false,
+                  movable: {
+                    color: 'both',
+                    dests: getLegalDests(targetPly.fen),
+                  },
+                });
+              }
+              return;
             }
 
-            setFreeChess(chessInst);
-
-            if (cgApiRef.current) {
-              const turnColor: Color = chessInst.turn() === 'w' ? 'white' : 'black';
-              cgApiRef.current.set({
-                fen: nextFen,
-                turnColor,
-                lastMove: [orig, dest],
-                check: chessInst.inCheck() ? turnColor : false,
-                movable: {
-                  color: 'both',
-                  dests: getLegalDests(nextFen),
+            // 2d. If user played an alternative branch:
+            // Preserve the previous continuation after currentVarIndex as a sub-variation
+            if (currentVarIndex >= 0 && currentVarIndex < variationPlies.length - 1) {
+              const subBranchPlies = variationPlies.slice(currentVarIndex + 1);
+              setSubVariations(prev => [
+                ...prev,
+                {
+                  branchPlyIndex: currentVarIndex,
+                  parentFen: activeFen,
+                  moves: subBranchPlies,
                 },
-              });
+              ]);
             }
+
+            const basePlies =
+              currentVarIndex >= 0 ? variationPlies.slice(0, currentVarIndex + 1) : [];
+            const newVarPly: VariationPly = {
+              plyIndex: basePlies.length,
+              fen: nextFen,
+              san: moveRes.san,
+              moveNumber: moveNum,
+              color: moveRes.color,
+              from: orig,
+              to: dest,
+            };
+            const nextPlies = [...basePlies, newVarPly];
+            setVariationPlies(nextPlies);
+            setCurrentVarIndex(nextPlies.length - 1);
+            setFreeChess(chessInst);
+          }
+
+          if (cgApiRef.current) {
+            const turnColor: Color = chessInst.turn() === 'w' ? 'white' : 'black';
+            cgApiRef.current.set({
+              fen: nextFen,
+              turnColor,
+              lastMove: [orig, dest],
+              check: chessInst.inCheck() ? turnColor : false,
+              movable: {
+                color: 'both',
+                dests: getLegalDests(nextFen),
+              },
+            });
           }
         } catch (e) {
           console.warn('Illegal user exploration move', e);
         }
       },
-      [activeFen, isFreePlay, currentVarIndex, variationPlies, safePly, getLegalDests],
+      [
+        activeFen,
+        isFreePlay,
+        currentVarIndex,
+        variationPlies,
+        subVariations,
+        branchPly,
+        safePly,
+        plies,
+        engineVariationsByPly,
+        handleGoToPly,
+        handleSelectVariationMove,
+        getLegalDests,
+      ],
     );
 
     // Initialize or update Chessground
@@ -1151,38 +1325,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       };
     }, [isAutoplaying, safePly, plies.length, onSelectPly]);
 
-    // Reset exploration mode back to game mainline
-    const handleResetToMainline = () => {
-      dismissHighlight();
-      setIsFreePlay(false);
-      setFreeChess(null);
-      setVariationPlies([]);
-      setSubVariations([]);
-      setCurrentVarIndex(-1);
-    };
-
     // Navigation handlers
-    const handleGoToPly = useCallback(
-      (ply: number) => {
-        dismissHighlight();
-        setIsFreePlay(false);
-        setFreeChess(null);
-        setVariationPlies([]);
-        setSubVariations([]);
-        setCurrentVarIndex(-1);
-        onSelectPly(Math.max(0, Math.min(ply, plies.length - 1)));
-      },
-      [onSelectPly, plies.length, dismissHighlight],
-    );
-
-    const handleGoToVariationPly = (vIdx: number) => {
-      dismissHighlight();
-      if (variationPlies[vIdx]) {
-        setCurrentVarIndex(vIdx);
-        setFreeChess(new Chess(variationPlies[vIdx].fen));
-      }
-    };
-
     const handlePrev = () => {
       if (isFreePlay) {
         if (currentVarIndex > 0) {
@@ -3085,8 +3228,8 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                         ) {
                           const isDup =
                             whiteEngineVar &&
-                            whiteEngineVar.length === variationPlies.length &&
-                            whiteEngineVar.every((m, idx) => m.san === variationPlies[idx].san);
+                            variationPlies.length <= whiteEngineVar.length &&
+                            variationPlies.every((m, idx) => m.san === whiteEngineVar[idx].san);
                           if (!isDup) {
                             pairVariations.push({
                               id: `w-user-${pair.moveNumber}`,
@@ -3114,8 +3257,8 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                         ) {
                           const isDup =
                             blackEngineVar &&
-                            blackEngineVar.length === variationPlies.length &&
-                            blackEngineVar.every((m, idx) => m.san === variationPlies[idx].san);
+                            variationPlies.length <= blackEngineVar.length &&
+                            variationPlies.every((m, idx) => m.san === blackEngineVar[idx].san);
                           if (!isDup) {
                             pairVariations.push({
                               id: `b-user-${pair.moveNumber}`,
@@ -3303,10 +3446,15 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                                         key={svIdx}
                                                         onClick={e => {
                                                           e.currentTarget.blur();
+                                                          const prefix = variation.moves.slice(
+                                                            0,
+                                                            vIdx + 1,
+                                                          );
+                                                          const combined = [...prefix, ...sv.moves];
                                                           handleSelectVariationMove(
                                                             variation.branchPly,
-                                                            sv.moves,
-                                                            svIdx,
+                                                            combined,
+                                                            prefix.length + svIdx,
                                                           );
                                                         }}
                                                         className={`px-1 py-0.2 rounded transition-colors cursor-pointer font-mono ${

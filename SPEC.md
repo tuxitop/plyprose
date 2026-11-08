@@ -218,9 +218,9 @@ class IdentifyOpeningResponse(BaseModel):
 ### Module A: `src/fetcher.py` (Platform Game & Rating Ingestion)
 
 - **`fetch_lichess_games(username: str, max_games: int = 10) -> list[dict[str, Any]]`**
-  - Endpoint: `GET https://lichess.org/api/games/user/{username}?max={max_games}&pgnInJson=true&opening=true`
+  - Endpoint: `GET https://lichess.org/api/games/user/{username}?max={max_games}&pgnInJson=true&opening=true&clocks=true&evals=true`
   - Headers: `Accept: application/x-ndjson`
-  - Normalized fields: `id`, `white`, `black`, `date`, `played_at`, `result`, `time_control`, `pgn`, `source="lichess"`.
+  - Normalized fields: `id`, `white`, `black`, `date`, `played_at`, `result`, `time_control`, `pgn` (with embedded clock `[%clk ...]` and evaluation `[%eval ...]` comments), `source="lichess"`.
 - **`fetch_chesscom_games(username: str, max_games: int = 10) -> list[dict[str, Any]]`**
   - Step 1: `GET https://api.chess.com/pub/player/{username}/games/archives` (with custom `User-Agent` header).
   - Step 2: Fetches the most recent monthly archive JSON, extracts the last `max_games` containing `"pgn"`, and normalizes to the standard format.

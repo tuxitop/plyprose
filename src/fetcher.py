@@ -299,7 +299,7 @@ def fetch_lichess_games(
     """
     Fetches recent games for a Lichess user.
 
-    Endpoint: GET https://lichess.org/api/games/user/{username}?max={max_games}&pgnInJson=true&opening=true
+    Endpoint: GET https://lichess.org/api/games/user/{username}?max={max_games}&pgnInJson=true&opening=true&clocks=true&evals=true
     Headers: Accept: application/x-ndjson
 
     Parameters:
@@ -322,6 +322,8 @@ def fetch_lichess_games(
         "max": max_games,
         "pgnInJson": "true",
         "opening": "true",
+        "clocks": "true",
+        "evals": "true",
     }
     if since is not None:
         params["since"] = since

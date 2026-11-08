@@ -152,7 +152,7 @@ def test_fetch_lichess_games_success():
                     "black": {"user": {"name": "Hikaru", "id": "hikaru"}},
                 },
                 "clock": {"initial": 180, "increment": 0},
-                "pgn": "1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7# 1-0",
+                "pgn": "1. e4 { [%clk 0:03:00] } 1... e5 { [%clk 0:02:59] } 2. Qh5 { [%clk 0:02:55] } Nc6 { [%clk 0:02:54] } 3. Bc4 { [%clk 0:02:50] } Nf6 { [%clk 0:02:48] } 4. Qxf7# { [%clk 0:02:45] } 1-0",
             }
         )
         + "\n"
@@ -179,6 +179,9 @@ def test_fetch_lichess_games_success():
         recorded_headers = dict(request.headers)
         assert "/api/games/user/magnus" in str(request.url)
         assert request.url.params.get("max") == "2"
+        assert request.url.params.get("clocks") == "true"
+        assert request.url.params.get("evals") == "true"
+        assert request.url.params.get("opening") == "true"
         return httpx.Response(200, text=ndjson_data)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
@@ -195,6 +198,7 @@ def test_fetch_lichess_games_success():
     assert games[0]["result"] == "1-0"
     assert games[0]["time_control"] == "180+0"
     assert "Qxf7#" in games[0]["pgn"]
+    assert "[%clk 0:03:00]" in games[0]["pgn"]
 
     # Check Game 2
     assert games[1]["id"] == "game2"
