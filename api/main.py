@@ -98,7 +98,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.13.2")
+app = FastAPI(title="PlyProse API", version="1.13.3")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -2048,7 +2048,9 @@ def api_get_report_html(analysis_id: str) -> dict:
     if pgn_text or payload_json:
         report_md = reconcile_report_fens(report_md, pgn_text=pgn_text, payload=payload_json)
     # Step 1: board markers → inline HTML figures (data-URI SVG)
-    md_with_boards = replace_board_tags_with_html(report_md, size=380)
+    md_with_boards = replace_board_tags_with_html(
+        report_md, size=380, pgn_text=pgn_text, payload=payload_json
+    )
     # Step 2: markdown → HTML
     report_html = _md.markdown(
         md_with_boards,
@@ -2205,7 +2207,9 @@ def api_append_qa(analysis_id: str, req: AppendQARequest) -> AppendQAResponse:
         except Exception as gh_exc:
             logger.warning("Failed to auto-sync appended Q&A to GitHub: %s", gh_exc)
 
-    md_with_boards = replace_board_tags_with_html(new_report_md, size=380)
+    md_with_boards = replace_board_tags_with_html(
+        new_report_md, size=380, pgn_text=pgn_text, payload=payload_json
+    )
     report_html = _md.markdown(
         md_with_boards,
         extensions=["extra", "tables", "fenced_code", "toc"],
@@ -2229,7 +2233,9 @@ def api_export_pdf(analysis_id: str) -> Response:
     payload_json = rec.get("payload_json")
     if pgn_text or payload_json:
         report_md = reconcile_report_fens(report_md, pgn_text=pgn_text, payload=payload_json)
-    pdf_bytes = export_to_pdf(replace_board_tags_with_html(report_md, size=500))
+    pdf_bytes = export_to_pdf(
+        replace_board_tags_with_html(report_md, size=500, pgn_text=pgn_text, payload=payload_json)
+    )
     white = rec.get("white_player", "white").replace(" ", "_")
     black = rec.get("black_player", "black").replace(" ", "_")
     return Response(

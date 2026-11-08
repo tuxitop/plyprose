@@ -18,6 +18,29 @@ export interface EngineSettings {
   maxDepth: number; // default 18
 }
 
+export function getStockfishWorkerUrl(loc?: { hostname: string; pathname: string }): string {
+  const currentLoc =
+    loc ||
+    (typeof window !== 'undefined' ? window.location : { hostname: 'localhost', pathname: '/' });
+  const isGithubIo = currentLoc.hostname.endsWith('github.io');
+  if (isGithubIo) {
+    const parts = currentLoc.pathname
+      .replace(/^\/|\/$/g, '')
+      .split('/')
+      .filter(Boolean);
+    const repo = parts.length > 0 ? parts[0] : '';
+    return repo
+      ? `/${repo}/stockfish/stockfish-19-lite-single.js`
+      : '/stockfish/stockfish-19-lite-single.js';
+  }
+  const metaBase = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) || '';
+  if (metaBase && metaBase !== '.' && metaBase !== './' && !metaBase.startsWith('./')) {
+    const cleanBase = metaBase.replace(/\/+$/, '');
+    return `${cleanBase}/stockfish/stockfish-19-lite-single.js`;
+  }
+  return '/stockfish/stockfish-19-lite-single.js';
+}
+
 type UpdateListener = (lines: EngineLine[]) => void;
 
 export class StockfishService {
@@ -52,10 +75,7 @@ export class StockfishService {
 
     return new Promise(resolve => {
       try {
-        const base = (import.meta.env.BASE_URL || './').replace(/\/+$/, '');
-        const workerUrl = base
-          ? `${base}/stockfish/stockfish-19-lite-single.js`
-          : './stockfish/stockfish-19-lite-single.js';
+        const workerUrl = getStockfishWorkerUrl();
         this.worker = new Worker(workerUrl);
         this.worker.onmessage = (event: MessageEvent<string>) => {
           this.handleWorkerMessage(event.data, resolve);

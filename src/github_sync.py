@@ -135,7 +135,8 @@ def build_game_repo_files(
         if svg_content:
             diagram_files[f"assets/{filename}"] = svg_content
             alt = caption or f"Diagram {n}"
-            md_ref = f"![{alt}](./assets/{filename})"
+            attrs_str = " ".join(f'{k}="{v}"' for k, v in attrs.items())
+            md_ref = f"<!-- board: {attrs_str} -->\n![{alt}](./assets/{filename})"
             if caption:
                 md_ref += f"\n\n*{caption}*"
             return md_ref
@@ -152,7 +153,7 @@ def build_game_repo_files(
         if svg_content:
             diagram_files[f"assets/{filename}"] = svg_content
             alt = label or f"Diagram {n}"
-            md_ref = f"![{alt}](./assets/{filename})"
+            md_ref = f'<!-- board: fen="{fen}" caption="{label}" -->\n![{alt}](./assets/{filename})'
             if label:
                 md_ref += f"\n\n*{label}*"
             return md_ref
@@ -162,7 +163,9 @@ def build_game_repo_files(
     converted_md = BOARD_MARKER_RE.sub(_replace_legacy, converted_md)
 
     # Generate PDF
-    html_for_pdf = replace_board_tags_with_html(report_md, size=500)
+    html_for_pdf = replace_board_tags_with_html(
+        report_md, size=500, pgn_text=pgn_text, payload=payload_json
+    )
     pdf_bytes = export_to_pdf(html_for_pdf)
 
     files: dict[str, str | bytes] = {

@@ -119,14 +119,134 @@ def render_board_tag_as_png_bytes(attrs: dict[str, str], size: int = 560) -> byt
 
 # ── Report text processors ─────────────────────────────────────────────────────
 
+_BOARD_COMMENT_IMAGE_RE = re.compile(
+    r"<!--\s*board:\s*([^>]+?)\s*-->\s*\n?!\[(.*?)\]\(\.?/?assets/(diagram_\d+\.svg)\)(?:\s*\n\s*\*(.*?)\*)?",
+    re.MULTILINE | re.IGNORECASE,
+)
 
-def replace_board_tags_with_html(report_text: str, size: int = 380) -> str:
+_MD_DIAGRAM_IMAGE_RE = re.compile(
+    r"!\[(.*?)\]\(\.?/?assets/diagram_(\d+)\.svg\)(?:\s*\n\s*\*(.*?)\*)?",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def resolve_board_fen_from_caption_or_game(
+    caption: str,
+    diagram_num: int,
+    pgn_text: str = "",
+    payload: Any = None,
+) -> str:
     """
-    Replaces :::board{...}::: blocks with inline <img> HTML tags for in-app/PDF rendering.
+    Deterministically determines the FEN for a diagram reference (e.g. ![Move 12... Nxb3](./assets/diagram_2.svg))
+    using the game PGN moves and payload critical moments.
+    """
+    # 1. Try to find explicit move in PGN
+    if pgn_text and pgn_text.strip():
+        try:
+            game = chess.pgn.read_game(io.StringIO(pgn_text))
+            if game:
+                # Check for explicit move notation like 'Move 7... Nf6', 'Move 12: 12. Nd5', or '19. Re6+'
+                m = re.search(
+                    r"\b(?:Move\s+)?(\d+)(?:\s*(\.{1,3})\s*([A-Za-z0-9#+=_-]+)|\s*:\s*(?:(\d+)\s*(\.{1,3})\s*)?([A-Za-z0-9#+=_-]+)?)",
+                    caption,
+                    re.IGNORECASE,
+                )
+                m_num = None
+                is_black = False
+                san_hint = None
+                if m:
+                    m_num = int(m.group(1))
+                    is_black = bool(m.group(2)) or (bool(m.group(5)) if m.group(5) else False)
+                    san_hint = m.group(3) or m.group(6)
+                if not m_num:
+                    m2 = re.search(r"\b(\d+)\s*(?:\.|\.\.\.)\s*([A-Za-z0-9#+=_-]+)", caption)
+                    if m2:
+                        m_num = int(m2.group(1))
+                        is_black = "..." in m2.group(0)
+                        san_hint = m2.group(2)
+
+                if m_num:
+                    board = game.board()
+                    ply = 0
+                    candidate_fen = None
+                    for move in game.mainline_moves():
+                        ply += 1
+                        move_idx = (ply + 1) // 2
+                        move_color = "w" if ply % 2 == 1 else "b"
+                        move_san = board.san(move)
+                        board.push(move)
+                        if move_idx == m_num:
+                            if san_hint and (
+                                san_hint.lower() in move_san.lower()
+                                or move_san.lower() in san_hint.lower()
+                            ):
+                                return board.fen()
+                            if is_black and move_color == "b":
+                                candidate_fen = board.fen()
+                            elif not is_black and move_color == "w" and candidate_fen is None:
+                                candidate_fen = board.fen()
+                    if candidate_fen:
+                        return candidate_fen
+        except Exception:
+            pass
+
+    # 2. Check critical moments from payload
+    payload_data = None
+    if isinstance(payload, str) and payload.strip():
+        try:
+            payload_data = json.loads(payload)
+        except Exception:
+            pass
+    elif hasattr(payload, "model_dump"):
+        payload_data = payload.model_dump()
+    elif isinstance(payload, dict):
+        payload_data = payload
+
+    if payload_data and isinstance(payload_data, dict):
+        moments = payload_data.get("critical_moments") or []
+        # Try matching by move number mentioned in caption
+        for mom in moments:
+            if isinstance(mom, dict):
+                m_num = mom.get("move_number")
+                if m_num and f"Move {m_num}" in caption:
+                    f_before = mom.get("facts_before_move") or {}
+                    if isinstance(f_before, dict) and "fen" in f_before:
+                        return str(f_before["fen"])
+        # Try diagram index matching (1-indexed diagram -> 0-indexed moment)
+        idx = diagram_num - 1
+        if 0 <= idx < len(moments):
+            mom = moments[idx]
+            if isinstance(mom, dict):
+                f_before = mom.get("facts_before_move") or {}
+                if isinstance(f_before, dict) and "fen" in f_before:
+                    return str(f_before["fen"])
+
+    # 3. Fallback to start of PGN if available
+    if pgn_text and pgn_text.strip():
+        try:
+            game = chess.pgn.read_game(io.StringIO(pgn_text))
+            if game:
+                return game.board().fen()
+        except Exception:
+            pass
+
+    return chess.STARTING_FEN
+
+
+def replace_board_tags_with_html(
+    report_text: str,
+    size: int = 380,
+    pgn_text: str = "",
+    payload: Any = None,
+) -> str:
+    """
+    Replaces :::board{...}::: blocks, <!-- board: ... --> diagram markers,
+    and relative markdown diagram images (./assets/diagram_N.svg) with inline
+    data-URI SVG <img> figures for in-app and PDF rendering.
     Also handles legacy {{BOARD:fen=...|label=...}} markers.
     """
 
-    def _replace_new(match: re.Match) -> str:
+    def _replace_new(match: re.Match[str]) -> str:
         attrs = _parse_attrs(match.group(1))
         uri = render_board_tag_as_data_uri(attrs, size=size)
         caption = attrs.get("caption", "")
@@ -146,7 +266,7 @@ def replace_board_tags_with_html(report_text: str, size: int = 380) -> str:
         img += "</figure>"
         return img
 
-    def _replace_legacy(match: re.Match) -> str:
+    def _replace_legacy(match: re.Match[str]) -> str:
         fen = match.group(1).strip()
         label = match.group(2).strip()
         uri = render_board_tag_as_data_uri({"fen": fen}, size=size)
@@ -160,8 +280,56 @@ def replace_board_tags_with_html(report_text: str, size: int = 380) -> str:
             f"</figure>"
         )
 
+    def _replace_comment_diagram(match: re.Match[str]) -> str:
+        attrs = _parse_attrs(match.group(1))
+        caption = match.group(2).strip() or attrs.get("caption", "")
+        if not attrs.get("caption") and caption:
+            attrs["caption"] = caption
+        uri = render_board_tag_as_data_uri(attrs, size=size)
+        if not uri:
+            return f"*[Board diagram unavailable: {attrs.get('fen', '')}]*"
+        fen_attr = attrs.get("fen", "")
+        arrows_attr = attrs.get("arrows", "")
+        circles_attr = attrs.get("circles", "")
+        img = (
+            f'<figure class="board-figure cursor-pointer group hover:opacity-95 transition-opacity" '
+            f'style="text-align:center;margin:1.5rem 0;" '
+            f'data-fen="{fen_attr}" data-arrows="{arrows_attr}" data-circles="{circles_attr}">'
+            f'<img src="{uri}" style="width:{size}px;max-width:100%;height:auto;border-radius:4px;" alt="{caption}" title="Click to view on interactive board"/>'
+        )
+        if caption:
+            img += f'<figcaption style="margin-top:0.5rem;font-size:0.875rem;color:#64748b;">{caption}</figcaption>'
+        img += "</figure>"
+        return img
+
+    def _replace_md_diagram(match: re.Match[str]) -> str:
+        caption = match.group(1).strip()
+        diagram_num = int(match.group(2))
+        fen = resolve_board_fen_from_caption_or_game(
+            caption=caption,
+            diagram_num=diagram_num,
+            pgn_text=pgn_text,
+            payload=payload,
+        )
+        attrs = {"fen": fen, "caption": caption}
+        uri = render_board_tag_as_data_uri(attrs, size=size)
+        if not uri:
+            return f"*[Board diagram {diagram_num} unavailable]*"
+        img = (
+            f'<figure class="board-figure cursor-pointer group hover:opacity-95 transition-opacity" '
+            f'style="text-align:center;margin:1.5rem 0;" '
+            f'data-fen="{fen}">'
+            f'<img src="{uri}" style="width:{size}px;max-width:100%;height:auto;border-radius:4px;" alt="{caption}" title="Click to view on interactive board"/>'
+        )
+        if caption:
+            img += f'<figcaption style="margin-top:0.5rem;font-size:0.875rem;color:#64748b;">{caption}</figcaption>'
+        img += "</figure>"
+        return img
+
     text = _BOARD_TAG_RE.sub(_replace_new, report_text)
     text = BOARD_MARKER_RE.sub(_replace_legacy, text)
+    text = _BOARD_COMMENT_IMAGE_RE.sub(_replace_comment_diagram, text)
+    text = _MD_DIAGRAM_IMAGE_RE.sub(_replace_md_diagram, text)
     return text
 
 
@@ -392,4 +560,5 @@ __all__ = [
     "render_board_tag_as_data_uri",
     "render_board_tag_as_png_bytes",
     "replace_board_tags_with_html",
+    "resolve_board_fen_from_caption_or_game",
 ]

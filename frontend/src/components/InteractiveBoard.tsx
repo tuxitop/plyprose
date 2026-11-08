@@ -259,10 +259,11 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 420;
     const effectiveContainerWidth = Math.min(sidebarWidth, viewportWidth);
     const maxBoardWidth = Math.max(180, effectiveContainerWidth - 32);
-    // Vertical eval bar is 22px + 8px gap = 30px width alongside the board
+    // On mobile docked split view, reserve 30px for the vertical eval bar on the right.
+    // On desktop view, evaluation bar is horizontal below board, so full board width is used.
     const effectiveBoardSize = isMobileDocked
       ? Math.min(260, Math.max(180, maxBoardWidth - 30))
-      : Math.max(180, Math.min(boardSize, maxBoardWidth - 30));
+      : Math.max(180, Math.min(boardSize, maxBoardWidth));
 
     // Dynamic scaling for badges and coordinates based on square size
     const squareSize = effectiveBoardSize / 8;
@@ -645,6 +646,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const blackName = parsedPayload?.black_player || pgnHeaders?.Black || 'Black';
     const whiteElo = parsedPayload?.white_elo || pgnHeaders?.WhiteElo || '';
     const blackElo = parsedPayload?.black_elo || pgnHeaders?.BlackElo || '';
+
+    const whiteInitial = (whiteName.trim()[0] || 'W').toUpperCase();
+    const blackInitial = (blackName.trim()[0] || 'B').toUpperCase();
 
     const baseClockSecs = useMemo(() => {
       return (
@@ -2263,139 +2267,284 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             </div>
           </div>
 
-          {/* Row container for Chessboard and Vertical Eval Bar */}
-          <div className="flex items-center justify-center gap-2 shrink-0">
-            {/* Chessground Board */}
-            <div
-              style={{
-                width: `${effectiveBoardSize}px`,
-                height: `${effectiveBoardSize}px`,
-                ['--board-coord-size' as string]: `${coordSize}px`,
-              }}
-              onPointerDownCapture={() => {
-                clearBoardBounds();
-                dismissHighlight();
-              }}
-              onMouseDownCapture={clearBoardBounds}
-              onTouchStartCapture={() => {
-                clearBoardBounds();
-                dismissHighlight();
-              }}
-              onMouseEnter={clearBoardBounds}
-              className={`chessground-board-wrap relative board-theme-${boardTheme} ${
-                pieceTheme !== 'cburnett' ? `piece-theme-${pieceTheme}` : ''
-              }`}
-            >
-              <div ref={boardElRef} className="w-full h-full" />
+          {/* Dual Evaluation Bar & Chessboard Layout:
+              - Mobile Docked Split View: Vertical evaluation bar alongside the right of the board.
+              - Desktop Sidebar View: Original horizontal evaluation bar below the board. */}
+          {isMobileDocked ? (
+            /* Mobile Docked View: Row container for Chessboard and Vertical Eval Bar */
+            <div className="flex items-center justify-center gap-2 shrink-0">
+              {/* Chessground Board */}
+              <div
+                style={{
+                  width: `${effectiveBoardSize}px`,
+                  height: `${effectiveBoardSize}px`,
+                  ['--board-coord-size' as string]: `${coordSize}px`,
+                }}
+                onPointerDownCapture={() => {
+                  clearBoardBounds();
+                  dismissHighlight();
+                }}
+                onMouseDownCapture={clearBoardBounds}
+                onTouchStartCapture={() => {
+                  clearBoardBounds();
+                  dismissHighlight();
+                }}
+                onMouseEnter={clearBoardBounds}
+                className={`chessground-board-wrap relative board-theme-${boardTheme} ${
+                  pieceTheme !== 'cburnett' ? `piece-theme-${pieceTheme}` : ''
+                }`}
+              >
+                <div ref={boardElRef} className="w-full h-full" />
 
-              {/* High-contrast Square Highlight Overlay */}
-              {highlightedSquareCoord && (
-                <div
-                  style={{
-                    left: `${highlightedSquareCoord.col * 12.5}%`,
-                    top: `${highlightedSquareCoord.row * 12.5}%`,
-                    width: '12.5%',
-                    height: '12.5%',
-                  }}
-                  className="chess-square-highlight absolute pointer-events-none"
-                >
-                  <span className="absolute top-0.5 right-0.5 px-1 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[9px] font-mono tracking-tight shadow-sm select-none leading-none border border-amber-300">
-                    {highlightedSquareCoord.square}
+                {/* High-contrast Square Highlight Overlay */}
+                {highlightedSquareCoord && (
+                  <div
+                    style={{
+                      left: `${highlightedSquareCoord.col * 12.5}%`,
+                      top: `${highlightedSquareCoord.row * 12.5}%`,
+                      width: '12.5%',
+                      height: '12.5%',
+                    }}
+                    className="chess-square-highlight absolute pointer-events-none"
+                  >
+                    <span className="absolute top-0.5 right-0.5 px-1 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[9px] font-mono tracking-tight shadow-sm select-none leading-none border border-amber-300">
+                      {highlightedSquareCoord.square}
+                    </span>
+                  </div>
+                )}
+
+                {/* Floating Move Classification Badge on Landing Square (only for moves that stand out) */}
+                {activeBadge && (
+                  <div
+                    style={{
+                      left: `${activeBadge.col * 12.5 + 12.5}%`,
+                      top: `${activeBadge.row * 12.5}%`,
+                      width: `${badgeDiameter}px`,
+                      height: `${badgeDiameter}px`,
+                      transform: 'translate(-80%, -20%)',
+                    }}
+                    className={`absolute z-10 rounded-full flex items-center justify-center text-white shadow-md pointer-events-none select-none ${activeBadge.bgClass}`}
+                    title={`${activeBadge.label}: ${currentPlyData.san}`}
+                  >
+                    <MoveBadgeGlyph
+                      type={activeBadge.type}
+                      style={{ width: `${glyphSize}px`, height: `${glyphSize}px` }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Vertical Evaluation Bar alongside right of Board */}
+              <div
+                style={{ width: '22px', height: `${effectiveBoardSize}px` }}
+                className="rounded-md overflow-hidden border border-slate-300 dark:border-slate-700 relative flex flex-col select-none shadow-xs cursor-default bg-slate-900 dark:bg-slate-950 shrink-0"
+                title={`Evaluation: ${evalBarData.text} (${evalBarData.source})`}
+              >
+                {orientation === 'white' ? (
+                  <>
+                    {/* Black section (top) */}
+                    <div
+                      style={{ height: `${100 - evalBarData.whitePercent}%` }}
+                      className="w-full bg-slate-900 dark:bg-slate-950 transition-all duration-300 ease-out flex flex-col items-center justify-start shrink-0 overflow-hidden"
+                    >
+                      {!evalBarData.advantage.isWhite && !evalBarData.advantage.isEqual && (
+                        <span className="pt-1 text-center font-mono font-bold text-[10px] text-white tracking-tighter select-none leading-none">
+                          {evalBarData.advantage.shortScore}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* White section (bottom) */}
+                    <div
+                      style={{ height: `${evalBarData.whitePercent}%` }}
+                      className={`w-full bg-slate-100 dark:bg-slate-200 ${
+                        evalBarData.whitePercent > 0 && evalBarData.whitePercent < 100
+                          ? 'border-t border-slate-400/80 dark:border-slate-500/80'
+                          : ''
+                      } transition-all duration-300 ease-out flex flex-col items-center justify-end shrink-0 overflow-hidden`}
+                    >
+                      {(evalBarData.advantage.isWhite || evalBarData.advantage.isEqual) && (
+                        <span className="pb-1 text-center font-mono font-bold text-[10px] text-slate-900 tracking-tighter select-none leading-none">
+                          {evalBarData.advantage.shortScore}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Orientation is black: White is top, Black is bottom */}
+                    {/* White section (top) */}
+                    <div
+                      style={{ height: `${evalBarData.whitePercent}%` }}
+                      className={`w-full bg-slate-100 dark:bg-slate-200 ${
+                        evalBarData.whitePercent > 0 && evalBarData.whitePercent < 100
+                          ? 'border-b border-slate-400/80 dark:border-slate-500/80'
+                          : ''
+                      } transition-all duration-300 ease-out flex flex-col items-center justify-start shrink-0 overflow-hidden`}
+                    >
+                      {(evalBarData.advantage.isWhite || evalBarData.advantage.isEqual) && (
+                        <span className="pt-1 text-center font-mono font-bold text-[10px] text-slate-900 tracking-tighter select-none leading-none">
+                          {evalBarData.advantage.shortScore}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Black section (bottom) */}
+                    <div
+                      style={{ height: `${100 - evalBarData.whitePercent}%` }}
+                      className="w-full bg-slate-900 dark:bg-slate-950 transition-all duration-300 ease-out flex flex-col items-center justify-end shrink-0 overflow-hidden"
+                    >
+                      {!evalBarData.advantage.isWhite && !evalBarData.advantage.isEqual && (
+                        <span className="pb-1 text-center font-mono font-bold text-[10px] text-white tracking-tighter select-none leading-none">
+                          {evalBarData.advantage.shortScore}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Desktop Sidebar View: Chessground Board with Horizontal Eval Bar below */
+            <div className="flex flex-col items-center shrink-0">
+              {/* Chessground Board */}
+              <div
+                style={{
+                  width: `${effectiveBoardSize}px`,
+                  height: `${effectiveBoardSize}px`,
+                  ['--board-coord-size' as string]: `${coordSize}px`,
+                }}
+                onPointerDownCapture={() => {
+                  clearBoardBounds();
+                  dismissHighlight();
+                }}
+                onMouseDownCapture={clearBoardBounds}
+                onTouchStartCapture={() => {
+                  clearBoardBounds();
+                  dismissHighlight();
+                }}
+                onMouseEnter={clearBoardBounds}
+                className={`chessground-board-wrap relative board-theme-${boardTheme} ${
+                  pieceTheme !== 'cburnett' ? `piece-theme-${pieceTheme}` : ''
+                }`}
+              >
+                <div ref={boardElRef} className="w-full h-full" />
+
+                {/* High-contrast Square Highlight Overlay */}
+                {highlightedSquareCoord && (
+                  <div
+                    style={{
+                      left: `${highlightedSquareCoord.col * 12.5}%`,
+                      top: `${highlightedSquareCoord.row * 12.5}%`,
+                      width: '12.5%',
+                      height: '12.5%',
+                    }}
+                    className="chess-square-highlight absolute pointer-events-none"
+                  >
+                    <span className="absolute top-0.5 right-0.5 px-1 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[9px] font-mono tracking-tight shadow-sm select-none leading-none border border-amber-300">
+                      {highlightedSquareCoord.square}
+                    </span>
+                  </div>
+                )}
+
+                {/* Floating Move Classification Badge on Landing Square (only for moves that stand out) */}
+                {activeBadge && (
+                  <div
+                    style={{
+                      left: `${activeBadge.col * 12.5 + 12.5}%`,
+                      top: `${activeBadge.row * 12.5}%`,
+                      width: `${badgeDiameter}px`,
+                      height: `${badgeDiameter}px`,
+                      transform: 'translate(-80%, -20%)',
+                    }}
+                    className={`absolute z-10 rounded-full flex items-center justify-center text-white shadow-md pointer-events-none select-none ${activeBadge.bgClass}`}
+                    title={`${activeBadge.label}: ${currentPlyData.san}`}
+                  >
+                    <MoveBadgeGlyph
+                      type={activeBadge.type}
+                      style={{ width: `${glyphSize}px`, height: `${glyphSize}px` }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Horizontal Evaluation Bar below Board */}
+              <div
+                style={{ width: `${effectiveBoardSize}px` }}
+                className="h-7 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 relative flex items-center select-none shadow-xs cursor-default bg-slate-900 shrink-0 mt-2"
+                title={`Evaluation: ${evalBarData.text} (${evalBarData.source})`}
+              >
+                {/* White Initial [W| on Left */}
+                <div className="flex items-center justify-center px-2.5 z-20 pointer-events-none shrink-0 bg-slate-100 dark:bg-slate-200 h-full border-r border-slate-400/80 dark:border-slate-500/80">
+                  <span className="font-bold text-xs tracking-tight text-slate-800 dark:text-slate-900">
+                    {whiteInitial}
                   </span>
                 </div>
-              )}
 
-              {/* Floating Move Classification Badge on Landing Square (only for moves that stand out) */}
-              {activeBadge && (
-                <div
-                  style={{
-                    left: `${activeBadge.col * 12.5 + 12.5}%`,
-                    top: `${activeBadge.row * 12.5}%`,
-                    width: `${badgeDiameter}px`,
-                    height: `${badgeDiameter}px`,
-                    transform: 'translate(-80%, -20%)',
-                  }}
-                  className={`absolute z-10 rounded-full flex items-center justify-center text-white shadow-md pointer-events-none select-none ${activeBadge.bgClass}`}
-                  title={`${activeBadge.label}: ${currentPlyData.san}`}
-                >
-                  <MoveBadgeGlyph
-                    type={activeBadge.type}
-                    style={{ width: `${glyphSize}px`, height: `${glyphSize}px` }}
+                {/* Evaluation Fill Bar (starts at left | and ends at right |) */}
+                <div className="flex-1 h-full relative overflow-hidden flex items-center bg-slate-900 dark:bg-slate-950">
+                  <div
+                    style={{ width: `${evalBarData.whitePercent}%` }}
+                    className={`h-full bg-slate-100 dark:bg-slate-200 ${
+                      evalBarData.whitePercent > 0 && evalBarData.whitePercent < 100
+                        ? 'border-r border-slate-400/80 dark:border-slate-500/80'
+                        : ''
+                    } transition-all duration-300 ease-out shrink-0`}
                   />
+                  <div
+                    style={{ width: `${100 - evalBarData.whitePercent}%` }}
+                    className="h-full bg-slate-900 dark:bg-slate-950 transition-all duration-300 ease-out shrink-0"
+                  />
+
+                  {/* Dynamic Advantage Text & Score */}
+                  <div className="absolute inset-0 flex items-center justify-between text-[11px] font-sans font-semibold pointer-events-none z-10">
+                    {evalBarData.advantage.isEqual ? (
+                      <span className="w-full text-center text-slate-700 dark:text-slate-300 font-medium">
+                        Equal Position 0.0
+                      </span>
+                    ) : evalBarData.advantage.isWhite ? (
+                      <>
+                        <span className="text-slate-800 dark:text-slate-900 truncate max-w-[45%] pl-2">
+                          {evalBarData.advantage.label}
+                        </span>
+                        <span
+                          style={{
+                            position: 'absolute',
+                            right: `calc(${100 - evalBarData.whitePercent}% + 6px)`,
+                          }}
+                          className="text-slate-800 dark:text-slate-900 font-bold font-mono text-[11px]"
+                        >
+                          {evalBarData.advantage.shortScore}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span
+                          style={{
+                            position: 'absolute',
+                            left: `calc(${evalBarData.whitePercent}% + 6px)`,
+                          }}
+                          className="text-white font-bold font-mono text-[11px]"
+                        >
+                          {evalBarData.advantage.shortScore}
+                        </span>
+                        <span className="text-slate-200 truncate max-w-[45%] ml-auto pr-2">
+                          {evalBarData.advantage.label}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-              )}
+
+                {/* Black Initial |B] on Right */}
+                <div className="flex items-center justify-center px-2.5 z-20 pointer-events-none shrink-0 bg-slate-900 dark:bg-slate-950 h-full border-l border-slate-600/80 dark:border-slate-700/80">
+                  <span className="font-bold text-xs tracking-tight text-slate-200">
+                    {blackInitial}
+                  </span>
+                </div>
+              </div>
             </div>
-
-            {/* Vertical Evaluation Bar alongside right of Board */}
-            <div
-              style={{ width: '22px', height: `${effectiveBoardSize}px` }}
-              className="rounded-md overflow-hidden border border-slate-300 dark:border-slate-700 relative flex flex-col select-none shadow-xs cursor-default bg-slate-900 dark:bg-slate-950 shrink-0"
-              title={`Evaluation: ${evalBarData.text} (${evalBarData.source})`}
-            >
-              {orientation === 'white' ? (
-                <>
-                  {/* Black section (top) */}
-                  <div
-                    style={{ height: `${100 - evalBarData.whitePercent}%` }}
-                    className="w-full bg-slate-900 dark:bg-slate-950 transition-all duration-300 ease-out flex flex-col items-center justify-start shrink-0 overflow-hidden"
-                  >
-                    {!evalBarData.advantage.isWhite && !evalBarData.advantage.isEqual && (
-                      <span className="pt-1 text-center font-mono font-bold text-[10px] text-white tracking-tighter select-none leading-none">
-                        {evalBarData.advantage.shortScore}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* White section (bottom) */}
-                  <div
-                    style={{ height: `${evalBarData.whitePercent}%` }}
-                    className={`w-full bg-slate-100 dark:bg-slate-200 ${
-                      evalBarData.whitePercent > 0 && evalBarData.whitePercent < 100
-                        ? 'border-t border-slate-400/80 dark:border-slate-500/80'
-                        : ''
-                    } transition-all duration-300 ease-out flex flex-col items-center justify-end shrink-0 overflow-hidden`}
-                  >
-                    {(evalBarData.advantage.isWhite || evalBarData.advantage.isEqual) && (
-                      <span className="pb-1 text-center font-mono font-bold text-[10px] text-slate-900 tracking-tighter select-none leading-none">
-                        {evalBarData.advantage.shortScore}
-                      </span>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* Orientation is black: White is top, Black is bottom */}
-                  {/* White section (top) */}
-                  <div
-                    style={{ height: `${evalBarData.whitePercent}%` }}
-                    className={`w-full bg-slate-100 dark:bg-slate-200 ${
-                      evalBarData.whitePercent > 0 && evalBarData.whitePercent < 100
-                        ? 'border-b border-slate-400/80 dark:border-slate-500/80'
-                        : ''
-                    } transition-all duration-300 ease-out flex flex-col items-center justify-start shrink-0 overflow-hidden`}
-                  >
-                    {(evalBarData.advantage.isWhite || evalBarData.advantage.isEqual) && (
-                      <span className="pt-1 text-center font-mono font-bold text-[10px] text-slate-900 tracking-tighter select-none leading-none">
-                        {evalBarData.advantage.shortScore}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Black section (bottom) */}
-                  <div
-                    style={{ height: `${100 - evalBarData.whitePercent}%` }}
-                    className="w-full bg-slate-900 dark:bg-slate-950 transition-all duration-300 ease-out flex flex-col items-center justify-end shrink-0 overflow-hidden"
-                  >
-                    {!evalBarData.advantage.isWhite && !evalBarData.advantage.isEqual && (
-                      <span className="pb-1 text-center font-mono font-bold text-[10px] text-white tracking-tighter select-none leading-none">
-                        {evalBarData.advantage.shortScore}
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Navigation Toolbar */}

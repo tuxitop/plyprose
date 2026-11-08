@@ -192,8 +192,8 @@ export async function fetchRemoteFolders(force = false): Promise<RemoteGameFolde
       entry.payload = item.sha;
     } else if (filename === 'report.pdf') {
       entry.reportPdf = item.sha;
-    } else if (filename.endsWith('.svg') && folder.endsWith('/assets')) {
-      const parentFolder = folder.slice(0, folder.lastIndexOf('/'));
+    } else if (filename.endsWith('.svg') && (folder === 'assets' || folder.endsWith('/assets'))) {
+      const parentFolder = folder === 'assets' ? '' : folder.slice(0, folder.lastIndexOf('/'));
       let parentEntry = foldersMap.get(parentFolder);
       if (!parentEntry) {
         parentEntry = { diagrams: {} };
@@ -721,6 +721,27 @@ export async function getGitHubDirectAnalysis(
   };
 }
 
+function b64EncodeUnicode(str: string): string {
+  try {
+    return btoa(
+      encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_match, p1: string) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      }),
+    );
+  } catch {
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+}
+
+export function svgToBase64DataUri(svgText: string): string {
+  try {
+    const encoded = b64EncodeUnicode(svgText);
+    return `data:image/svg+xml;base64,${encoded}`;
+  } catch {
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
+  }
+}
+
 export async function getGitHubDirectReportHtml(
   identifier: number | string,
 ): Promise<{ report_html: string; report_md: string }> {
@@ -733,10 +754,12 @@ export async function getGitHubDirectReportHtml(
 
   const reportMd = await fetchBlobText(target.reportBlobSha);
 
-  // Replace relative diagram image paths (./assets/diagram_N.svg and assets/diagram_N.svg) with inline data URI SVGs concurrently
+  // Replace relative diagram image paths (./assets/diagram_N.svg) and :::board blocks
+  // with inline base64 data-URI SVG figures concurrently
   let processedMd = reportMd;
   const diagramEntries = Object.entries(target.diagramBlobs);
   if (diagramEntries.length > 0) {
+    const svgMap = new Map<string, string>();
     const svgResults = await Promise.all(
       diagramEntries.map(async ([diagramPath, blobSha]) => {
         try {
@@ -750,10 +773,66 @@ export async function getGitHubDirectReportHtml(
 
     for (const { diagramPath, svgText } of svgResults) {
       if (svgText) {
-        const dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svgText)}`;
-        processedMd = processedMd.split(`./${diagramPath}`).join(dataUri);
-        processedMd = processedMd.split(diagramPath).join(dataUri);
+        svgMap.set(diagramPath, svgText);
+        const bareFilename = diagramPath.split('/').pop() || diagramPath;
+        svgMap.set(bareFilename, svgText);
       }
+    }
+
+    // 1. Handle HTML comment metadata: <!-- board: (attrs) -->\n![alt](./assets/diagram_N.svg)
+    processedMd = processedMd.replace(
+      /<!--\s*board:\s*([^>]+?)\s*-->\s*\n?!\[(.*?)\]\(\.?\/?assets\/(diagram_\d+\.svg)\)(?:\s*\n\s*\*(.*?)\*)?/gi,
+      (_match, attrsStr: string, alt: string, filename: string) => {
+        const svg = svgMap.get(filename) || svgMap.get(`assets/${filename}`);
+        if (!svg) return `*[Board diagram unavailable]*`;
+        const fenMatch = attrsStr.match(/fen="([^"]*)"/i);
+        const fen = fenMatch ? fenMatch[1] : '';
+        const caption = alt || '';
+        const dataUri = svgToBase64DataUri(svg);
+        return `<figure class="board-figure cursor-pointer group hover:opacity-95 transition-opacity" style="text-align:center;margin:1.5rem 0;" data-fen="${fen}">\n<img src="${dataUri}" style="width:380px;max-width:100%;height:auto;border-radius:4px;" alt="${caption}" title="Click to view on interactive board"/>\n${caption ? `<figcaption style="margin-top:0.5rem;font-size:0.875rem;color:#64748b;">${caption}</figcaption>\n` : ''}</figure>`;
+      },
+    );
+
+    // 2. Handle standard markdown diagram references: ![alt](./assets/diagram_N.svg)
+    processedMd = processedMd.replace(
+      /!\[(.*?)\]\(\.?\/?assets\/(diagram_\d+\.svg)\)(?:\s*\n\s*\*(.*?)\*)?/gi,
+      (_match, alt: string, filename: string) => {
+        const svg = svgMap.get(filename) || svgMap.get(`assets/${filename}`);
+        if (!svg) return `*[Board diagram unavailable]*`;
+        const caption = alt || '';
+        const dataUri = svgToBase64DataUri(svg);
+        return `<figure class="board-figure cursor-pointer group hover:opacity-95 transition-opacity" style="text-align:center;margin:1.5rem 0;">\n<img src="${dataUri}" style="width:380px;max-width:100%;height:auto;border-radius:4px;" alt="${caption}" title="Click to view on interactive board"/>\n${caption ? `<figcaption style="margin-top:0.5rem;font-size:0.875rem;color:#64748b;">${caption}</figcaption>\n` : ''}</figure>`;
+      },
+    );
+
+    // 3. Handle :::board{...}::: if diagrams are present in repo
+    let boardCounter = 0;
+    const sortedDiagramValues = Array.from(svgMap.entries())
+      .filter(([k]) => k.startsWith('assets/diagram_'))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, v]) => v);
+
+    processedMd = processedMd.replace(
+      /:::board\{([^}]+)\}[^\n]*\n?:::/gi,
+      (_match, attrsStr: string) => {
+        const svg = sortedDiagramValues[boardCounter++];
+        const fenMatch = attrsStr.match(/fen="([^"]*)"/i);
+        const fen = fenMatch ? fenMatch[1] : '';
+        const captionMatch = attrsStr.match(/caption="([^"]*)"/i);
+        const caption = captionMatch ? captionMatch[1] : '';
+        if (svg) {
+          const dataUri = svgToBase64DataUri(svg);
+          return `<figure class="board-figure cursor-pointer group hover:opacity-95 transition-opacity" style="text-align:center;margin:1.5rem 0;" data-fen="${fen}">\n<img src="${dataUri}" style="width:380px;max-width:100%;height:auto;border-radius:4px;" alt="${caption}" title="Click to view on interactive board"/>\n${caption ? `<figcaption style="margin-top:0.5rem;font-size:0.875rem;color:#64748b;">${caption}</figcaption>\n` : ''}</figure>`;
+        }
+        return `*[Board diagram unavailable: ${fen}]*`;
+      },
+    );
+
+    // 4. Fallback direct replacements for any remaining relative links
+    for (const [diagramPath, svgText] of svgMap.entries()) {
+      const dataUri = svgToBase64DataUri(svgText);
+      processedMd = processedMd.split(`./${diagramPath}`).join(dataUri);
+      processedMd = processedMd.split(diagramPath).join(dataUri);
     }
   }
 
