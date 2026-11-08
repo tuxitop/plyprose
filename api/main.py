@@ -98,7 +98,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.13.1")
+app = FastAPI(title="PlyProse API", version="1.13.2")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -401,9 +401,26 @@ def _execute_github_pull(gh: GitHubSyncClient, force: bool = False) -> GitHubPul
     for rg in remote_games:
         folder = rg["folder"]
         try:
-            # 1. Fast check: already analyzed, tracked by github_path, and has valid ply evaluations
+            # 1. Fast check: already analyzed, tracked by github_path, has valid ply evals and reconciled tags
             existing_by_path = find_analysis_by_github_path(folder)
-            if existing_by_path and not force and _record_has_evals(existing_by_path):
+            local_tags = existing_by_path.get("tags") if existing_by_path else None
+            local_has_tags = bool(local_tags and local_tags not in ("[]", []))
+            local_report = existing_by_path.get("report_md") or "" if existing_by_path else ""
+            report_has_tags = bool(
+                re.search(
+                    r"\b(?:tactic|opening|strategy|endgame|general|time):[a-z0-9\-]+\b",
+                    local_report,
+                    re.IGNORECASE,
+                )
+            )
+            needs_tag_population = report_has_tags and not local_has_tags
+
+            if (
+                existing_by_path
+                and not force
+                and _record_has_evals(existing_by_path)
+                and not needs_tag_population
+            ):
                 # If remote does not have a newer payload blob and local is fully populated, skip
                 if not rg.get("payload_blob_sha"):
                     skipped += 1
@@ -428,6 +445,7 @@ def _execute_github_pull(gh: GitHubSyncClient, force: bool = False) -> GitHubPul
                 if (
                     existing_by_path.get("github_synced_hash") == current_hash
                     and _record_has_evals(existing_by_path)
+                    and not needs_tag_population
                     and not force
                 ):
                     skipped += 1
@@ -533,6 +551,16 @@ def _execute_github_pull(gh: GitHubSyncClient, force: bool = False) -> GitHubPul
                             payload.total_plies or total_plies,
                             result_str=payload.result,
                         )
+
+            # Reconcile / extract tags from report_md if payload has no tags
+            if (not payload.tags or len(payload.tags) == 0) and report_md:
+                ai_tags = re.findall(
+                    r"\b(?:tactic|opening|strategy|endgame|general|time):[a-z0-9\-]+\b",
+                    report_md,
+                    re.IGNORECASE,
+                )
+                payload.tags = resolve_game_tags(ai_tags, payload, report_md=report_md)
+                reconcile_move_classifications(payload, report_md=report_md)
 
             # 6. If matched by folder, update with complete payload and report
             if existing_by_path:

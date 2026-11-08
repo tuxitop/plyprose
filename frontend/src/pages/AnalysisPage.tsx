@@ -11,6 +11,8 @@ import {
   ChevronDown,
   PanelRightClose,
   PanelRightOpen,
+  Zap,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Badge } from '../components/Badge';
@@ -51,16 +53,33 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
   const [downloadingDirectPdf, setDownloadingDirectPdf] = useState(false);
   const [isMobileDetailsOpen, setIsMobileDetailsOpen] = useState(false);
 
-  // Interactive Chessboard sidebar state (default: open)
-  const [isBoardOpen, setIsBoardOpen] = useState(true);
+  // Interactive Chessboard sidebar state: default to closed on mobile screens (<640px)
+  const [isBoardOpen, setIsBoardOpen] = useState(
+    () => !(typeof window !== 'undefined' && window.innerWidth < 640),
+  );
   const [mobileView, setMobileView] = useState<MobileViewMode>(() => {
     if (typeof window !== 'undefined' && window.innerWidth < 640) {
       const saved = localStorage.getItem('chess_mobile_view');
       if (saved === 'split' || saved === 'report' || saved === 'board') return saved;
-      return 'split';
+      return 'report';
     }
     return 'split';
   });
+
+  const [isLiveAnalyzing, setIsLiveAnalyzing] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('chess_live_analysis') === 'true';
+    }
+    return false;
+  });
+
+  const handleMobileToggleAnalysis = useCallback(() => {
+    boardRef.current?.toggleAnalysis?.();
+  }, []);
+
+  const handleMobileToggleSettings = useCallback(() => {
+    boardRef.current?.toggleSettings?.();
+  }, []);
 
   const handleSetMobileView = (mode: MobileViewMode) => {
     setMobileView(mode);
@@ -620,13 +639,13 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
             </div>
           )}
 
-          {/* Mobile View Switcher (Split / Report / Board) */}
-          <div className="flex items-center justify-center px-3 py-1.5 bg-slate-100 dark:bg-slate-900/90">
-            <div className="flex items-center w-full max-w-sm p-0.5 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 select-none shadow-xs">
+          {/* Mobile View Switcher (Split / Report / Board) & Engine Controls */}
+          <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100 dark:bg-slate-900/90 gap-2">
+            <div className="flex items-center w-full max-w-[210px] sm:max-w-sm p-0.5 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 select-none shadow-xs">
               <button
                 type="button"
                 onClick={() => handleSetMobileView('split')}
-                className={`flex-1 py-1 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   mobileView === 'split'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -638,7 +657,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               <button
                 type="button"
                 onClick={() => handleSetMobileView('report')}
-                className={`flex-1 py-1 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   mobileView === 'report'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -650,7 +669,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               <button
                 type="button"
                 onClick={() => handleSetMobileView('board')}
-                className={`flex-1 py-1 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
                   mobileView === 'board'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -660,6 +679,41 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 <span>Board</span>
               </button>
             </div>
+
+            {/* Quick Engine & Board controls on mobile (visible in split and board modes) */}
+            {mobileView !== 'report' && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleMobileToggleAnalysis}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                    isLiveAnalyzing
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                      : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700'
+                  }`}
+                  title="Toggle in-browser Stockfish 19 live analysis"
+                >
+                  <Zap
+                    size={12}
+                    className={isLiveAnalyzing ? 'animate-pulse text-amber-300' : 'text-slate-400'}
+                  />
+                  <span>SF 19</span>
+                  <span className="text-[10px] font-normal opacity-90">
+                    {isLiveAnalyzing ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleMobileToggleSettings}
+                  title="Board & Engine settings"
+                  className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 bg-slate-200/80 dark:bg-slate-800/80 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  aria-label="Board and engine settings"
+                >
+                  <SettingsIcon size={14} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -898,6 +952,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 onReportUpdated={handleReportUpdated}
                 onScrollToSection={handleScrollToSection}
                 isMobileDocked={true}
+                hideHeader={true}
+                onAnalysisToggled={setIsLiveAnalyzing}
               />
             </ErrorBoundary>
           </div>
@@ -921,6 +977,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 onReportUpdated={handleReportUpdated}
                 onScrollToSection={handleScrollToSection}
                 isMobileDocked={false}
+                hideHeader={true}
+                onAnalysisToggled={setIsLiveAnalyzing}
               />
             </ErrorBoundary>
           </div>
@@ -1009,6 +1067,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               onReportUpdated={handleReportUpdated}
               onScrollToSection={handleScrollToSection}
               isMobileDocked={false}
+              hideHeader={false}
+              onAnalysisToggled={setIsLiveAnalyzing}
             />
           </ErrorBoundary>
         </aside>

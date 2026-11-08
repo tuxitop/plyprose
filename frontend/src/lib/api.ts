@@ -23,6 +23,7 @@ import type {
 } from '../types';
 import {
   getGitHubDirectAnalysis,
+  getGitHubDirectAvailableTags,
   getGitHubDirectGames,
   getGitHubDirectReportHtml,
   getLocalSettings,
@@ -273,11 +274,17 @@ export const getAvailableTags = async () => {
     _serverReachable === false ||
     (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io'))
   ) {
+    if (isGitHubDirectConfigured()) {
+      return getGitHubDirectAvailableTags();
+    }
     return { tags: [], counts: {} };
   }
   try {
     return await req<{ tags: string[]; counts: Record<string, number> }>('/tags');
   } catch {
+    if (isGitHubDirectConfigured()) {
+      return getGitHubDirectAvailableTags();
+    }
     return { tags: [], counts: {} };
   }
 };

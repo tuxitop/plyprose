@@ -280,7 +280,7 @@ cg-board square.move-dest {
   align-items: flex-start !important;
   padding-top: 2px !important;
   transform: none !important;
-  font-size: 10px !important;
+  font-size: var(--board-coord-size, 10px) !important;
   font-weight: 700 !important;
   line-height: 1 !important;
 }
@@ -308,7 +308,7 @@ cg-board square.move-dest {
   align-items: flex-end !important;
   padding-right: 3px !important;
   transform: none !important;
-  font-size: 10px !important;
+  font-size: var(--board-coord-size, 10px) !important;
   font-weight: 700 !important;
   line-height: 1 !important;
 }

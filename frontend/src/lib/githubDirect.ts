@@ -380,10 +380,112 @@ export function findTargetFolder(
   return undefined;
 }
 
+export interface CachedFolderMeta {
+  tags: string[];
+  opening_name: string | null;
+  moves_count: number;
+  total_plies: number;
+  critical_moments_count: number;
+  white?: string;
+  black?: string;
+  result?: string;
+}
+
+const _folderMetaCache = new Map<string, CachedFolderMeta>();
+
+export async function populateFolderMeta(rf: RemoteGameFolder): Promise<CachedFolderMeta> {
+  const cached = _folderMetaCache.get(rf.folder);
+  if (cached) return cached;
+
+  let tags: string[] = [];
+  let openingName: string | null = null;
+  let movesCount = 20;
+  let totalPlies = 40;
+  let criticalMomentsCount = 3;
+  let white: string | undefined;
+  let black: string | undefined;
+  let result: string | undefined;
+
+  if (rf.payloadBlobSha) {
+    try {
+      const raw = await fetchBlobText(rf.payloadBlobSha);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (Array.isArray(parsed.tags)) {
+        tags = (parsed.tags as string[]).map(t => String(t).toLowerCase());
+      }
+      if (typeof parsed.opening_name === 'string') {
+        openingName = parsed.opening_name;
+      }
+      if (typeof parsed.total_plies === 'number') {
+        totalPlies = parsed.total_plies;
+        movesCount = Math.ceil((totalPlies + 1) / 2);
+      }
+      if (Array.isArray(parsed.critical_moments)) {
+        criticalMomentsCount = parsed.critical_moments.length;
+      }
+      if (typeof parsed.white_player === 'string') white = parsed.white_player;
+      if (typeof parsed.black_player === 'string') black = parsed.black_player;
+      if (typeof parsed.result === 'string') result = parsed.result;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Fallback: if no tags found in payload, extract from report.md if available
+  if (tags.length === 0 && rf.reportBlobSha) {
+    try {
+      const reportMd = _blobCache.get(rf.reportBlobSha) || (await fetchBlobText(rf.reportBlobSha));
+      const matched = reportMd.match(
+        /\b(?:tactic|opening|strategy|endgame|general|time):[a-z0-9-]+/gi,
+      );
+      if (matched) {
+        tags = Array.from(new Set(matched.map((t: string) => t.toLowerCase())));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const meta: CachedFolderMeta = {
+    tags,
+    opening_name: openingName,
+    moves_count: movesCount,
+    total_plies: totalPlies,
+    critical_moments_count: criticalMomentsCount,
+    white,
+    black,
+    result,
+  };
+  _folderMetaCache.set(rf.folder, meta);
+  return meta;
+}
+
+export function getGitHubDirectAvailableTags(): { tags: string[]; counts: Record<string, number> } {
+  const counts: Record<string, number> = {};
+  for (const meta of _folderMetaCache.values()) {
+    for (const tag of meta.tags) {
+      counts[tag] = (counts[tag] || 0) + 1;
+    }
+  }
+  const tags = Object.keys(counts).sort();
+  return { tags, counts };
+}
+
 export async function getGitHubDirectGames(
   params: Record<string, string | number>,
 ): Promise<GamesResponse> {
   const folders = await fetchRemoteFolders();
+
+  // Populate metadata (tags, opening, plies) for all remote folders concurrently
+  await Promise.all(
+    folders.map(async rf => {
+      try {
+        await populateFolderMeta(rf);
+      } catch {
+        /* ignore */
+      }
+    }),
+  );
 
   const page = Number(params.page || 1);
   const pageSize = Number(params.page_size || 10);
@@ -402,26 +504,28 @@ export async function getGitHubDirectGames(
 
   const allRecords: GameRecord[] = folders.map((rf, idx) => {
     const meta = parseFolderMetadata(rf.folder);
+    const cached = _folderMetaCache.get(rf.folder);
     return {
       id: idx + 1,
       game_key: rf.folder,
       created_at: meta.playedAt || new Date().toISOString(),
       played_at: meta.playedAt,
       date: meta.dateStr,
-      white_player: meta.white,
-      black_player: meta.black,
-      result: meta.result,
+      white_player: cached?.white || meta.white,
+      black_player: cached?.black || meta.black,
+      result: cached?.result || meta.result,
       time_control: meta.speed,
-      opening_name: null,
-      total_plies: 40,
-      moves_count: 20,
-      critical_moments_count: 3,
+      opening_name: cached?.opening_name || null,
+      total_plies: cached?.total_plies || 40,
+      moves_count: cached?.moves_count || 20,
+      critical_moments_count: cached?.critical_moments_count || 3,
       model_name: 'github-direct',
       platform: meta.platform,
       speed_label: meta.speed.charAt(0).toUpperCase() + meta.speed.slice(1),
       analyzed: true,
       github_path: rf.folder,
       github_sync_status: 'synced',
+      tags: cached?.tags || [],
     };
   });
 
@@ -547,10 +651,20 @@ export async function getGitHubDirectAnalysis(
         criticalMomentsCount = parsed.critical_moments.length;
       }
       if (Array.isArray(parsed.tags)) {
-        tags = parsed.tags as string[];
+        tags = (parsed.tags as string[]).map(t => String(t).toLowerCase());
       }
     } catch {
       /* ignore */
+    }
+  }
+
+  // Fallback: extract tags from reportMd if payload.json has no tags
+  if (tags.length === 0 && reportMd) {
+    const matched = reportMd.match(
+      /\b(?:tactic|opening|strategy|endgame|general|time):[a-z0-9-]+/gi,
+    );
+    if (matched) {
+      tags = Array.from(new Set(matched.map((t: string) => t.toLowerCase())));
     }
   }
 

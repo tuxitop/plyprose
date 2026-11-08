@@ -755,6 +755,98 @@ def test_github_pull_restores_missing_evals_on_existing_game(test_setup):
         assert matching["ply_evals"] == [20, 45, 60]
 
 
+def test_github_pull_extracts_tags_from_report_md(test_setup):
+    import json
+
+    client, test_db = test_setup
+
+    from src.github_sync import GitHubSyncClient
+    from src.storage import find_analysis_by_github_path
+
+    client.put(
+        "/api/settings",
+        json={
+            "github_enabled": True,
+            "github_token": "ghp_pull_test",
+            "github_repo": "alice/chess-repo",
+            "github_branch": "main",
+        },
+    )
+
+    folder_path = "chess.com/blitz/2026-10/25-1030-alice-bob-white"
+    pgn_text = (
+        '[Event "Live Chess"]\n'
+        '[Site "Chess.com"]\n'
+        '[Date "2026.10.25"]\n'
+        '[White "Alice"]\n'
+        '[Black "Bob"]\n'
+        '[Result "1-0"]\n\n'
+        "1. e4 e5 1-0"
+    )
+
+    report_md_with_tags = (
+        "## Analysis Report\n\n"
+        "### Section 7: Key Coaching Themes & Tactical Patterns\n"
+        "- tactic:pin - Pinning the knight on f6\n"
+        "- tactic:fork - Queen fork on c7\n"
+        "- strategy:outpost - Outpost on d5\n"
+    )
+
+    # Remote payload has empty tags (older schema or missing tags in payload.json)
+    remote_payload = GameAnalysisPayload(
+        white_player="Alice",
+        black_player="Bob",
+        user_color="White",
+        result="1-0",
+        time_control="180+2",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+        ply_evals=[20, 50],
+        tags=[],
+    )
+
+    remote_games = [
+        {
+            "folder": folder_path,
+            "report_blob_sha": "rep_sha_tags",
+            "pgn_blob_sha": "pgn_sha_tags",
+            "payload_blob_sha": "pay_sha_tags",
+        }
+    ]
+
+    def fake_get_blob_text(sha: str) -> str:
+        if sha == "rep_sha_tags":
+            return report_md_with_tags
+        elif sha == "pgn_sha_tags":
+            return pgn_text
+        elif sha == "pay_sha_tags":
+            return remote_payload.model_dump_json()
+        return ""
+
+    with (
+        patch.object(GitHubSyncClient, "list_remote_games_summary", return_value=remote_games),
+        patch.object(GitHubSyncClient, "get_blob_text", side_effect=fake_get_blob_text),
+    ):
+        res = client.post("/api/github/pull")
+        assert res.status_code == 200
+        pull_data = res.json()
+        assert pull_data["ok"] is True
+        assert pull_data["imported_count"] == 1
+
+        rec = find_analysis_by_github_path(folder_path, db_path=test_db)
+        assert rec is not None
+        assert rec["tags"] is not None
+        tags_list = json.loads(rec["tags"]) if isinstance(rec["tags"], str) else rec["tags"]
+        assert "tactic:found-pin" in tags_list
+        assert "tactic:found-fork" in tags_list
+
+        # Immediate second pull should skip cleanly
+        res2 = client.post("/api/github/pull")
+        assert res2.status_code == 200
+        assert res2.json()["skipped_count"] == 1
+
+
 def test_api_github_smart_pull(test_setup):
     client, _ = test_setup
 
