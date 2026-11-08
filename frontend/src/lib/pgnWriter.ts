@@ -139,21 +139,44 @@ export function extractVariationsFromPgn(pgnText: string): SavedVariation[] {
       parenDepth--;
       if (parenDepth === 0) {
         if (currentVarBranchPly >= 0 && currentVarText.trim()) {
-          const branchFen = fens[currentVarBranchPly];
-          const baseMoveNum =
-            currentVarBranchPly === 0 ? 0 : Math.floor((currentVarBranchPly - 1) / 2) + 1;
-          const baseColor =
-            currentVarBranchPly === 0 ? 'b' : history[currentVarBranchPly - 1].color;
-          const parsedMoves = parseVariationMoves(
+          let branchPly = currentVarBranchPly;
+          const branchFen = fens[branchPly];
+          const baseMoveNum = branchPly === 0 ? 0 : Math.floor((branchPly - 1) / 2) + 1;
+          const baseColor = branchPly === 0 ? 'b' : history[branchPly - 1].color;
+          let parsedMoves = parseVariationMoves(
             branchFen,
             currentVarText.trim(),
             baseMoveNum,
             baseColor,
           );
+
+          // If parsing failed at currentVarBranchPly and we are at the end of the mainline,
+          // try parsing as a continuation from the final position (fens[history.length])
+          if (
+            parsedMoves.length === 0 &&
+            currentVarBranchPly === history.length - 1 &&
+            fens.length > history.length
+          ) {
+            const finalBranchPly = history.length;
+            const finalFen = fens[finalBranchPly];
+            const finalBaseMoveNum = Math.floor((finalBranchPly - 1) / 2) + 1;
+            const finalBaseColor = history[finalBranchPly - 1].color;
+            const finalParsed = parseVariationMoves(
+              finalFen,
+              currentVarText.trim(),
+              finalBaseMoveNum,
+              finalBaseColor,
+            );
+            if (finalParsed.length > 0) {
+              branchPly = finalBranchPly;
+              parsedMoves = finalParsed;
+            }
+          }
+
           if (parsedMoves.length > 0) {
             variations.push({
               id: `pgn-var-${++varCounter}`,
-              branchPly: currentVarBranchPly,
+              branchPly,
               moves: parsedMoves,
             });
           }
@@ -330,7 +353,7 @@ export function buildAnnotatedPgn(
         } else if (vIdx === 0) {
           moveText += `${vm.moveNumber}... ${vm.san}`;
         } else {
-          moveText += ` ${vm.san}`;
+          moveText += vm.san;
         }
         if (vm.comment) {
           moveText += ` { ${vm.comment.trim()} }`;
@@ -339,6 +362,27 @@ export function buildAnnotatedPgn(
       }
       moveText += ') ';
     }
+  }
+
+  // Attach trailing variations branching after the end of the game (branchPly >= history.length)
+  const trailingVars = variations.filter(v => v.branchPly >= history.length && v.moves.length > 0);
+  for (const v of trailingVars) {
+    moveText += '( ';
+    for (let vIdx = 0; vIdx < v.moves.length; vIdx++) {
+      const vm = v.moves[vIdx];
+      if (vm.color === 'w') {
+        moveText += `${vm.moveNumber}. ${vm.san}`;
+      } else if (vIdx === 0) {
+        moveText += `${vm.moveNumber}... ${vm.san}`;
+      } else {
+        moveText += vm.san;
+      }
+      if (vm.comment) {
+        moveText += ` { ${vm.comment.trim()} }`;
+      }
+      moveText += ' ';
+    }
+    moveText += ') ';
   }
 
   // Append result if present in headers

@@ -3734,8 +3734,8 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                             key={rootVar.id}
                             className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-200 dark:border-slate-800"
                           >
-                            <td colSpan={3} className="py-1 px-1.5">
-                              <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700">
+                            <td colSpan={3} className="py-1 px-0">
+                              <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed ml-1 pl-7 border-l-2 border-slate-300 dark:border-slate-600">
                                 <span className="text-slate-400 dark:text-slate-500 font-sans">
                                   (
                                 </span>
@@ -3796,7 +3796,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                           onClick={() =>
                                             handleStartEditVariationNote(rootVar.id, vIdx)
                                           }
-                                          className="text-[10px] text-amber-700 dark:text-amber-400 italic px-1 py-0.5 rounded hover:bg-amber-100/60 dark:hover:bg-amber-950/40 cursor-pointer font-sans"
+                                          className="text-[11px] text-amber-800 dark:text-amber-300 font-normal px-1 py-0.5 rounded hover:bg-amber-100/60 dark:hover:bg-amber-950/40 cursor-pointer font-sans"
                                           title="Click to edit note"
                                         >
                                           {`{ ${vm.comment} }`}
@@ -3827,9 +3827,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           </tr>
                         ))}
 
-                      {movePairs.map(pair => {
-                        const whiteActive = pair.white && safePly === pair.white.ply && !isFreePlay;
-                        const blackActive = pair.black && safePly === pair.black.ply && !isFreePlay;
+                      {movePairs.map((pair, pairIdx) => {
+                        const isLastPair = pairIdx === movePairs.length - 1;
+                        const whiteActive = Boolean(
+                          pair.white && safePly === pair.white.ply && !isFreePlay,
+                        );
+                        const blackActive = Boolean(
+                          pair.black && safePly === pair.black.ply && !isFreePlay,
+                        );
 
                         const whiteBadge = pair.white
                           ? getClassificationBadge(pair.white.criticalMoment?.classification)
@@ -3858,22 +3863,26 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                         const blackComment = pair.black
                           ? moveComments.get(pair.black.ply)
                           : undefined;
-                        const isEditingWhite =
+                        const isEditingWhite = Boolean(
                           editingTarget?.type === 'mainline' &&
                           pair.white &&
-                          editingTarget.ply === pair.white.ply;
-                        const isEditingBlack =
+                          editingTarget.ply === pair.white.ply,
+                        );
+                        const isEditingBlack = Boolean(
                           editingTarget?.type === 'mainline' &&
                           pair.black &&
-                          editingTarget.ply === pair.black.ply;
+                          editingTarget.ply === pair.black.ply,
+                        );
 
-                        const pairVariations: Array<{
+                        // White variations:
+                        // Branching from position before White move (pair.white.ply - 1)
+                        // If Black does not exist (game ended on White), include continuations after White (v.branchPly >= pair.white.ply)
+                        const whiteVariations: Array<{
                           id: string;
                           branchPly: number;
                           moves: VariationPly[];
                         }> = [];
 
-                        // White engine suggestion preloaded
                         if (whiteEngineVar && whiteEngineVar.length > 0) {
                           const hasSavedDup = savedVariations.some(
                             v =>
@@ -3883,7 +3892,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               v.moves[0]?.san === whiteEngineVar[0].san,
                           );
                           if (!hasSavedDup) {
-                            pairVariations.push({
+                            whiteVariations.push({
                               id: `w-engine-${pair.moveNumber}`,
                               branchPly: pair.white!.ply - 1,
                               moves: whiteEngineVar,
@@ -3891,13 +3900,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           }
                         }
 
-                        // White saved variations
                         if (pair.white) {
                           const whiteSaved = savedVariations.filter(
-                            v => v.branchPly === pair.white!.ply - 1,
+                            v =>
+                              v.branchPly === pair.white!.ply - 1 ||
+                              (!pair.black && isLastPair && v.branchPly >= pair.white!.ply),
                           );
                           for (const sv of whiteSaved) {
-                            pairVariations.push({
+                            whiteVariations.push({
                               id: sv.id,
                               branchPly: sv.branchPly,
                               moves: sv.moves,
@@ -3905,7 +3915,15 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           }
                         }
 
-                        // Black engine suggestion preloaded
+                        // Black variations:
+                        // Branching from position before Black move (pair.black.ply - 1)
+                        // If isLastPair and Black exists, include continuations after Black (v.branchPly >= pair.black.ply)
+                        const blackVariations: Array<{
+                          id: string;
+                          branchPly: number;
+                          moves: VariationPly[];
+                        }> = [];
+
                         if (blackEngineVar && blackEngineVar.length > 0) {
                           const hasSavedDup = savedVariations.some(
                             v =>
@@ -3915,7 +3933,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               v.moves[0]?.san === blackEngineVar[0].san,
                           );
                           if (!hasSavedDup) {
-                            pairVariations.push({
+                            blackVariations.push({
                               id: `b-engine-${pair.moveNumber}`,
                               branchPly: pair.black!.ply - 1,
                               moves: blackEngineVar,
@@ -3923,13 +3941,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           }
                         }
 
-                        // Black saved variations
                         if (pair.black) {
                           const blackSaved = savedVariations.filter(
-                            v => v.branchPly === pair.black!.ply - 1,
+                            v =>
+                              v.branchPly === pair.black!.ply - 1 ||
+                              (isLastPair && v.branchPly >= pair.black!.ply),
                           );
                           for (const sv of blackSaved) {
-                            pairVariations.push({
+                            blackVariations.push({
                               id: sv.id,
                               branchPly: sv.branchPly,
                               moves: sv.moves,
@@ -3937,394 +3956,419 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           }
                         }
 
-                        return (
-                          <Fragment key={pair.moveNumber}>
-                            <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                              <td className="w-8 py-1 px-1.5 font-mono text-slate-400 text-right select-none font-medium">
-                                {pair.moveNumber}.
-                              </td>
+                        const hasWhiteInterruption = Boolean(
+                          whiteComment || isEditingWhite || whiteVariations.length > 0,
+                        );
 
-                              {/* White move */}
-                              <td className="w-[45%] py-0.5 px-0.5">
-                                {pair.white && (
-                                  <button
-                                    data-ply={pair.white.ply}
-                                    onClick={e => {
-                                      e.currentTarget.blur();
-                                      if (isLongPressRef.current) {
-                                        isLongPressRef.current = false;
-                                        return;
-                                      }
-                                      handleGoToPly(pair.white!.ply);
-                                    }}
-                                    onContextMenu={e =>
-                                      handleContextMenu(
-                                        e,
-                                        pair.white!.ply,
-                                        pair.white!.san,
-                                        false,
-                                        undefined,
-                                        undefined,
-                                        Boolean(whiteComment),
-                                      )
-                                    }
-                                    onTouchStart={e =>
-                                      handleTouchStart(
-                                        e,
-                                        pair.white!.ply,
-                                        pair.white!.san,
-                                        false,
-                                        undefined,
-                                        undefined,
-                                        Boolean(whiteComment),
-                                      )
-                                    }
-                                    onTouchMove={handleTouchMove}
-                                    onTouchEnd={handleTouchEnd}
-                                    onTouchCancel={handleTouchEnd}
-                                    className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                      whiteActive
-                                        ? 'bg-blue-600 text-white font-bold shadow-xs'
-                                        : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                                    }`}
+                        // Helper to render move button
+                        const renderMoveBtn = (
+                          plyData: GamePly,
+                          isActive: boolean,
+                          badge: ReturnType<typeof getClassificationBadge>,
+                          evalStr: string | null,
+                          hasComment: boolean,
+                        ) => (
+                          <button
+                            data-ply={plyData.ply}
+                            onClick={e => {
+                              e.currentTarget.blur();
+                              if (isLongPressRef.current) {
+                                isLongPressRef.current = false;
+                                return;
+                              }
+                              handleGoToPly(plyData.ply);
+                            }}
+                            onContextMenu={e =>
+                              handleContextMenu(
+                                e,
+                                plyData.ply,
+                                plyData.san,
+                                false,
+                                undefined,
+                                undefined,
+                                hasComment,
+                              )
+                            }
+                            onTouchStart={e =>
+                              handleTouchStart(
+                                e,
+                                plyData.ply,
+                                plyData.san,
+                                false,
+                                undefined,
+                                undefined,
+                                hasComment,
+                              )
+                            }
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleTouchEnd}
+                            onTouchCancel={handleTouchEnd}
+                            className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                              isActive
+                                ? 'bg-blue-600 text-white font-bold shadow-xs'
+                                : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span
+                                className={`truncate ${
+                                  isActive
+                                    ? 'text-white font-bold'
+                                    : badge
+                                      ? getClassificationTextColor(badge.type)
+                                      : 'text-slate-800 dark:text-slate-200'
+                                }`}
+                              >
+                                {plyData.san}
+                              </span>
+                              {badge && (
+                                <span
+                                  className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${badge.bgClass}`}
+                                  title={badge.label}
+                                >
+                                  <MoveBadgeGlyph type={badge.type} className="w-3 h-3" />
+                                </span>
+                              )}
+                            </div>
+                            {showMoveListEvals && evalStr && (
+                              <span
+                                className={`text-[9.5px] font-mono shrink-0 select-none ${
+                                  isActive ? 'text-white/80' : 'text-slate-400 dark:text-slate-500'
+                                }`}
+                              >
+                                {evalStr}
+                              </span>
+                            )}
+                          </button>
+                        );
+
+                        // Helper to render readable, non-italic comment row without left border
+                        const renderCommentRow = (
+                          ply: number,
+                          comment: string | undefined,
+                          isEditing: boolean,
+                          label: string,
+                        ) => {
+                          if (!comment && !isEditing) return null;
+                          return (
+                            <tr className="border-b border-slate-100 dark:border-slate-800/40">
+                              <td className="w-9" />
+                              <td colSpan={2} className="py-1 px-1.5">
+                                {isEditing ? (
+                                  <InlineCommentEditor
+                                    initialValue={editingText}
+                                    onSave={text => handleSaveMainlineNote(ply, text)}
+                                    onCancel={handleCancelNote}
+                                    label={label}
+                                  />
+                                ) : (
+                                  <div
+                                    onClick={() => handleStartEditMainlineNote(ply)}
+                                    className="text-[11.5px] text-amber-800 dark:text-amber-300 font-normal leading-relaxed pl-1 py-0.5 cursor-pointer hover:bg-amber-100/40 dark:hover:bg-amber-950/30 rounded transition-colors flex items-start justify-between gap-1 group font-sans"
+                                    title="Click to edit note"
                                   >
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                      <span
-                                        className={`truncate ${
-                                          whiteActive
-                                            ? 'text-white font-bold'
-                                            : whiteBadge
-                                              ? getClassificationTextColor(whiteBadge.type)
-                                              : 'text-slate-800 dark:text-slate-200'
-                                        }`}
-                                      >
-                                        {pair.white.san}
-                                      </span>
-                                      {whiteBadge && (
-                                        <span
-                                          className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${whiteBadge.bgClass}`}
-                                          title={whiteBadge.label}
-                                        >
-                                          <MoveBadgeGlyph
-                                            type={whiteBadge.type}
-                                            className="w-3 h-3"
-                                          />
-                                        </span>
-                                      )}
-                                    </div>
-                                    {showMoveListEvals && whiteEval && (
-                                      <span
-                                        className={`text-[9.5px] font-mono shrink-0 select-none ${
-                                          whiteActive
-                                            ? 'text-white/80'
-                                            : 'text-slate-400 dark:text-slate-500'
-                                        }`}
-                                      >
-                                        {whiteEval}
-                                      </span>
-                                    )}
-                                  </button>
+                                    <span className="leading-relaxed">{comment}</span>
+                                  </div>
                                 )}
                               </td>
+                            </tr>
+                          );
+                        };
 
-                              {/* Black move */}
-                              <td className="w-[45%] py-0.5 px-0.5">
-                                {pair.black && (
-                                  <button
-                                    data-ply={pair.black.ply}
-                                    onClick={e => {
-                                      e.currentTarget.blur();
-                                      if (isLongPressRef.current) {
-                                        isLongPressRef.current = false;
-                                        return;
-                                      }
-                                      handleGoToPly(pair.black!.ply);
-                                    }}
-                                    onContextMenu={e =>
-                                      handleContextMenu(
-                                        e,
-                                        pair.black!.ply,
-                                        pair.black!.san,
-                                        false,
-                                        undefined,
-                                        undefined,
-                                        Boolean(blackComment),
-                                      )
-                                    }
-                                    onTouchStart={e =>
-                                      handleTouchStart(
-                                        e,
-                                        pair.black!.ply,
-                                        pair.black!.san,
-                                        false,
-                                        undefined,
-                                        undefined,
-                                        Boolean(blackComment),
-                                      )
-                                    }
-                                    onTouchMove={handleTouchMove}
-                                    onTouchEnd={handleTouchEnd}
-                                    onTouchCancel={handleTouchEnd}
-                                    className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                      blackActive
-                                        ? 'bg-blue-600 text-white font-bold shadow-xs'
-                                        : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                      <span
-                                        className={`truncate ${
-                                          blackActive
-                                            ? 'text-white font-bold'
-                                            : blackBadge
-                                              ? getClassificationTextColor(blackBadge.type)
-                                              : 'text-slate-800 dark:text-slate-200'
-                                        }`}
-                                      >
-                                        {pair.black.san}
-                                      </span>
-                                      {blackBadge && (
-                                        <span
-                                          className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${blackBadge.bgClass}`}
-                                          title={blackBadge.label}
-                                        >
-                                          <MoveBadgeGlyph
-                                            type={blackBadge.type}
-                                            className="w-3 h-3"
-                                          />
-                                        </span>
-                                      )}
+                        // Helper to render variation list with quote left border aligned with move number
+                        const renderVariationList = (
+                          vars: Array<{ id: string; branchPly: number; moves: VariationPly[] }>,
+                        ) => {
+                          if (vars.length === 0) return null;
+                          return (
+                            <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800/40">
+                              <td colSpan={3} className="py-1 px-0">
+                                <div className="ml-1 pl-7 border-l-2 border-slate-300 dark:border-slate-600 flex flex-col gap-1 text-[11px] font-mono leading-relaxed">
+                                  {vars.map(variation => (
+                                    <div
+                                      key={variation.id}
+                                      className="flex flex-wrap items-center gap-1"
+                                    >
+                                      {variation.moves.map((vm, vIdx) => {
+                                        const isMoveActive =
+                                          isFreePlay &&
+                                          branchPly === variation.branchPly &&
+                                          activeFen === vm.fen;
+
+                                        const subVars = subVariations.filter(
+                                          sv =>
+                                            sv.parentFen === vm.fen || sv.branchPlyIndex === vIdx,
+                                        );
+
+                                        return (
+                                          <Fragment key={vIdx}>
+                                            <button
+                                              onClick={e => {
+                                                e.currentTarget.blur();
+                                                if (isLongPressRef.current) {
+                                                  isLongPressRef.current = false;
+                                                  return;
+                                                }
+                                                handleSelectVariationMove(
+                                                  variation.branchPly,
+                                                  variation.moves,
+                                                  vIdx,
+                                                );
+                                              }}
+                                              onContextMenu={e =>
+                                                handleContextMenu(
+                                                  e,
+                                                  variation.branchPly + 1,
+                                                  vm.san,
+                                                  true,
+                                                  variation.id,
+                                                  vIdx,
+                                                  Boolean(vm.comment),
+                                                )
+                                              }
+                                              onTouchStart={e =>
+                                                handleTouchStart(
+                                                  e,
+                                                  variation.branchPly + 1,
+                                                  vm.san,
+                                                  true,
+                                                  variation.id,
+                                                  vIdx,
+                                                  Boolean(vm.comment),
+                                                )
+                                              }
+                                              onTouchMove={handleTouchMove}
+                                              onTouchEnd={handleTouchEnd}
+                                              onTouchCancel={handleTouchEnd}
+                                              className={`px-1 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
+                                                isMoveActive
+                                                  ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
+                                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                              }`}
+                                              title={`Go to ${vm.san}`}
+                                            >
+                                              {vm.color === 'w'
+                                                ? `${vm.moveNumber}. `
+                                                : vIdx === 0
+                                                  ? `${vm.moveNumber}... `
+                                                  : ''}
+                                              {vm.san}
+                                            </button>
+
+                                            {/* Variation Move Comment (inline, readable, matching comment style) */}
+                                            {vm.comment && (
+                                              <span
+                                                onClick={() =>
+                                                  handleStartEditVariationNote(variation.id, vIdx)
+                                                }
+                                                className="text-[11px] text-amber-800 dark:text-amber-300 font-normal px-1 py-0.5 rounded hover:bg-amber-100/60 dark:hover:bg-amber-950/40 cursor-pointer font-sans"
+                                                title="Click to edit note"
+                                              >
+                                                {`{ ${vm.comment} }`}
+                                              </span>
+                                            )}
+
+                                            {/* Inline Editor for this variation move */}
+                                            {editingTarget?.type === 'variation' &&
+                                              editingTarget.varId === variation.id &&
+                                              editingTarget.varIndex === vIdx && (
+                                                <div className="w-full my-1">
+                                                  <InlineCommentEditor
+                                                    initialValue={editingText}
+                                                    onSave={text =>
+                                                      handleSaveVariationNote(
+                                                        variation.id,
+                                                        vIdx,
+                                                        text,
+                                                      )
+                                                    }
+                                                    onCancel={handleCancelNote}
+                                                    label={`Variation Note • ${vm.san}`}
+                                                  />
+                                                </div>
+                                              )}
+
+                                            {/* Render nested sub-variations in parentheses */}
+                                            {subVars.map((sv, sIdx) => (
+                                              <span
+                                                key={sIdx}
+                                                className="text-slate-500 dark:text-slate-400 font-sans inline-flex items-center gap-0.5 text-[10.5px]"
+                                              >
+                                                <span>(</span>
+                                                {sv.moves.map((svm, svIdx) => {
+                                                  const isSubActive =
+                                                    isFreePlay && activeFen === svm.fen;
+                                                  return (
+                                                    <button
+                                                      key={svIdx}
+                                                      onClick={e => {
+                                                        e.currentTarget.blur();
+                                                        if (isLongPressRef.current) {
+                                                          isLongPressRef.current = false;
+                                                          return;
+                                                        }
+                                                        const prefix = variation.moves.slice(
+                                                          0,
+                                                          vIdx + 1,
+                                                        );
+                                                        const combined = [...prefix, ...sv.moves];
+                                                        handleSelectVariationMove(
+                                                          variation.branchPly,
+                                                          combined,
+                                                          prefix.length + svIdx,
+                                                        );
+                                                      }}
+                                                      className={`px-1 py-0.2 rounded transition-colors cursor-pointer font-mono ${
+                                                        isSubActive
+                                                          ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold'
+                                                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                                      }`}
+                                                    >
+                                                      {svm.color === 'w'
+                                                        ? `${svm.moveNumber}. `
+                                                        : svIdx === 0
+                                                          ? `${svm.moveNumber}... `
+                                                          : ''}
+                                                      {svm.san}
+                                                    </button>
+                                                  );
+                                                })}
+                                                <span>)</span>
+                                              </span>
+                                            ))}
+                                          </Fragment>
+                                        );
+                                      })}
                                     </div>
-                                    {showMoveListEvals && blackEval && (
-                                      <span
-                                        className={`text-[9.5px] font-mono shrink-0 select-none ${
-                                          blackActive
-                                            ? 'text-white/80'
-                                            : 'text-slate-400 dark:text-slate-500'
-                                        }`}
-                                      >
-                                        {blackEval}
-                                      </span>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        };
+
+                        if (hasWhiteInterruption && pair.black) {
+                          return (
+                            <Fragment key={pair.moveNumber}>
+                              {/* 1. White row: 6. Nxc3 ... */}
+                              <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                                <td className="w-9 py-1 px-1.5 font-mono text-slate-400 text-right select-none font-medium">
+                                  {pair.moveNumber}.
+                                </td>
+                                <td className="w-[45%] py-0.5 px-0.5">
+                                  {pair.white &&
+                                    renderMoveBtn(
+                                      pair.white,
+                                      whiteActive,
+                                      whiteBadge,
+                                      whiteEval,
+                                      Boolean(whiteComment),
                                     )}
-                                  </button>
+                                </td>
+                                <td className="w-[45%] py-0.5 px-2 font-mono text-slate-300 dark:text-slate-600 select-none">
+                                  ...
+                                </td>
+                              </tr>
+
+                              {/* 2. White comment row */}
+                              {pair.white &&
+                                renderCommentRow(
+                                  pair.white.ply,
+                                  whiteComment,
+                                  isEditingWhite,
+                                  `Move ${pair.moveNumber}. ${pair.white.san}`,
+                                )}
+
+                              {/* 3. White variations */}
+                              {renderVariationList(whiteVariations)}
+
+                              {/* 4. Black row: 6. ... e6 */}
+                              <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                                <td className="w-9 py-1 px-1.5 font-mono text-slate-400 text-right select-none font-medium">
+                                  {pair.moveNumber}.
+                                </td>
+                                <td className="w-[45%] py-0.5 px-2 font-mono text-slate-300 dark:text-slate-600 select-none">
+                                  ...
+                                </td>
+                                <td className="w-[45%] py-0.5 px-0.5">
+                                  {renderMoveBtn(
+                                    pair.black,
+                                    blackActive,
+                                    blackBadge,
+                                    blackEval,
+                                    Boolean(blackComment),
+                                  )}
+                                </td>
+                              </tr>
+
+                              {/* 5. Black comment row */}
+                              {renderCommentRow(
+                                pair.black.ply,
+                                blackComment,
+                                isEditingBlack,
+                                `Move ${pair.moveNumber}... ${pair.black.san}`,
+                              )}
+
+                              {/* 6. Black variations */}
+                              {renderVariationList(blackVariations)}
+                            </Fragment>
+                          );
+                        }
+
+                        return (
+                          <Fragment key={pair.moveNumber}>
+                            {/* Standard combined row: 7. e4 Ng4! */}
+                            <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                              <td className="w-9 py-1 px-1.5 font-mono text-slate-400 text-right select-none font-medium">
+                                {pair.moveNumber}.
+                              </td>
+                              <td className="w-[45%] py-0.5 px-0.5">
+                                {pair.white &&
+                                  renderMoveBtn(
+                                    pair.white,
+                                    whiteActive,
+                                    whiteBadge,
+                                    whiteEval,
+                                    Boolean(whiteComment),
+                                  )}
+                              </td>
+                              <td className="w-[45%] py-0.5 px-0.5">
+                                {pair.black ? (
+                                  renderMoveBtn(
+                                    pair.black,
+                                    blackActive,
+                                    blackBadge,
+                                    blackEval,
+                                    Boolean(blackComment),
+                                  )
+                                ) : (
+                                  <span className="block w-full py-1" />
                                 )}
                               </td>
                             </tr>
 
-                            {/* White move note / inline editor */}
-                            {(whiteComment || isEditingWhite) && (
-                              <tr className="bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800/40">
-                                <td colSpan={3} className="py-1 px-3">
-                                  {isEditingWhite ? (
-                                    <InlineCommentEditor
-                                      initialValue={editingText}
-                                      onSave={text => handleSaveMainlineNote(pair.white!.ply, text)}
-                                      onCancel={handleCancelNote}
-                                      label={`Move ${pair.moveNumber}. ${pair.white!.san}`}
-                                    />
-                                  ) : (
-                                    <div
-                                      onClick={() => handleStartEditMainlineNote(pair.white!.ply)}
-                                      className="text-[11px] text-slate-600 dark:text-slate-300 italic border-l-2 border-blue-400 pl-2 py-0.5 cursor-pointer hover:bg-blue-50/60 dark:hover:bg-blue-950/30 rounded-r transition-colors flex items-start justify-between gap-1 group font-sans"
-                                      title="Click to edit note"
-                                    >
-                                      <span className="leading-snug">{whiteComment}</span>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            )}
+                            {/* White comment & variations if Black doesn't exist */}
+                            {!pair.black &&
+                              pair.white &&
+                              renderCommentRow(
+                                pair.white.ply,
+                                whiteComment,
+                                isEditingWhite,
+                                `Move ${pair.moveNumber}. ${pair.white.san}`,
+                              )}
+                            {!pair.black && renderVariationList(whiteVariations)}
 
-                            {/* Black move note / inline editor */}
-                            {(blackComment || isEditingBlack) && (
-                              <tr className="bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800/40">
-                                <td colSpan={3} className="py-1 px-3">
-                                  {isEditingBlack ? (
-                                    <InlineCommentEditor
-                                      initialValue={editingText}
-                                      onSave={text => handleSaveMainlineNote(pair.black!.ply, text)}
-                                      onCancel={handleCancelNote}
-                                      label={`Move ${pair.moveNumber}... ${pair.black!.san}`}
-                                    />
-                                  ) : (
-                                    <div
-                                      onClick={() => handleStartEditMainlineNote(pair.black!.ply)}
-                                      className="text-[11px] text-slate-600 dark:text-slate-300 italic border-l-2 border-slate-400 dark:border-slate-600 pl-2 py-0.5 cursor-pointer hover:bg-slate-100/60 dark:hover:bg-slate-800/50 rounded-r transition-colors flex items-start justify-between gap-1 group font-sans"
-                                      title="Click to edit note"
-                                    >
-                                      <span className="leading-snug">{blackComment}</span>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            )}
+                            {/* Black comment row */}
+                            {pair.black &&
+                              renderCommentRow(
+                                pair.black.ply,
+                                blackComment,
+                                isEditingBlack,
+                                `Move ${pair.moveNumber}... ${pair.black.san}`,
+                              )}
 
-                            {/* Indented Variations underneath move pair */}
-                            {pairVariations.length > 0 && (
-                              <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800/40">
-                                <td colSpan={3} className="py-1 px-1.5">
-                                  <div className="ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700 flex flex-col gap-1 text-[11px] font-mono leading-relaxed">
-                                    {pairVariations.map(variation => (
-                                      <div
-                                        key={variation.id}
-                                        className="flex flex-wrap items-center gap-1"
-                                      >
-                                        {variation.moves.map((vm, vIdx) => {
-                                          const isMoveActive =
-                                            isFreePlay &&
-                                            branchPly === variation.branchPly &&
-                                            activeFen === vm.fen;
-
-                                          const subVars = subVariations.filter(
-                                            sv =>
-                                              sv.parentFen === vm.fen || sv.branchPlyIndex === vIdx,
-                                          );
-
-                                          return (
-                                            <Fragment key={vIdx}>
-                                              <button
-                                                onClick={e => {
-                                                  e.currentTarget.blur();
-                                                  if (isLongPressRef.current) {
-                                                    isLongPressRef.current = false;
-                                                    return;
-                                                  }
-                                                  handleSelectVariationMove(
-                                                    variation.branchPly,
-                                                    variation.moves,
-                                                    vIdx,
-                                                  );
-                                                }}
-                                                onContextMenu={e =>
-                                                  handleContextMenu(
-                                                    e,
-                                                    variation.branchPly + 1,
-                                                    vm.san,
-                                                    true,
-                                                    variation.id,
-                                                    vIdx,
-                                                    Boolean(vm.comment),
-                                                  )
-                                                }
-                                                onTouchStart={e =>
-                                                  handleTouchStart(
-                                                    e,
-                                                    variation.branchPly + 1,
-                                                    vm.san,
-                                                    true,
-                                                    variation.id,
-                                                    vIdx,
-                                                    Boolean(vm.comment),
-                                                  )
-                                                }
-                                                onTouchMove={handleTouchMove}
-                                                onTouchEnd={handleTouchEnd}
-                                                onTouchCancel={handleTouchEnd}
-                                                className={`px-1 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
-                                                  isMoveActive
-                                                    ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
-                                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                                }`}
-                                                title={`Go to ${vm.san}`}
-                                              >
-                                                {vm.color === 'w'
-                                                  ? `${vm.moveNumber}. `
-                                                  : vIdx === 0
-                                                    ? `${vm.moveNumber}... `
-                                                    : ''}
-                                                {vm.san}
-                                              </button>
-
-                                              {/* Variation Move Comment */}
-                                              {vm.comment && (
-                                                <span
-                                                  onClick={() =>
-                                                    handleStartEditVariationNote(variation.id, vIdx)
-                                                  }
-                                                  className="text-[10px] text-amber-700 dark:text-amber-400 italic px-1 py-0.5 rounded hover:bg-amber-100/60 dark:hover:bg-amber-950/40 cursor-pointer font-sans"
-                                                  title="Click to edit note"
-                                                >
-                                                  {`{ ${vm.comment} }`}
-                                                </span>
-                                              )}
-
-                                              {/* Inline Editor for this variation move */}
-                                              {editingTarget?.type === 'variation' &&
-                                                editingTarget.varId === variation.id &&
-                                                editingTarget.varIndex === vIdx && (
-                                                  <div className="w-full my-1">
-                                                    <InlineCommentEditor
-                                                      initialValue={editingText}
-                                                      onSave={text =>
-                                                        handleSaveVariationNote(
-                                                          variation.id,
-                                                          vIdx,
-                                                          text,
-                                                        )
-                                                      }
-                                                      onCancel={handleCancelNote}
-                                                      label={`Variation Note • ${vm.san}`}
-                                                    />
-                                                  </div>
-                                                )}
-
-                                              {/* Render nested sub-variations in parentheses */}
-                                              {subVars.map((sv, sIdx) => (
-                                                <span
-                                                  key={sIdx}
-                                                  className="text-slate-500 dark:text-slate-400 font-sans inline-flex items-center gap-0.5 text-[10.5px]"
-                                                >
-                                                  <span>(</span>
-                                                  {sv.moves.map((svm, svIdx) => {
-                                                    const isSubActive =
-                                                      isFreePlay && activeFen === svm.fen;
-                                                    return (
-                                                      <button
-                                                        key={svIdx}
-                                                        onClick={e => {
-                                                          e.currentTarget.blur();
-                                                          if (isLongPressRef.current) {
-                                                            isLongPressRef.current = false;
-                                                            return;
-                                                          }
-                                                          const prefix = variation.moves.slice(
-                                                            0,
-                                                            vIdx + 1,
-                                                          );
-                                                          const combined = [...prefix, ...sv.moves];
-                                                          handleSelectVariationMove(
-                                                            variation.branchPly,
-                                                            combined,
-                                                            prefix.length + svIdx,
-                                                          );
-                                                        }}
-                                                        className={`px-1 py-0.2 rounded transition-colors cursor-pointer font-mono ${
-                                                          isSubActive
-                                                            ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold'
-                                                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                                        }`}
-                                                      >
-                                                        {svm.color === 'w'
-                                                          ? `${svm.moveNumber}. `
-                                                          : svIdx === 0
-                                                            ? `${svm.moveNumber}... `
-                                                            : ''}
-                                                        {svm.san}
-                                                      </button>
-                                                    );
-                                                  })}
-                                                  <span>)</span>
-                                                </span>
-                                              ))}
-                                            </Fragment>
-                                          );
-                                        })}
-                                      </div>
-                                    ))}
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
+                            {/* Black variations */}
+                            {pair.black && renderVariationList(blackVariations)}
                           </Fragment>
                         );
                       })}

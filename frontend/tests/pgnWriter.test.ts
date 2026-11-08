@@ -4,6 +4,8 @@ import {
   extractAnnotationsFromReportMarkdown,
   weaveReportAnnotationsIntoPgn,
   extractCommentsAndClocksFromPgn,
+  buildAnnotatedPgn,
+  extractVariationsFromPgn,
 } from '../src/lib/pgnWriter.ts';
 
 test('extractAnnotationsFromReportMarkdown parses single and multi-line bullets', () => {
@@ -37,4 +39,56 @@ test('weaveReportAnnotationsIntoPgn weaves annotations into PGN comments', () =>
   const parsed = extractCommentsAndClocksFromPgn(woven);
   assert.strictEqual(parsed.comments.has(1), true);
   assert.ok(parsed.comments.get(1)?.includes('Establishes control over d5'));
+});
+
+test('buildAnnotatedPgn and extractVariationsFromPgn support variations after the final move of the game', () => {
+  const basePgn = `[Event "Short Game"]\n\n1. e4 e5 2. Nf3 Nc6 0-1`;
+  // Game has 4 plies (1. e4, 1... e5, 2. Nf3, 2... Nc6).
+  // User adds continuation after 2... Nc6 (branchPly = 4, White move 3. Bb5 a6).
+  const continuationVars = [
+    {
+      id: 'end-var-1',
+      branchPly: 4,
+      moves: [
+        {
+          plyIndex: 0,
+          fen: 'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 3',
+          san: 'Bb5',
+          moveNumber: 3,
+          color: 'w' as const,
+          from: 'f1' as const,
+          to: 'b5' as const,
+          comment: 'Exploring what could happen next',
+        },
+        {
+          plyIndex: 1,
+          fen: 'r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4',
+          san: 'a6',
+          moveNumber: 3,
+          color: 'b' as const,
+          from: 'a7' as const,
+          to: 'a6' as const,
+        },
+      ],
+    },
+  ];
+
+  const emptyComments = new Map<number, string>();
+  const annotated = buildAnnotatedPgn(basePgn, emptyComments, continuationVars);
+
+  assert.ok(annotated.includes('( 3. Bb5 { Exploring what could happen next } a6 )'));
+  assert.ok(annotated.endsWith('0-1'));
+
+  // Parse back to confirm round-trip extraction
+  const extracted = extractVariationsFromPgn(annotated);
+  assert.strictEqual(extracted.length, 1);
+  assert.strictEqual(extracted[0].branchPly, 4);
+  assert.strictEqual(extracted[0].moves.length, 2);
+  assert.strictEqual(extracted[0].moves[0].san, 'Bb5');
+  assert.strictEqual(extracted[0].moves[0].moveNumber, 3);
+  assert.strictEqual(extracted[0].moves[0].color, 'w');
+  assert.strictEqual(extracted[0].moves[0].comment, 'Exploring what could happen next');
+  assert.strictEqual(extracted[0].moves[1].san, 'a6');
+  assert.strictEqual(extracted[0].moves[1].moveNumber, 3);
+  assert.strictEqual(extracted[0].moves[1].color, 'b');
 });
