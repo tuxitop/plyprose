@@ -1,5 +1,6 @@
 import { useRef, useState, useMemo, useCallback } from 'react';
 import type { GamePly } from './InteractiveBoard';
+import { getClassificationBadge, type ClassificationType } from '../lib/badges';
 
 interface EvaluationChartProps {
   evals: number[];
@@ -60,11 +61,76 @@ export function EvaluationChart({
   const totalMoves = Math.max(1, Math.floor((totalPoints - 1) / 2));
   const moveStep = totalMoves <= 25 ? 5 : totalMoves <= 60 ? 10 : 20;
 
+  // Extract Critical Moments as points along the curve
+  const criticalPoints = useMemo(() => {
+    if (!plies || plies.length === 0 || points.length === 0) return [];
+    const list: {
+      ply: number;
+      x: number;
+      y: number;
+      classification: string;
+      badgeType: ClassificationType;
+      color: string;
+      symbol: string;
+      label: string;
+      san: string;
+    }[] = [];
+
+    for (let i = 0; i < points.length; i++) {
+      const plyObj = plies[i];
+      const cm = plyObj?.criticalMoment;
+      if (!cm) continue;
+      const badge = getClassificationBadge(cm.classification);
+      if (!badge) continue;
+
+      let color = '#f59e0b';
+      switch (badge.type) {
+        case 'blunder':
+          color = '#ef4444';
+          break;
+        case 'mistake':
+          color = '#f97316';
+          break;
+        case 'inaccuracy':
+          color = '#f59e0b';
+          break;
+        case 'miss':
+          color = '#e11d48';
+          break;
+        case 'brilliant':
+          color = '#06b6d4';
+          break;
+        case 'great':
+          color = '#3b82f6';
+          break;
+        case 'best':
+        case 'checkmate':
+          color = '#10b981';
+          break;
+      }
+
+      list.push({
+        ply: i,
+        x: points[i].x,
+        y: points[i].y,
+        classification: cm.classification,
+        badgeType: badge.type,
+        color,
+        symbol: badge.symbol,
+        label: badge.label,
+        san: plyObj.san,
+      });
+    }
+    return list;
+  }, [plies, points]);
+
   // Move ticks along X-axis to clearly display the game progression timeline
   const moveTicks = useMemo(() => {
     if (totalPoints <= 1) return [];
     const ticks: { ply: number; moveNum: number; x: number }[] = [];
-    ticks.push({ ply: 1, moveNum: 1, x: (1 / Math.max(1, totalPoints - 1)) * width });
+    if (totalMoves > 10) {
+      ticks.push({ ply: 1, moveNum: 1, x: (1 / Math.max(1, totalPoints - 1)) * width });
+    }
     for (let m = moveStep; m < totalMoves; m += moveStep) {
       const ply = m * 2;
       if (ply < totalPoints - 1) {
@@ -109,45 +175,110 @@ export function EvaluationChart({
   // Active point for currentPly
   const activePoint = points[currentPly] || points[0];
 
-  // Mouse interaction
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
-      const svg = e.currentTarget;
-      const rect = svg.getBoundingClientRect();
-      const relX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-      const relY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-
+  // Scrubbing & seeking calculations
+  const updatePlyFromClientX = useCallback(
+    (clientX: number, target: SVGSVGElement) => {
+      const rect = target.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const relX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      const relY = Math.max(0, Math.min(rect.height, height / 2));
       const ratio = relX / rect.width;
       const targetPly = Math.round(ratio * (points.length - 1));
       const clampedPly = Math.max(0, Math.min(points.length - 1, targetPly));
 
       setHoveredPly(clampedPly);
       setHoverPos({ x: (clampedPly / Math.max(1, points.length - 1)) * width, y: relY });
-      if (isDragging) {
-        onSelectPly(clampedPly);
-      }
+      onSelectPly(clampedPly);
     },
-    [points.length, width, isDragging, onSelectPly],
+    [points.length, width, height, onSelectPly],
   );
 
-  const handleMouseLeave = useCallback(() => {
-    setHoveredPly(null);
-    setHoverPos(null);
-    setIsDragging(false);
-  }, []);
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
-      const svg = e.currentTarget;
-      const rect = svg.getBoundingClientRect();
-      const relX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+  const previewPlyFromClientX = useCallback(
+    (clientX: number, target: SVGSVGElement) => {
+      const rect = target.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const relX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      const relY = Math.max(0, Math.min(rect.height, height / 2));
       const ratio = relX / rect.width;
       const targetPly = Math.round(ratio * (points.length - 1));
       const clampedPly = Math.max(0, Math.min(points.length - 1, targetPly));
-      onSelectPly(clampedPly);
+
+      setHoveredPly(clampedPly);
+      setHoverPos({ x: (clampedPly / Math.max(1, points.length - 1)) * width, y: relY });
     },
-    [points.length, onSelectPly],
+    [points.length, width, height],
   );
+
+  // Pointer event handlers (combines mouse and touch seamlessly)
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Safe fallback
+      }
+      setIsDragging(true);
+      updatePlyFromClientX(e.clientX, e.currentTarget);
+    },
+    [updatePlyFromClientX],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      if (isDragging) {
+        updatePlyFromClientX(e.clientX, e.currentTarget);
+      } else {
+        previewPlyFromClientX(e.clientX, e.currentTarget);
+      }
+    },
+    [isDragging, updatePlyFromClientX, previewPlyFromClientX],
+  );
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    setIsDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Safe fallback
+    }
+  }, []);
+
+  const handlePointerCancel = useCallback(() => {
+    setIsDragging(false);
+    setHoveredPly(null);
+    setHoverPos(null);
+  }, []);
+
+  const handlePointerLeave = useCallback(() => {
+    if (!isDragging) {
+      setHoveredPly(null);
+      setHoverPos(null);
+    }
+  }, [isDragging]);
+
+  // Touch event handlers for mobile gestures
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent<SVGSVGElement>) => {
+      if (e.touches.length > 0) {
+        setIsDragging(true);
+        updatePlyFromClientX(e.touches[0].clientX, e.currentTarget);
+      }
+    },
+    [updatePlyFromClientX],
+  );
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent<SVGSVGElement>) => {
+      if (e.touches.length > 0) {
+        updatePlyFromClientX(e.touches[0].clientX, e.currentTarget);
+      }
+    },
+    [updatePlyFromClientX],
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
 
   // Tooltip data
   const tooltipData = useMemo(() => {
@@ -157,6 +288,8 @@ export function EvaluationChart({
     const pt = points[ply];
     const plyObj = plies[ply];
     const cp = pt.cp;
+    const cm = plyObj?.criticalMoment;
+    const badge = cm ? getClassificationBadge(cm.classification) : null;
 
     let evalStr: string;
     if (!isHovered && liveEval) {
@@ -177,6 +310,8 @@ export function EvaluationChart({
       color: plyObj?.color || (ply % 2 === 1 ? 'w' : 'b'),
       san: plyObj?.san || (ply === 0 ? 'Start' : ''),
       evalStr,
+      criticalBadge: badge,
+      bestMoveSan: cm?.best_move_san,
     };
   }, [hoveredPly, currentPly, points, plies, liveEval]);
 
@@ -187,22 +322,29 @@ export function EvaluationChart({
 
   return (
     <div className="flex flex-col gap-1 p-2 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0 select-none">
-      <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400 px-0.5">
-        <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-          <span className="w-2 h-2 rounded-full bg-blue-500" />
-          Game Evaluation Trajectory
-          <span className="font-normal text-slate-400 dark:text-slate-500 text-[10px]">
+      <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400 px-0.5 min-h-[22px]">
+        <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300 shrink-0">
+          <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+          <span className="hidden sm:inline">Game Evaluation Trajectory</span>
+          <span className="sm:hidden inline">Evaluation</span>
+          <span className="font-normal text-slate-400 dark:text-slate-500 text-[10px] hidden sm:inline">
             ({totalMoves} moves · {totalPoints} plies)
           </span>
+          <span className="font-normal text-slate-400 dark:text-slate-500 text-[10px] sm:hidden inline">
+            ({totalMoves}m)
+          </span>
         </span>
+
         {tooltipData && (
-          <span className="font-mono text-xs">
+          <div className="flex items-center gap-1 font-mono text-xs overflow-hidden shrink-0">
             {tooltipData.ply === 0 ? (
-              <span className="text-slate-500">Start (0.0)</span>
+              <span className="text-slate-500 text-[11px]">Start (0.0)</span>
             ) : (
-              <span>
-                Move {tooltipData.moveNumber}.{tooltipData.color === 'b' ? '..' : ''}{' '}
-                <strong className="text-slate-800 dark:text-slate-200">{tooltipData.san}</strong>{' '}
+              <span className="flex items-center gap-1 text-[11px]">
+                <span>
+                  {tooltipData.moveNumber}.{tooltipData.color === 'b' ? '..' : ''}{' '}
+                  <strong className="text-slate-800 dark:text-slate-200">{tooltipData.san}</strong>
+                </span>
                 <span
                   className={`font-bold ${
                     tooltipData.evalStr.startsWith('+')
@@ -214,28 +356,38 @@ export function EvaluationChart({
                 >
                   ({tooltipData.evalStr})
                 </span>
-                <span className="text-[10px] text-slate-400 ml-1.5">
-                  [ply {tooltipData.ply}/{totalPoints - 1}]
+                {tooltipData.criticalBadge && (
+                  <span
+                    className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded text-white shrink-0 shadow-xs ${tooltipData.criticalBadge.bgClass}`}
+                  >
+                    {tooltipData.criticalBadge.symbol} {tooltipData.criticalBadge.label}
+                  </span>
+                )}
+                <span className="text-[10px] text-slate-400 hidden sm:inline ml-0.5">
+                  [{tooltipData.ply}/{totalPoints - 1}]
                 </span>
               </span>
             )}
-          </span>
+          </div>
         )}
       </div>
 
       <div
         ref={containerRef}
-        className="w-full h-24 sm:h-28 md:h-32 rounded border border-slate-300 dark:border-slate-700 overflow-hidden relative cursor-crosshair bg-slate-800 dark:bg-slate-900 shadow-inner transition-[height] duration-200"
+        className="w-full h-[72px] sm:h-24 md:h-28 rounded border border-slate-300 dark:border-slate-700 overflow-hidden relative cursor-crosshair bg-slate-800 dark:bg-slate-900 shadow-inner transition-[height] duration-200 touch-none select-none"
       >
         <svg
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
-          className="w-full h-full block"
-          onMouseDown={() => setIsDragging(true)}
-          onMouseUp={() => setIsDragging(false)}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-          onClick={handleClick}
+          className="w-full h-full block touch-none"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onPointerLeave={handlePointerLeave}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         >
           {/* Black territory: Background is dark (#1e293b) */}
           <rect x="0" y="0" width={width} height={height} fill="#1e293b" />
@@ -285,6 +437,48 @@ export function EvaluationChart({
           {/* Smooth Evaluation Divider Curve */}
           <path d={linePath} fill="none" stroke="#475569" strokeWidth="2" />
 
+          {/* Critical Move Markers along the Evaluation Curve */}
+          {criticalPoints.map(cp => {
+            const isSelected = cp.ply === currentPly || cp.ply === hoveredPly;
+            const radius = isSelected ? 5.5 : 3.8;
+            return (
+              <g
+                key={`cm-${cp.ply}`}
+                className="cursor-pointer"
+                onClick={e => {
+                  e.stopPropagation();
+                  onSelectPly(cp.ply);
+                }}
+              >
+                <title>{`${cp.label} (${cp.symbol}) on move ${cp.san}`}</title>
+                {/* Outer dark ring for contrast against light territory */}
+                <circle cx={cp.x} cy={cp.y} r={radius + 1.2} fill="#0f172a" opacity="0.8" />
+                {/* Colored critical badge circle */}
+                <circle
+                  cx={cp.x}
+                  cy={cp.y}
+                  r={radius}
+                  fill={cp.color}
+                  stroke="#ffffff"
+                  strokeWidth={isSelected ? 2 : 1.2}
+                />
+                {/* When selected/active, add a subtle outer pulsing ring */}
+                {isSelected && (
+                  <circle
+                    cx={cp.x}
+                    cy={cp.y}
+                    r={radius + 3}
+                    fill="none"
+                    stroke={cp.color}
+                    strokeWidth="1.2"
+                    opacity="0.6"
+                    strokeDasharray="2 2"
+                  />
+                )}
+              </g>
+            );
+          })}
+
           {/* Hover indicator line */}
           {hoverPos && (
             <line
@@ -311,11 +505,11 @@ export function EvaluationChart({
           />
         </svg>
 
-        {/* Axis markers for White and Black */}
-        <span className="absolute top-1 left-1.5 text-[9px] font-mono font-bold text-slate-300 pointer-events-none select-none">
+        {/* Axis markers for White and Black (positioned on right to prevent collision with early plies) */}
+        <span className="absolute top-1 right-1.5 text-[8.5px] font-mono font-bold text-slate-400 pointer-events-none select-none opacity-60">
           Black ▲
         </span>
-        <span className="absolute bottom-1 left-1.5 text-[9px] font-mono font-bold text-slate-600 pointer-events-none select-none">
+        <span className="absolute bottom-1 right-1.5 text-[8.5px] font-mono font-bold text-slate-600 pointer-events-none select-none opacity-60">
           White ▼
         </span>
       </div>

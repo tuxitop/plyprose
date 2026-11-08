@@ -2558,15 +2558,15 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           )}
         </div>
 
-        {/* Navigation Toolbar (Option 3: Step arrows flanking Current Move + Coach, Flip, Eval) */}
+        {/* Navigation Toolbar (Fixed-width Move Badge + Stable Navigation Buttons) */}
         <div className="px-2 sm:px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 gap-1 select-none">
-          {/* Left Group: Stepping controls + Current Move Played badge */}
+          {/* Left Group: Stepping controls + Fixed-width Current Move Played badge */}
           <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
             <button
               onClick={handleFirst}
               disabled={safePly === 0 && !isFreePlay}
               title="First Move (Up Arrow)"
-              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
+              className="min-h-[36px] w-[32px] sm:w-auto sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
             >
               <ChevronsLeft size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
@@ -2576,7 +2576,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               disabled={prevCriticalPly === null}
               title={prevCriticalTooltip}
               aria-label="Previous Critical Moment"
-              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default shrink-0"
+              className="min-h-[36px] w-[32px] sm:w-auto sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default shrink-0"
             >
               <ChevronLeft size={13} className="-mr-0.5 sm:w-[12px] sm:h-[12px]" />
               <span className="font-extrabold text-xs sm:text-[11px] font-mono leading-none select-none">
@@ -2588,12 +2588,12 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               onClick={handlePrev}
               disabled={safePly === 0 && !isFreePlay}
               title="Previous Move (Left Arrow)"
-              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
+              className="min-h-[36px] w-[32px] sm:w-auto sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
             >
               <ChevronLeft size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
 
-            {/* Current Move Played Badge */}
+            {/* Current Move Played Badge (Fixed width to prevent navigation buttons from shifting) */}
             <button
               type="button"
               onClick={() => {
@@ -2603,7 +2603,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                   setActiveSidebarTab('coach');
                 }
               }}
-              className={`min-h-[34px] sm:min-h-0 px-2 py-1 sm:py-0.5 rounded-md text-xs font-mono font-bold transition-all cursor-pointer inline-flex items-center gap-1 select-none shrink-0 ${
+              className={`relative min-h-[34px] sm:min-h-0 w-[80px] sm:w-[94px] px-1 py-1 sm:py-0.5 rounded-md text-xs font-mono font-bold transition-colors cursor-pointer flex items-center justify-center text-center select-none shrink-0 ${
                 currentPlyData?.criticalMoment
                   ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950/70 dark:text-amber-200 border border-amber-300 dark:border-amber-700 shadow-xs'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
@@ -2619,7 +2619,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                   : `Current move ${currentPlyData?.san || 'Start'}`
               }
             >
-              <span className="truncate max-w-[85px] sm:max-w-[130px]">
+              <span className="truncate w-full text-center">
                 {isFreePlay
                   ? currentVarIndex >= 0 && variationPlies[currentVarIndex]
                     ? `${variationPlies[currentVarIndex].moveNumber}.${variationPlies[currentVarIndex].color === 'b' ? '..' : ''} ${variationPlies[currentVarIndex].san}`
@@ -2629,7 +2629,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                     : 'Start'}
               </span>
               {currentPlyData?.criticalMoment && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-slate-900 animate-pulse pointer-events-none" />
               )}
             </button>
 
@@ -2637,18 +2637,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               onClick={handleNext}
               disabled={safePly >= plies.length - 1 && !isFreePlay}
               title="Next Move (Right Arrow)"
-              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
+              className="min-h-[36px] w-[32px] sm:w-auto sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
             >
               <ChevronRight size={16} className="sm:w-[15px] sm:h-[15px]" />
-            </button>
-
-            <button
-              onClick={handleLast}
-              disabled={safePly >= plies.length - 1 && !isFreePlay}
-              title="Last Move (Down Arrow)"
-              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
-            >
-              <ChevronsRight size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
 
             {/* Next Critical Moment button */}
@@ -2657,12 +2648,21 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               disabled={nextCriticalPly === null}
               title={nextCriticalTooltip}
               aria-label="Next Critical Moment"
-              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default shrink-0"
+              className="min-h-[36px] w-[32px] sm:w-auto sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default shrink-0"
             >
               <span className="font-extrabold text-xs sm:text-[11px] font-mono leading-none select-none">
                 !
               </span>
               <ChevronRight size={13} className="-ml-0.5 sm:w-[12px] sm:h-[12px]" />
+            </button>
+
+            <button
+              onClick={handleLast}
+              disabled={safePly >= plies.length - 1 && !isFreePlay}
+              title="Last Move (Down Arrow)"
+              className="min-h-[36px] w-[32px] sm:w-auto sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
+            >
+              <ChevronsRight size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
 
             {/* Desktop Autoplay */}
@@ -2706,7 +2706,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             </div>
           </div>
 
-          {/* Right Group: AI Coach, Flip, and Evaluation Chart (all 3 always present) */}
+          {/* Right Group: Flip, Evaluation Chart, and AI Coach (AI Coach hidden on mobile since clicking the move badge opens it) */}
           <div className="flex items-center gap-1 shrink-0">
             {isFreePlay && shouldHideHeader && (
               <button
@@ -2719,42 +2719,32 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               </button>
             )}
 
-            {/* AI Coach Button */}
-            <button
-              onClick={() => {
-                if (isMobileDocked) {
-                  setIsMobileCoachOpen(prev => !prev);
-                } else {
+            {/* AI Coach Button (only shown on desktop sm:flex; on mobile, clicking the move badge opens it) */}
+            {!isMobileDocked && (
+              <button
+                onClick={() => {
                   setActiveSidebarTab(t => (t === 'coach' ? 'moves' : 'coach'));
+                }}
+                title={
+                  currentPlyData?.criticalMoment
+                    ? `Coach: ${currentPlyData.criticalMoment.classification}`
+                    : safePly > 0
+                      ? `Ask Coach about ${currentPlyData.moveNumber}.${currentPlyData.san}`
+                      : 'Ask Coach'
                 }
-              }}
-              title={
-                currentPlyData?.criticalMoment
-                  ? `Coach: ${currentPlyData.criticalMoment.classification}`
-                  : safePly > 0
-                    ? `Ask Coach about ${currentPlyData.moveNumber}.${currentPlyData.san}`
-                    : 'Ask Coach'
-              }
-              className={`min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-1.5 rounded transition-colors cursor-pointer relative flex items-center justify-center shrink-0 ${
-                (isMobileDocked ? isMobileCoachOpen : activeSidebarTab === 'coach')
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
-              }`}
-              aria-label="Coach breakdown"
-            >
-              <Sparkles
-                size={16}
-                className={
-                  currentPlyData?.criticalMoment &&
-                  !(isMobileDocked ? isMobileCoachOpen : activeSidebarTab === 'coach')
-                    ? 'text-amber-500'
-                    : ''
-                }
-              />
-              {currentPlyData?.criticalMoment && (
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              )}
-            </button>
+                className={`hidden sm:flex min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-1.5 rounded transition-colors cursor-pointer relative items-center justify-center shrink-0 ${
+                  activeSidebarTab === 'coach'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+                aria-label="Toggle AI Coach breakdown"
+              >
+                <Sparkles size={16} className="sm:w-[15px] sm:h-[15px]" />
+                {currentPlyData?.criticalMoment && (
+                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                )}
+              </button>
+            )}
 
             {/* Flip Board Icon */}
             <button
