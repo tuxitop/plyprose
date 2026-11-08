@@ -915,12 +915,24 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         }
 
         const isDirect = isDirectMode();
-        const delay = isDirect ? 15000 : 1500;
+        const delay = isDirect ? 2500 : 1500;
 
         debounceTimerRef.current = setTimeout(async () => {
           try {
             if (isDirect && githubPath) {
-              await saveAnnotatedPgnDirect(githubPath, newPgn);
+              const res = await saveAnnotatedPgnDirect(githubPath, newPgn);
+              if (!res.ok) {
+                console.warn('GitHub Direct save notice:', res.error);
+                if (res.error === 'GitHub Direct settings missing') {
+                  setAiNoticeModal({
+                    title: 'GitHub Direct Sync Notice',
+                    message:
+                      'Your notes were saved locally in your browser, but could not be committed to GitHub because your GitHub Token or Repository is not configured in Settings.',
+                    actionUrl: getSettingsUrl(),
+                    actionLabel: 'Open Settings',
+                  });
+                }
+              }
             } else if (analysisId) {
               await updateGamePgn(analysisId, newPgn);
             }
@@ -4759,6 +4771,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             isVariation={contextMenu.isVariation}
             hasComment={contextMenu.hasComment}
             isAiAnnotating={isAiAnnotating}
+            hideAiAnnotation={isDirectMode()}
             onAddOrEditNote={() => {
               if (
                 contextMenu.isVariation &&

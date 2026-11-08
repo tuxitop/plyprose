@@ -19,8 +19,9 @@ export interface MoveContextMenuProps {
   isVariation?: boolean;
   hasComment?: boolean;
   isAiAnnotating?: boolean;
+  hideAiAnnotation?: boolean;
   onAddOrEditNote: () => void;
-  onAnnotateWithAI: () => void;
+  onAnnotateWithAI?: () => void;
   onDeleteNote: () => void;
   onDeleteFromHere?: () => void;
   onDeleteVariation?: () => void;
@@ -36,6 +37,7 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
   isVariation = false,
   hasComment = false,
   isAiAnnotating = false,
+  hideAiAnnotation = false,
   onAddOrEditNote,
   onAnnotateWithAI,
   onDeleteNote,
@@ -47,7 +49,7 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
 
   // Position bounding within viewport
   const menuWidth = 190;
-  const menuHeight = isVariation ? 220 : 130;
+  const menuHeight = isVariation ? 220 : hideAiAnnotation ? 90 : 130;
   const safeX = Math.min(Math.max(10, x), Math.max(10, window.innerWidth - menuWidth - 16));
   const safeY = Math.min(Math.max(10, y), Math.max(10, window.innerHeight - menuHeight - 16));
 
@@ -107,22 +109,24 @@ export const MoveContextMenu: React.FC<MoveContextMenuProps> = ({
         <span>{hasComment ? 'Edit Note' : 'Add Note'}</span>
       </button>
 
-      {/* Annotate with AI */}
-      <button
-        disabled={isAiAnnotating}
-        onClick={() => {
-          onClose();
-          onAnnotateWithAI();
-        }}
-        className="w-full flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-slate-700 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 transition-colors text-left disabled:opacity-50"
-      >
-        {isAiAnnotating ? (
-          <Loader2 size={13} className="shrink-0 animate-spin text-purple-500" />
-        ) : (
-          <Sparkles size={13} className="shrink-0 text-purple-500" />
-        )}
-        <span>Annotate with AI</span>
-      </button>
+      {/* Annotate with AI (hidden in Direct Mode where backend is not present) */}
+      {!hideAiAnnotation && onAnnotateWithAI && (
+        <button
+          disabled={isAiAnnotating}
+          onClick={() => {
+            onClose();
+            onAnnotateWithAI();
+          }}
+          className="w-full flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-slate-700 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 transition-colors text-left disabled:opacity-50"
+        >
+          {isAiAnnotating ? (
+            <Loader2 size={13} className="shrink-0 animate-spin text-purple-500" />
+          ) : (
+            <Sparkles size={13} className="shrink-0 text-purple-500" />
+          )}
+          <span>Annotate with AI</span>
+        </button>
+      )}
 
       {/* Delete Note (only if comment exists) */}
       {hasComment && (
