@@ -102,6 +102,11 @@ Before completing any task, execute:
 - `src/coach_agent.py`: Gemini API integration with `verify_variation` and `inspect_square` automatic function-calling tools.
 - `src/openai_agent.py`: OpenAI-compatible endpoint integration (configurable `base_url`) with the same tools via a manual function-calling loop and graceful no-tools retry.
 - `src/llm.py`: Provider dispatcher routing report generation to Gemini or any OpenAI-compatible endpoint; builds provenance-prefixed model labels for history.
+- `src/tags.py`: Standardized coaching taxonomy (40+ tags), deterministic tag extraction, and justification reconciliation.
+- `src/openings.py`: Deterministic opening tree (Lichess dataset), EPD hash lookup, and move-trie prefix matching.
+- `src/evals.py`: PGN evaluation parser (`[%eval ...]`) and linear gap interpolation.
+- `src/storage.py`: SQLite game history persistence, deterministic cross-instance game key hashing, and record management.
+- `src/github_sync.py`: Bi-directional GitHub study repository synchronization via GitHub Git Data API.
 - `src/exporter.py`: Markdown and PDF report generator (with embedded SVG board diagrams).
 - `api/`: FastAPI backend and REST endpoints (`scripts/start_api.sh`).
 - `frontend/`: React/Vite/Tailwind frontend (`scripts/start_ui.sh`).
