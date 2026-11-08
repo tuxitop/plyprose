@@ -44,7 +44,7 @@ try:
     from fontTools.fontBuilder import FontBuilder
     from fontTools.ttLib.tables._g_l_y_f import Glyph
 
-    font_dir = os.path.expanduser("~/.local/share/fonts")
+    font_dir = "/tmp/plyprose_fonts"
     font_path = os.path.join(font_dir, "TestDummyFont.ttf")
     if not os.path.exists(font_path):
         os.makedirs(font_dir, exist_ok=True)
@@ -58,8 +58,20 @@ try:
         fb.setupOS2()
         fb.setupPost()
         fb.save(font_path)
-        if shutil.which("fc-cache"):
-            os.system(f"fc-cache -f {font_dir} >/dev/null 2>&1")
+
+    fonts_conf = f"""<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>{font_dir}</dir>
+  <cachedir>/tmp/plyprose_fontcache</cachedir>
+</fontconfig>"""
+    conf_path = os.path.join(font_dir, "fonts.conf")
+    if not os.path.exists(conf_path):
+        with open(conf_path, "w") as f:
+            f.write(fonts_conf)
+    os.environ["FONTCONFIG_FILE"] = conf_path
+    if shutil.which("fc-cache"):
+        os.system(f"fc-cache -f {font_dir} >/dev/null 2>&1")
 except Exception:
     pass
 

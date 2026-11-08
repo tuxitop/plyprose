@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from api.games_db import get_pending_games, save_pending_game
 from api.main import app
 from src.models import GameAnalysisPayload
-from src.storage import get_all_analyses, save_analysis
+from src.storage import get_all_analyses, init_db, save_analysis
 
 
 def test_api_games_sorted_by_played_time(tmp_path, monkeypatch):
@@ -978,3 +978,59 @@ def test_api_get_analysis_by_key_and_string_id(tmp_path, monkeypatch):
     r3 = client.get("/api/analysis/123456789/report-html")
     assert r3.status_code == 200
     assert "report_html" in r3.json()
+
+
+def test_api_update_pgn_and_annotate_move(tmp_path, monkeypatch):
+    test_db = str(tmp_path / "test_api_ann.db")
+    monkeypatch.setattr("src.storage.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.games_db.DEFAULT_DB_PATH", test_db)
+    init_db(test_db)
+
+    payload = GameAnalysisPayload(
+        white_player="Magnus",
+        black_player="Hikaru",
+        user_color="White",
+        result="1-0",
+        time_control="300",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+    )
+    pgn = '[Event "Test"]\n[White "Magnus"]\n[Black "Hikaru"]\n[Result "1-0"]\n\n1. e4 e5 1-0'
+    aid = save_analysis(
+        pgn_text=pgn,
+        payload=payload,
+        report_md="# Title",
+        model_name="test-model",
+        db_path=test_db,
+    )
+
+    client = TestClient(app)
+
+    # 1. Update PGN
+    new_pgn = '[Event "Test"]\n[White "Magnus"]\n[Black "Hikaru"]\n[Result "1-0"]\n\n1. e4 { [%coach] Strong center } e5 (1... c5 { Sicilian }) 1-0'
+    res_update = client.post(f"/api/analysis/{aid}/pgn", json={"pgn": new_pgn})
+    assert res_update.status_code == 200
+    assert res_update.json()["ok"] is True
+    assert "Strong center" in res_update.json()["pgn"]
+
+    # Verify update persisted
+    res_get = client.get(f"/api/analysis/{aid}")
+    assert res_get.status_code == 200
+    assert "Strong center" in res_get.json()["pgn_text"]
+
+    # Invalid PGN returns 400
+    res_bad = client.post(f"/api/analysis/{aid}/pgn", json={"pgn": "invalid chess moves 99. z9"})
+    assert res_bad.status_code == 400
+
+    # 2. Annotate Move
+    res_ann = client.post(
+        f"/api/analysis/{aid}/annotate-move",
+        json={"ply": 1, "san": "e4"},
+    )
+    assert res_ann.status_code == 200
+    ann_data = res_ann.json()
+    assert ann_data["ok"] is True
+    assert ann_data["ply"] == 1
+    assert ann_data["san"] == "e4"
+    assert ann_data["comment"].startswith("✨")

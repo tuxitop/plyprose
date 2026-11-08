@@ -298,3 +298,26 @@ export interface AppendQAResponse {
   report_md: string;
   section_heading: string;
 }
+
+export interface AnnotateMoveRequest {
+  ply: number;
+  san: string;
+  target_fen?: string;
+}
+
+export interface AnnotateMoveResponse {
+  ok: boolean;
+  ply: number;
+  san: string;
+  comment: string;
+}
+
+export interface UpdatePgnRequest {
+  pgn: string;
+}
+
+export interface UpdatePgnResponse {
+  ok: boolean;
+  game_id: string;
+  pgn: string;
+}

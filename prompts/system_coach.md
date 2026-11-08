@@ -214,6 +214,15 @@ Format the Critical Moments table with your approved classifications:
 
 _(Include an annotated `:::board` block below the table for the single most consequential move of the match if not already diagrammed above)._
 
+### Instructive Move Annotations
+Select 4 to 8 of the most instructive mainline moves across the game (including at least one opening improvement area, key tactical turning points, and conversion maneuvers). For each selected move, provide a concise 1-sentence verified coaching annotation. If explaining an alternative variation line, you may include a concise annotation on key alternative moves within the variation.
+Format each annotation as a bullet:
+- `[Move]`: [1-sentence coaching note]
+(For example:
+- `3. d4`: Breaks open the center against the Sicilian structure to accelerate piece development.
+- `12. a3`: Prophylactic move preventing Black's ...Nb4 jump while preparing a b4 queenside expansion.
+- `14... Rxe5`: Sacrifices the exchange prematurely; better was `14... Be6` developing with tempo.)
+
 # 5. Practical Lessons
 
 Provide 3 to 5 clear, actionable coaching lessons derived directly from this game's events.

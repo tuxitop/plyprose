@@ -298,6 +298,78 @@ def generate_deterministic_summary(
     return "\n".join(lines)
 
 
+def extract_upfront_annotations_from_report(report_md: str) -> dict[str, str]:
+    """
+    Extracts move-specific annotations from the coaching report.
+    Looks for bullets like:
+      - `12. a3`: Prophylactic move preventing Black's ...Nb4 jump.
+      - `14... Rxe5`: Premature sacrifice; better was 14... Be6.
+    """
+    annotations: dict[str, str] = {}
+    if not report_md:
+        return annotations
+
+    pattern = re.compile(
+        r"^[ \t]*-[ \t]*`([0-9]+\.{1,3}\s*[A-Za-z0-9+#=\-]+)`:[ \t]*(.+)$",
+        re.MULTILINE,
+    )
+    for match in pattern.finditer(report_md):
+        move_key = match.group(1).strip()
+        comment = match.group(2).strip()
+        comment = comment.strip("\"*'")
+        if move_key and comment:
+            norm_key = re.sub(r"([0-9]+(?:\.{1,3}))\s*", r"\1 ", move_key)
+            annotations[norm_key] = comment
+            annotations[move_key] = comment
+
+    return annotations
+
+
+def inject_annotations_into_pgn(pgn_str: str, annotations: dict[str, str]) -> str:
+    """
+    Injects move annotations into the PGN as standard comments prefixed with ✨.
+    Preserves existing [%clk ...] or [%eval ...] comments cleanly.
+    """
+    if not pgn_str or not annotations:
+        return pgn_str
+
+    try:
+        game = chess.pgn.read_game(io.StringIO(pgn_str))
+    except Exception:
+        return pgn_str
+
+    if not game:
+        return pgn_str
+
+    node: chess.pgn.GameNode = game
+    board = game.board()
+    while node.variations:
+        next_node = node.variation(0)
+        move_num = board.fullmove_number
+        is_black = board.turn == chess.BLACK
+        san = next_node.san()
+        san_key_spaced = f"{move_num}. {san}" if not is_black else f"{move_num}... {san}"
+        san_key_tight = f"{move_num}.{san}" if not is_black else f"{move_num}...{san}"
+
+        comment = annotations.get(san_key_spaced) or annotations.get(san_key_tight)
+        if comment:
+            clean_comment = comment.strip()
+            if not clean_comment.startswith("✨"):
+                clean_comment = f"✨ {clean_comment}"
+            existing = (next_node.comment or "").strip()
+            if clean_comment not in existing:
+                if existing:
+                    next_node.comment = f"{existing} {clean_comment}"
+                else:
+                    next_node.comment = clean_comment
+
+        board.push(next_node.move)
+        node = next_node
+
+    exporter = chess.pgn.StringExporter(headers=True, variations=True, comments=True)
+    return str(game.accept(exporter)).strip()
+
+
 def generate_narrative_report(
     payload: GameAnalysisPayload,
     model_name: str = "gemini-2.5-pro",
@@ -764,11 +836,13 @@ __all__ = [
     "build_coach_user_prompt",
     "build_move_qa_prompt",
     "extract_move_qa_context",
+    "extract_upfront_annotations_from_report",
     "generate_deterministic_move_answer",
     "generate_deterministic_summary",
     "generate_narrative_report",
     "get_available_gemini_models",
     "get_coach_config",
     "get_system_prompt",
+    "inject_annotations_into_pgn",
     "probe_gemini_connection",
 ]

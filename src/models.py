@@ -125,11 +125,45 @@ class GitHubPullResult(BaseModel):
     message: str
 
 
+class MoveAnnotation(BaseModel):
+    ply: int
+    san: str
+    comment: str
+    is_ai: bool = False
+    created_at: str | None = None
+
+
+class AnnotateMoveRequest(BaseModel):
+    ply: int
+    san: str
+    target_fen: str | None = None
+
+
+class AnnotateMoveResponse(BaseModel):
+    ok: bool
+    ply: int
+    san: str
+    comment: str
+
+
+class UpdatePgnRequest(BaseModel):
+    pgn: str
+    annotations: list[MoveAnnotation] = Field(default_factory=list)
+
+
+class UpdatePgnResponse(BaseModel):
+    ok: bool
+    game_id: str
+    pgn: str
+
+
 # Alias for compatibility with GEMINI.md naming
 AnalysisPayload = GameAnalysisPayload
 
 __all__ = [
     "AnalysisPayload",
+    "AnnotateMoveRequest",
+    "AnnotateMoveResponse",
     "AppendQARequest",
     "AppendQAResponse",
     "AskMoveRequest",
@@ -138,6 +172,9 @@ __all__ = [
     "GameAnalysisPayload",
     "GameData",
     "GitHubPullResult",
+    "MoveAnnotation",
     "PieceInteraction",
     "TacticalFacts",
+    "UpdatePgnRequest",
+    "UpdatePgnResponse",
 ]

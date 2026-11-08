@@ -776,6 +776,34 @@ def update_analysis_platform(
         return cursor.rowcount > 0
 
 
+def update_analysis_pgn(
+    analysis_id: int,
+    pgn_text: str,
+    db_path: str | None = None,
+) -> bool:
+    """
+    Updates the PGN text (including move comments and variations) for an existing analysis record.
+
+    Returns:
+        True if the record was updated, False if no record matched analysis_id.
+    """
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
+    init_db(db_path)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE game_analyses
+            SET pgn_text = ?
+            WHERE id = ?;
+            """,
+            (pgn_text.strip(), analysis_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def delete_analysis(analysis_id: int, db_path: str | None = None) -> bool:
     """
     Deletes an analysis record from the database by ID.
@@ -824,6 +852,7 @@ __all__ = [
     "update_analysis_github_path",
     "update_analysis_github_sync",
     "update_analysis_payload",
+    "update_analysis_pgn",
     "update_analysis_platform",
     "update_analysis_report",
 ]

@@ -15,6 +15,7 @@ from src.storage import (
     init_db,
     save_analysis,
     update_analysis_github_sync,
+    update_analysis_pgn,
     update_analysis_report,
 )
 
@@ -123,6 +124,21 @@ def test_update_analysis_report(tmp_path, sample_payload: GameAnalysisPayload):
 
     # Non-existent ID returns False
     assert update_analysis_report(999, "new", "model", db_path=db_file) is False
+
+
+def test_update_analysis_pgn(tmp_path, sample_payload: GameAnalysisPayload):
+    db_file = str(tmp_path / "test_update_pgn.db")
+    rec_id = save_analysis("1. e4 e5 1-0", sample_payload, "report", "model", db_path=db_file)
+
+    new_pgn = "1. e4 { [%coach] Opening } e5 (1... c5 { Sicilian }) 1-0"
+    updated = update_analysis_pgn(rec_id, new_pgn, db_path=db_file)
+    assert updated is True
+
+    data = get_analysis_by_id(rec_id, db_path=db_file)
+    assert data["pgn_text"] == new_pgn
+
+    # Non-existent ID returns False
+    assert update_analysis_pgn(9999, "pgn", db_path=db_file) is False
 
 
 def test_delete_and_clear_analyses(tmp_path, sample_payload: GameAnalysisPayload):

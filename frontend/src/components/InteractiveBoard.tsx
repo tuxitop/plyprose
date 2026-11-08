@@ -40,7 +40,22 @@ import {
   Clock,
 } from 'lucide-react';
 import { MoveBadgeGlyph } from './MoveBadgeGlyph';
-import { askMoveQuestion, appendQAToReport, isDirectMode } from '../lib/api';
+import {
+  askMoveQuestion,
+  appendQAToReport,
+  isDirectMode,
+  updateGamePgn,
+  annotateMove,
+} from '../lib/api';
+import { saveAnnotatedPgnDirect } from '../lib/githubDirect';
+import { MoveContextMenu } from './MoveContextMenu';
+import { InlineCommentEditor } from './InlineCommentEditor';
+import {
+  buildAnnotatedPgn,
+  extractCommentsAndClocksFromPgn,
+  extractVariationsFromPgn,
+  type SavedVariation,
+} from '../lib/pgnWriter';
 import {
   formatPlyEval,
   formatSecondsToClock,
@@ -112,6 +127,7 @@ export interface VariationPly {
   color: 'w' | 'b';
   from?: Key;
   to?: Key;
+  comment?: string;
 }
 
 export interface SubVariation {
@@ -210,6 +226,8 @@ export interface InteractiveBoardProps {
   isMobileDocked?: boolean;
   hideHeader?: boolean;
   onAnalysisToggled?: (analyzing: boolean) => void;
+  onPgnUpdated?: (newPgn: string) => void;
+  githubPath?: string;
 }
 
 export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBoardProps>(
@@ -229,6 +247,8 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       isMobileDocked = false,
       hideHeader = false,
       onAnalysisToggled,
+      onPgnUpdated,
+      githubPath,
     }: InteractiveBoardProps,
     ref,
   ) {
@@ -805,6 +825,476 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       return dests;
     }, []);
 
+    // ── Move Annotations & Saved Variations ────────────────────────────────
+    const [moveComments, setMoveComments] = useState<Map<number, string>>(() => {
+      return extractCommentsAndClocksFromPgn(pgnText).comments;
+    });
+
+    const [savedVariations, setSavedVariations] = useState<SavedVariation[]>(() => {
+      return extractVariationsFromPgn(pgnText);
+    });
+
+    const [contextMenu, setContextMenu] = useState<{
+      x: number;
+      y: number;
+      ply: number;
+      san: string;
+      isVariation: boolean;
+      varId?: string;
+      varIndex?: number;
+      hasComment: boolean;
+    } | null>(null);
+
+    const [editingTarget, setEditingTarget] = useState<
+      | { type: 'mainline'; ply: number }
+      | { type: 'variation'; varId: string; varIndex: number }
+      | null
+    >(null);
+
+    const [editingText, setEditingText] = useState<string>('');
+    const [isAiAnnotating, setIsAiAnnotating] = useState<boolean>(false);
+
+    // Sync from external pgnText when not actively editing
+    useEffect(() => {
+      if (!editingTarget) {
+        const { comments } = extractCommentsAndClocksFromPgn(pgnText);
+        setMoveComments(comments);
+        const pgnVars = extractVariationsFromPgn(pgnText);
+        setSavedVariations(prev => {
+          const merged = [...pgnVars];
+          for (const pv of prev) {
+            if (
+              !merged.some(
+                m =>
+                  m.id === pv.id ||
+                  (m.branchPly === pv.branchPly &&
+                    m.moves.length === pv.moves.length &&
+                    m.moves[0]?.san === pv.moves[0]?.san),
+              )
+            ) {
+              merged.push(pv);
+            }
+          }
+          return merged;
+        });
+      }
+    }, [pgnText, editingTarget]);
+
+    // Debounced PGN sync to backend / GitHub
+    const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const latestPgnRef = useRef<string>(pgnText);
+
+    const persistAnnotatedPgn = useCallback(
+      (commentsToSave: Map<number, string>, varsToSave: SavedVariation[]) => {
+        const newPgn = buildAnnotatedPgn(pgnText, commentsToSave, varsToSave);
+        latestPgnRef.current = newPgn;
+
+        if (onPgnUpdated) {
+          onPgnUpdated(newPgn);
+        }
+
+        if (analysisId) {
+          try {
+            localStorage.setItem(`plyprose_annotated_pgn_${analysisId}`, newPgn);
+          } catch {
+            // LocalStorage full or private browsing
+          }
+        }
+
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+        }
+
+        const isDirect = isDirectMode();
+        const delay = isDirect ? 15000 : 1500;
+
+        debounceTimerRef.current = setTimeout(async () => {
+          try {
+            if (isDirect && githubPath) {
+              await saveAnnotatedPgnDirect(githubPath, newPgn);
+            } else if (analysisId) {
+              await updateGamePgn(analysisId, newPgn);
+            }
+          } catch (err) {
+            console.error('Failed to auto-save annotated PGN:', err);
+          }
+        }, delay);
+      },
+      [pgnText, onPgnUpdated, analysisId, githubPath],
+    );
+
+    useEffect(() => {
+      const handleBeforeUnload = () => {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+          if (latestPgnRef.current) {
+            if (isDirectMode() && githubPath) {
+              void saveAnnotatedPgnDirect(githubPath, latestPgnRef.current);
+            } else if (analysisId) {
+              void updateGamePgn(analysisId, latestPgnRef.current);
+            }
+          }
+        }
+      };
+
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+        }
+      };
+    }, [analysisId, githubPath]);
+
+    // Touch long-press handling
+    const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+    const isLongPressRef = useRef<boolean>(false);
+
+    const handleTouchStart = useCallback(
+      (
+        e: React.TouchEvent,
+        ply: number,
+        san: string,
+        isVariation: boolean = false,
+        varId?: string,
+        varIndex?: number,
+        hasComment: boolean = false,
+      ) => {
+        if (e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+        isLongPressRef.current = false;
+        if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = setTimeout(() => {
+          isLongPressRef.current = true;
+          setContextMenu({
+            x: touch.clientX,
+            y: touch.clientY,
+            ply,
+            san,
+            isVariation,
+            varId,
+            varIndex,
+            hasComment,
+          });
+        }, 450);
+      },
+      [],
+    );
+
+    const handleTouchMove = useCallback((e: React.TouchEvent) => {
+      if (!touchStartPosRef.current) return;
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+      const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+      if (dx > 10 || dy > 10) {
+        if (touchTimerRef.current) {
+          clearTimeout(touchTimerRef.current);
+          touchTimerRef.current = null;
+        }
+      }
+    }, []);
+
+    const handleTouchEnd = useCallback(() => {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = null;
+      }
+    }, []);
+
+    const handleContextMenu = useCallback(
+      (
+        e: React.MouseEvent,
+        ply: number,
+        san: string,
+        isVariation: boolean = false,
+        varId?: string,
+        varIndex?: number,
+        hasComment: boolean = false,
+      ) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          ply,
+          san,
+          isVariation,
+          varId,
+          varIndex,
+          hasComment,
+        });
+      },
+      [],
+    );
+
+    const handleStartEditMainlineNote = useCallback(
+      (ply: number) => {
+        setEditingTarget({ type: 'mainline', ply });
+        setEditingText(moveComments.get(ply) || '');
+      },
+      [moveComments],
+    );
+
+    const handleSaveMainlineNote = useCallback(
+      (ply: number, text: string) => {
+        setEditingTarget(null);
+        setEditingText('');
+        setMoveComments(prev => {
+          const next = new Map(prev);
+          if (text.trim()) {
+            next.set(ply, text.trim());
+          } else {
+            next.delete(ply);
+          }
+          persistAnnotatedPgn(next, savedVariations);
+          return next;
+        });
+      },
+      [persistAnnotatedPgn, savedVariations],
+    );
+
+    const handleDeleteMainlineNote = useCallback(
+      (ply: number) => {
+        setMoveComments(prev => {
+          const next = new Map(prev);
+          next.delete(ply);
+          persistAnnotatedPgn(next, savedVariations);
+          return next;
+        });
+      },
+      [persistAnnotatedPgn, savedVariations],
+    );
+
+    const handleStartEditVariationNote = useCallback(
+      (varId: string, varIndex: number) => {
+        const v = savedVariations.find(item => item.id === varId);
+        const existingComment = v?.moves[varIndex]?.comment || '';
+        setEditingTarget({ type: 'variation', varId, varIndex });
+        setEditingText(existingComment);
+      },
+      [savedVariations],
+    );
+
+    const handleSaveVariationNote = useCallback(
+      (varId: string, varIndex: number, text: string) => {
+        setEditingTarget(null);
+        setEditingText('');
+        setSavedVariations(prev => {
+          const next = prev.map(v => {
+            if (v.id === varId) {
+              const moves = [...v.moves];
+              if (moves[varIndex]) {
+                moves[varIndex] = {
+                  ...moves[varIndex],
+                  comment: text.trim() || undefined,
+                };
+              }
+              return { ...v, moves };
+            }
+            return v;
+          });
+          persistAnnotatedPgn(moveComments, next);
+          return next;
+        });
+      },
+      [moveComments, persistAnnotatedPgn],
+    );
+
+    const handleDeleteVariationNote = useCallback(
+      (varId: string, varIndex: number) => {
+        setSavedVariations(prev => {
+          const next = prev.map(v => {
+            if (v.id === varId) {
+              const moves = [...v.moves];
+              if (moves[varIndex]) {
+                moves[varIndex] = { ...moves[varIndex], comment: undefined };
+              }
+              return { ...v, moves };
+            }
+            return v;
+          });
+          persistAnnotatedPgn(moveComments, next);
+          return next;
+        });
+      },
+      [moveComments, persistAnnotatedPgn],
+    );
+
+    const handleCancelNote = useCallback(() => {
+      setEditingTarget(null);
+      setEditingText('');
+    }, []);
+
+    const handleDeleteVariation = useCallback(
+      (varId: string) => {
+        setSavedVariations(prev => {
+          const target = prev.find(v => v.id === varId);
+          const next = prev.filter(v => v.id !== varId);
+          if (isFreePlay && target && branchPly === target.branchPly) {
+            resetVariation();
+          }
+          persistAnnotatedPgn(moveComments, next);
+          return next;
+        });
+      },
+      [branchPly, isFreePlay, moveComments, persistAnnotatedPgn, resetVariation],
+    );
+
+    const handleDeleteFromHere = useCallback(
+      (varId: string, varIndex: number) => {
+        if (varIndex === 0) {
+          handleDeleteVariation(varId);
+          return;
+        }
+        setSavedVariations(prev => {
+          const next = prev.map(v => {
+            if (v.id === varId) {
+              const truncated = v.moves.slice(0, varIndex);
+              if (isFreePlay && branchPly === v.branchPly) {
+                if (currentVarIndex >= varIndex) {
+                  setCurrentVarIndex(varIndex - 1);
+                  setVariationPlies(truncated);
+                  setFreeChess(new Chess(truncated[varIndex - 1].fen));
+                  if (cgApiRef.current) {
+                    const lastPly = truncated[varIndex - 1];
+                    const turnColor: Color = lastPly.color === 'w' ? 'black' : 'white';
+                    cgApiRef.current.set({
+                      fen: lastPly.fen,
+                      turnColor,
+                      lastMove: lastPly.from && lastPly.to ? [lastPly.from, lastPly.to] : undefined,
+                      movable: {
+                        color: 'both',
+                        dests: getLegalDests(lastPly.fen),
+                      },
+                    });
+                  }
+                }
+              }
+              return { ...v, moves: truncated };
+            }
+            return v;
+          });
+          persistAnnotatedPgn(moveComments, next);
+          return next;
+        });
+      },
+      [
+        branchPly,
+        currentVarIndex,
+        getLegalDests,
+        handleDeleteVariation,
+        isFreePlay,
+        moveComments,
+        persistAnnotatedPgn,
+      ],
+    );
+
+    const handlePromoteVariation = useCallback(
+      (varId: string) => {
+        const targetVar = savedVariations.find(v => v.id === varId);
+        if (!targetVar || targetVar.moves.length === 0) return;
+
+        const bPly = targetVar.branchPly;
+        const baseHistory = plies.slice(0, bPly + 1);
+        const oldContinuation = plies.slice(bPly + 1);
+
+        const newSavedVars = savedVariations.filter(v => v.id !== varId);
+        if (oldContinuation.length > 0) {
+          newSavedVars.push({
+            id: `promoted-demote-${bPly}-${Date.now()}`,
+            branchPly: bPly,
+            moves: oldContinuation.map((p, idx) => ({
+              plyIndex: idx,
+              fen: p.fen,
+              san: p.san,
+              moveNumber: p.moveNumber,
+              color: p.color,
+              from: p.from,
+              to: p.to,
+              comment: moveComments.get(p.ply),
+            })),
+          });
+        }
+
+        const cNew = new Chess();
+        for (let i = 1; i < baseHistory.length; i++) {
+          cNew.move(baseHistory[i].san);
+        }
+        for (const vm of targetVar.moves) {
+          try {
+            cNew.move(vm.san);
+          } catch {
+            break;
+          }
+        }
+
+        const newComments = new Map<number, string>();
+        for (let i = 1; i <= bPly; i++) {
+          const comm = moveComments.get(i);
+          if (comm) newComments.set(i, comm);
+        }
+        targetVar.moves.forEach((vm, idx) => {
+          if (vm.comment) {
+            newComments.set(bPly + idx + 1, vm.comment);
+          }
+        });
+
+        const basePgnStr = cNew.pgn();
+        const newAnnotatedPgn = buildAnnotatedPgn(basePgnStr, newComments, newSavedVars);
+
+        setMoveComments(newComments);
+        setSavedVariations(newSavedVars);
+        resetVariation();
+
+        if (onPgnUpdated) {
+          onPgnUpdated(newAnnotatedPgn);
+        }
+        if (analysisId) {
+          try {
+            localStorage.setItem(`plyprose_annotated_pgn_${analysisId}`, newAnnotatedPgn);
+          } catch {
+            // ignore
+          }
+          if (isDirectMode() && githubPath) {
+            void saveAnnotatedPgnDirect(githubPath, newAnnotatedPgn);
+          } else {
+            void updateGamePgn(analysisId, newAnnotatedPgn);
+          }
+        }
+      },
+      [analysisId, githubPath, moveComments, onPgnUpdated, plies, resetVariation, savedVariations],
+    );
+
+    const handleAnnotateWithAI = useCallback(
+      async (
+        ply: number,
+        san: string,
+        isVar: boolean = false,
+        varId?: string,
+        varIndex?: number,
+      ) => {
+        if (!analysisId) return;
+        setIsAiAnnotating(true);
+        try {
+          const res = await annotateMove(analysisId, { ply, san });
+          if (res && res.comment) {
+            if (isVar && varId && varIndex !== undefined) {
+              handleSaveVariationNote(varId, varIndex, res.comment);
+            } else {
+              handleSaveMainlineNote(ply, res.comment);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to annotate move with AI:', err);
+        } finally {
+          setIsAiAnnotating(false);
+        }
+      },
+      [analysisId, handleSaveMainlineNote, handleSaveVariationNote],
+    );
+
     const isValidSquare = (s?: string): s is Key => Boolean(s && /^[a-h][1-8]$/.test(s));
 
     // Derive auto-shapes for the current position
@@ -947,6 +1437,31 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               return;
             }
 
+            // 1b-2. If user played the first move of an existing saved variation branching from safePly
+            const matchingSaved = savedVariations.find(
+              sv =>
+                sv.branchPly === safePly &&
+                sv.moves.length > 0 &&
+                ((sv.moves[0].from === orig && sv.moves[0].to === dest) ||
+                  sv.moves[0].san === moveRes.san),
+            );
+            if (matchingSaved) {
+              handleSelectVariationMove(safePly, matchingSaved.moves, 0);
+              if (cgApiRef.current) {
+                const turnColor: Color = matchingSaved.moves[0].color === 'w' ? 'black' : 'white';
+                cgApiRef.current.set({
+                  fen: matchingSaved.moves[0].fen,
+                  turnColor,
+                  lastMove: [orig, dest],
+                  movable: {
+                    color: 'both',
+                    dests: getLegalDests(matchingSaved.moves[0].fen),
+                  },
+                });
+              }
+              return;
+            }
+
             // 1c. Starting a new variation from mainline
             setBranchPly(safePly);
             const newVarPly: VariationPly = {
@@ -958,10 +1473,25 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               from: orig,
               to: dest,
             };
-            setVariationPlies([newVarPly]);
+            const newVarList = [newVarPly];
+            setVariationPlies(newVarList);
             setCurrentVarIndex(0);
             setIsFreePlay(true);
             setFreeChess(chessInst);
+
+            const newVarId = `var-${safePly}-${Date.now()}`;
+            setSavedVariations(prev => {
+              const nextVars = [
+                ...prev.filter(v => !(v.branchPly === safePly && v.moves[0]?.san === moveRes.san)),
+                {
+                  id: newVarId,
+                  branchPly: safePly,
+                  moves: newVarList,
+                },
+              ];
+              persistAnnotatedPgn(moveComments, nextVars);
+              return nextVars;
+            });
           } else {
             // 2. User is already exploring a variation (isFreePlay is true)
 
@@ -1079,6 +1609,34 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             setVariationPlies(nextPlies);
             setCurrentVarIndex(nextPlies.length - 1);
             setFreeChess(chessInst);
+
+            setSavedVariations(prev => {
+              const existingIdx = prev.findIndex(
+                v =>
+                  v.branchPly === branchPly &&
+                  v.moves.length > 0 &&
+                  v.moves[0].san === nextPlies[0].san,
+              );
+              let nextVars: SavedVariation[];
+              if (existingIdx !== -1) {
+                nextVars = [...prev];
+                nextVars[existingIdx] = {
+                  ...nextVars[existingIdx],
+                  moves: nextPlies,
+                };
+              } else {
+                nextVars = [
+                  ...prev,
+                  {
+                    id: `var-${branchPly}-${Date.now()}`,
+                    branchPly,
+                    moves: nextPlies,
+                  },
+                ];
+              }
+              persistAnnotatedPgn(moveComments, nextVars);
+              return nextVars;
+            });
           }
 
           if (cgApiRef.current) {
@@ -1111,6 +1669,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         handleGoToPly,
         handleSelectVariationMove,
         getLegalDests,
+        savedVariations,
+        moveComments,
+        persistAnnotatedPgn,
       ],
     );
 
@@ -3139,45 +3700,106 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                 <div className="p-1.5 text-xs">
                   <table className="w-full text-xs">
                     <tbody>
-                      {/* Branch variation at starting position (before move 1) */}
-                      {isFreePlay && branchPly === 0 && variationPlies.length > 0 && (
-                        <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-200 dark:border-slate-800">
-                          <td colSpan={3} className="py-1 px-1.5">
-                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700">
-                              <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                (
-                              </span>
-                              {variationPlies.map((vm, vIdx) => {
-                                const isActive = currentVarIndex === vIdx;
-                                return (
-                                  <button
-                                    key={vIdx}
-                                    onClick={e => {
-                                      e.currentTarget.blur();
-                                      handleGoToVariationPly(vIdx);
-                                    }}
-                                    className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
-                                      isActive
-                                        ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
-                                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                    }`}
-                                  >
-                                    {vm.color === 'w'
-                                      ? `${vm.moveNumber}. `
-                                      : vIdx === 0
-                                        ? `${vm.moveNumber}... `
-                                        : ''}
-                                    {vm.san}
-                                  </button>
-                                );
-                              })}
-                              <span className="text-slate-400 dark:text-slate-500 font-sans">
-                                )
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
+                      {/* Branch variations at starting position (before move 1) */}
+                      {savedVariations
+                        .filter(v => v.branchPly === 0 && v.moves.length > 0)
+                        .map(rootVar => (
+                          <tr
+                            key={rootVar.id}
+                            className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-200 dark:border-slate-800"
+                          >
+                            <td colSpan={3} className="py-1 px-1.5">
+                              <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700">
+                                <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                  (
+                                </span>
+                                {rootVar.moves.map((vm, vIdx) => {
+                                  const isActive =
+                                    isFreePlay && branchPly === 0 && currentVarIndex === vIdx;
+                                  return (
+                                    <Fragment key={vIdx}>
+                                      <button
+                                        onClick={e => {
+                                          e.currentTarget.blur();
+                                          if (isLongPressRef.current) {
+                                            isLongPressRef.current = false;
+                                            return;
+                                          }
+                                          handleSelectVariationMove(0, rootVar.moves, vIdx);
+                                        }}
+                                        onContextMenu={e =>
+                                          handleContextMenu(
+                                            e,
+                                            1,
+                                            vm.san,
+                                            true,
+                                            rootVar.id,
+                                            vIdx,
+                                            Boolean(vm.comment),
+                                          )
+                                        }
+                                        onTouchStart={e =>
+                                          handleTouchStart(
+                                            e,
+                                            1,
+                                            vm.san,
+                                            true,
+                                            rootVar.id,
+                                            vIdx,
+                                            Boolean(vm.comment),
+                                          )
+                                        }
+                                        onTouchMove={handleTouchMove}
+                                        onTouchEnd={handleTouchEnd}
+                                        onTouchCancel={handleTouchEnd}
+                                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
+                                          isActive
+                                            ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
+                                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                        }`}
+                                      >
+                                        {vm.color === 'w'
+                                          ? `${vm.moveNumber}. `
+                                          : vIdx === 0
+                                            ? `${vm.moveNumber}... `
+                                            : ''}
+                                        {vm.san}
+                                      </button>
+                                      {vm.comment && (
+                                        <span
+                                          onClick={() =>
+                                            handleStartEditVariationNote(rootVar.id, vIdx)
+                                          }
+                                          className="text-[10px] text-amber-700 dark:text-amber-400 italic px-1 py-0.5 rounded hover:bg-amber-100/60 dark:hover:bg-amber-950/40 cursor-pointer font-sans"
+                                          title="Click to edit note"
+                                        >
+                                          {`{ ${vm.comment} }`}
+                                        </span>
+                                      )}
+                                      {editingTarget?.type === 'variation' &&
+                                        editingTarget.varId === rootVar.id &&
+                                        editingTarget.varIndex === vIdx && (
+                                          <div className="w-full my-1">
+                                            <InlineCommentEditor
+                                              initialValue={editingText}
+                                              onSave={text =>
+                                                handleSaveVariationNote(rootVar.id, vIdx, text)
+                                              }
+                                              onCancel={handleCancelNote}
+                                              label={`Variation Note • ${vm.san}`}
+                                            />
+                                          </div>
+                                        )}
+                                    </Fragment>
+                                  );
+                                })}
+                                <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                  )
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
 
                       {movePairs.map(pair => {
                         const whiteActive = pair.white && safePly === pair.white.ply && !isFreePlay;
@@ -3204,6 +3826,21 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           ? engineVariationsByPly.get(pair.black.ply)
                           : undefined;
 
+                        const whiteComment = pair.white
+                          ? moveComments.get(pair.white.ply)
+                          : undefined;
+                        const blackComment = pair.black
+                          ? moveComments.get(pair.black.ply)
+                          : undefined;
+                        const isEditingWhite =
+                          editingTarget?.type === 'mainline' &&
+                          pair.white &&
+                          editingTarget.ply === pair.white.ply;
+                        const isEditingBlack =
+                          editingTarget?.type === 'mainline' &&
+                          pair.black &&
+                          editingTarget.ply === pair.black.ply;
+
                         const pairVariations: Array<{
                           id: string;
                           branchPly: number;
@@ -3212,58 +3849,64 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
                         // White engine suggestion preloaded
                         if (whiteEngineVar && whiteEngineVar.length > 0) {
-                          pairVariations.push({
-                            id: `w-engine-${pair.moveNumber}`,
-                            branchPly: pair.white!.ply - 1,
-                            moves: whiteEngineVar,
-                          });
+                          const hasSavedDup = savedVariations.some(
+                            v =>
+                              pair.white &&
+                              v.branchPly === pair.white.ply - 1 &&
+                              v.moves.length > 0 &&
+                              v.moves[0]?.san === whiteEngineVar[0].san,
+                          );
+                          if (!hasSavedDup) {
+                            pairVariations.push({
+                              id: `w-engine-${pair.moveNumber}`,
+                              branchPly: pair.white!.ply - 1,
+                              moves: whiteEngineVar,
+                            });
+                          }
                         }
 
-                        // White user exploration
-                        if (
-                          pair.white &&
-                          isFreePlay &&
-                          branchPly === pair.white.ply - 1 &&
-                          variationPlies.length > 0
-                        ) {
-                          const isDup =
-                            whiteEngineVar &&
-                            variationPlies.length <= whiteEngineVar.length &&
-                            variationPlies.every((m, idx) => m.san === whiteEngineVar[idx].san);
-                          if (!isDup) {
+                        // White saved variations
+                        if (pair.white) {
+                          const whiteSaved = savedVariations.filter(
+                            v => v.branchPly === pair.white!.ply - 1,
+                          );
+                          for (const sv of whiteSaved) {
                             pairVariations.push({
-                              id: `w-user-${pair.moveNumber}`,
-                              branchPly: pair.white.ply - 1,
-                              moves: variationPlies,
+                              id: sv.id,
+                              branchPly: sv.branchPly,
+                              moves: sv.moves,
                             });
                           }
                         }
 
                         // Black engine suggestion preloaded
                         if (blackEngineVar && blackEngineVar.length > 0) {
-                          pairVariations.push({
-                            id: `b-engine-${pair.moveNumber}`,
-                            branchPly: pair.black!.ply - 1,
-                            moves: blackEngineVar,
-                          });
+                          const hasSavedDup = savedVariations.some(
+                            v =>
+                              pair.black &&
+                              v.branchPly === pair.black.ply - 1 &&
+                              v.moves.length > 0 &&
+                              v.moves[0]?.san === blackEngineVar[0].san,
+                          );
+                          if (!hasSavedDup) {
+                            pairVariations.push({
+                              id: `b-engine-${pair.moveNumber}`,
+                              branchPly: pair.black!.ply - 1,
+                              moves: blackEngineVar,
+                            });
+                          }
                         }
 
-                        // Black user exploration
-                        if (
-                          pair.black &&
-                          isFreePlay &&
-                          branchPly === pair.black.ply - 1 &&
-                          variationPlies.length > 0
-                        ) {
-                          const isDup =
-                            blackEngineVar &&
-                            variationPlies.length <= blackEngineVar.length &&
-                            variationPlies.every((m, idx) => m.san === blackEngineVar[idx].san);
-                          if (!isDup) {
+                        // Black saved variations
+                        if (pair.black) {
+                          const blackSaved = savedVariations.filter(
+                            v => v.branchPly === pair.black!.ply - 1,
+                          );
+                          for (const sv of blackSaved) {
                             pairVariations.push({
-                              id: `b-user-${pair.moveNumber}`,
-                              branchPly: pair.black.ply - 1,
-                              moves: variationPlies,
+                              id: sv.id,
+                              branchPly: sv.branchPly,
+                              moves: sv.moves,
                             });
                           }
                         }
@@ -3282,8 +3925,37 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                     data-ply={pair.white.ply}
                                     onClick={e => {
                                       e.currentTarget.blur();
+                                      if (isLongPressRef.current) {
+                                        isLongPressRef.current = false;
+                                        return;
+                                      }
                                       handleGoToPly(pair.white!.ply);
                                     }}
+                                    onContextMenu={e =>
+                                      handleContextMenu(
+                                        e,
+                                        pair.white!.ply,
+                                        pair.white!.san,
+                                        false,
+                                        undefined,
+                                        undefined,
+                                        Boolean(whiteComment),
+                                      )
+                                    }
+                                    onTouchStart={e =>
+                                      handleTouchStart(
+                                        e,
+                                        pair.white!.ply,
+                                        pair.white!.san,
+                                        false,
+                                        undefined,
+                                        undefined,
+                                        Boolean(whiteComment),
+                                      )
+                                    }
+                                    onTouchMove={handleTouchMove}
+                                    onTouchEnd={handleTouchEnd}
+                                    onTouchCancel={handleTouchEnd}
                                     className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
                                       whiteActive
                                         ? 'bg-blue-600 text-white font-bold shadow-xs'
@@ -3336,8 +4008,37 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                     data-ply={pair.black.ply}
                                     onClick={e => {
                                       e.currentTarget.blur();
+                                      if (isLongPressRef.current) {
+                                        isLongPressRef.current = false;
+                                        return;
+                                      }
                                       handleGoToPly(pair.black!.ply);
                                     }}
+                                    onContextMenu={e =>
+                                      handleContextMenu(
+                                        e,
+                                        pair.black!.ply,
+                                        pair.black!.san,
+                                        false,
+                                        undefined,
+                                        undefined,
+                                        Boolean(blackComment),
+                                      )
+                                    }
+                                    onTouchStart={e =>
+                                      handleTouchStart(
+                                        e,
+                                        pair.black!.ply,
+                                        pair.black!.san,
+                                        false,
+                                        undefined,
+                                        undefined,
+                                        Boolean(blackComment),
+                                      )
+                                    }
+                                    onTouchMove={handleTouchMove}
+                                    onTouchEnd={handleTouchEnd}
+                                    onTouchCancel={handleTouchEnd}
                                     className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
                                       blackActive
                                         ? 'bg-blue-600 text-white font-bold shadow-xs'
@@ -3384,6 +4085,54 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               </td>
                             </tr>
 
+                            {/* White move note / inline editor */}
+                            {(whiteComment || isEditingWhite) && (
+                              <tr className="bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800/40">
+                                <td colSpan={3} className="py-1 px-3">
+                                  {isEditingWhite ? (
+                                    <InlineCommentEditor
+                                      initialValue={editingText}
+                                      onSave={text => handleSaveMainlineNote(pair.white!.ply, text)}
+                                      onCancel={handleCancelNote}
+                                      label={`Move ${pair.moveNumber}. ${pair.white!.san}`}
+                                    />
+                                  ) : (
+                                    <div
+                                      onClick={() => handleStartEditMainlineNote(pair.white!.ply)}
+                                      className="text-[11px] text-slate-600 dark:text-slate-300 italic border-l-2 border-blue-400 pl-2 py-0.5 cursor-pointer hover:bg-blue-50/60 dark:hover:bg-blue-950/30 rounded-r transition-colors flex items-start justify-between gap-1 group font-sans"
+                                      title="Click to edit note"
+                                    >
+                                      <span className="leading-snug">{whiteComment}</span>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+
+                            {/* Black move note / inline editor */}
+                            {(blackComment || isEditingBlack) && (
+                              <tr className="bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800/40">
+                                <td colSpan={3} className="py-1 px-3">
+                                  {isEditingBlack ? (
+                                    <InlineCommentEditor
+                                      initialValue={editingText}
+                                      onSave={text => handleSaveMainlineNote(pair.black!.ply, text)}
+                                      onCancel={handleCancelNote}
+                                      label={`Move ${pair.moveNumber}... ${pair.black!.san}`}
+                                    />
+                                  ) : (
+                                    <div
+                                      onClick={() => handleStartEditMainlineNote(pair.black!.ply)}
+                                      className="text-[11px] text-slate-600 dark:text-slate-300 italic border-l-2 border-slate-400 dark:border-slate-600 pl-2 py-0.5 cursor-pointer hover:bg-slate-100/60 dark:hover:bg-slate-800/50 rounded-r transition-colors flex items-start justify-between gap-1 group font-sans"
+                                      title="Click to edit note"
+                                    >
+                                      <span className="leading-snug">{blackComment}</span>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+
                             {/* Indented Variations underneath move pair */}
                             {pairVariations.length > 0 && (
                               <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800/40">
@@ -3410,12 +4159,41 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                               <button
                                                 onClick={e => {
                                                   e.currentTarget.blur();
+                                                  if (isLongPressRef.current) {
+                                                    isLongPressRef.current = false;
+                                                    return;
+                                                  }
                                                   handleSelectVariationMove(
                                                     variation.branchPly,
                                                     variation.moves,
                                                     vIdx,
                                                   );
                                                 }}
+                                                onContextMenu={e =>
+                                                  handleContextMenu(
+                                                    e,
+                                                    variation.branchPly + 1,
+                                                    vm.san,
+                                                    true,
+                                                    variation.id,
+                                                    vIdx,
+                                                    Boolean(vm.comment),
+                                                  )
+                                                }
+                                                onTouchStart={e =>
+                                                  handleTouchStart(
+                                                    e,
+                                                    variation.branchPly + 1,
+                                                    vm.san,
+                                                    true,
+                                                    variation.id,
+                                                    vIdx,
+                                                    Boolean(vm.comment),
+                                                  )
+                                                }
+                                                onTouchMove={handleTouchMove}
+                                                onTouchEnd={handleTouchEnd}
+                                                onTouchCancel={handleTouchEnd}
                                                 className={`px-1 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
                                                   isMoveActive
                                                     ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
@@ -3430,6 +4208,39 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                                     : ''}
                                                 {vm.san}
                                               </button>
+
+                                              {/* Variation Move Comment */}
+                                              {vm.comment && (
+                                                <span
+                                                  onClick={() =>
+                                                    handleStartEditVariationNote(variation.id, vIdx)
+                                                  }
+                                                  className="text-[10px] text-amber-700 dark:text-amber-400 italic px-1 py-0.5 rounded hover:bg-amber-100/60 dark:hover:bg-amber-950/40 cursor-pointer font-sans"
+                                                  title="Click to edit note"
+                                                >
+                                                  {`{ ${vm.comment} }`}
+                                                </span>
+                                              )}
+
+                                              {/* Inline Editor for this variation move */}
+                                              {editingTarget?.type === 'variation' &&
+                                                editingTarget.varId === variation.id &&
+                                                editingTarget.varIndex === vIdx && (
+                                                  <div className="w-full my-1">
+                                                    <InlineCommentEditor
+                                                      initialValue={editingText}
+                                                      onSave={text =>
+                                                        handleSaveVariationNote(
+                                                          variation.id,
+                                                          vIdx,
+                                                          text,
+                                                        )
+                                                      }
+                                                      onCancel={handleCancelNote}
+                                                      label={`Variation Note • ${vm.san}`}
+                                                    />
+                                                  </div>
+                                                )}
 
                                               {/* Render nested sub-variations in parentheses */}
                                               {subVars.map((sv, sIdx) => (
@@ -3446,6 +4257,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                                         key={svIdx}
                                                         onClick={e => {
                                                           e.currentTarget.blur();
+                                                          if (isLongPressRef.current) {
+                                                            isLongPressRef.current = false;
+                                                            return;
+                                                          }
                                                           const prefix = variation.moves.slice(
                                                             0,
                                                             vIdx + 1,
@@ -3794,6 +4609,68 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               </div>
             )}
           </>
+        )}
+
+        {contextMenu && (
+          <MoveContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            isOpen={Boolean(contextMenu)}
+            onClose={() => setContextMenu(null)}
+            ply={contextMenu.ply}
+            moveLabel={contextMenu.san}
+            isVariation={contextMenu.isVariation}
+            hasComment={contextMenu.hasComment}
+            isAiAnnotating={isAiAnnotating}
+            onAddOrEditNote={() => {
+              if (
+                contextMenu.isVariation &&
+                contextMenu.varId &&
+                contextMenu.varIndex !== undefined
+              ) {
+                handleStartEditVariationNote(contextMenu.varId, contextMenu.varIndex);
+              } else {
+                handleStartEditMainlineNote(contextMenu.ply);
+              }
+            }}
+            onAnnotateWithAI={() => {
+              void handleAnnotateWithAI(
+                contextMenu.ply,
+                contextMenu.san,
+                contextMenu.isVariation,
+                contextMenu.varId,
+                contextMenu.varIndex,
+              );
+            }}
+            onDeleteNote={() => {
+              if (
+                contextMenu.isVariation &&
+                contextMenu.varId &&
+                contextMenu.varIndex !== undefined
+              ) {
+                handleDeleteVariationNote(contextMenu.varId, contextMenu.varIndex);
+              } else {
+                handleDeleteMainlineNote(contextMenu.ply);
+              }
+            }}
+            onDeleteFromHere={
+              contextMenu.isVariation &&
+              contextMenu.varId !== undefined &&
+              contextMenu.varIndex !== undefined
+                ? () => handleDeleteFromHere(contextMenu.varId!, contextMenu.varIndex!)
+                : undefined
+            }
+            onDeleteVariation={
+              contextMenu.isVariation && contextMenu.varId !== undefined
+                ? () => handleDeleteVariation(contextMenu.varId!)
+                : undefined
+            }
+            onPromoteVariation={
+              contextMenu.isVariation && contextMenu.varId !== undefined
+                ? () => handlePromoteVariation(contextMenu.varId!)
+                : undefined
+            }
+          />
         )}
       </div>
     );

@@ -1,5 +1,7 @@
 import type {
   AnalysisRecord,
+  AnnotateMoveRequest,
+  AnnotateMoveResponse,
   AppendQARequest,
   AppendQAResponse,
   AskMoveRequest,
@@ -20,6 +22,7 @@ import type {
   Settings,
   SyncOptions,
   SyncResult,
+  UpdatePgnResponse,
 } from '../types';
 import {
   getGitHubDirectAnalysis,
@@ -344,6 +347,18 @@ export const askMoveQuestion = (analysisId: number | string, data: AskMoveReques
 
 export const appendQAToReport = (analysisId: number | string, data: AppendQARequest) =>
   req<AppendQAResponse>(`/analysis/${encodeURIComponent(analysisId)}/append-qa`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const updateGamePgn = (analysisId: number | string, pgn: string) =>
+  req<UpdatePgnResponse>(`/analysis/${encodeURIComponent(analysisId)}/pgn`, {
+    method: 'POST',
+    body: JSON.stringify({ pgn }),
+  });
+
+export const annotateMove = (analysisId: number | string, data: AnnotateMoveRequest) =>
+  req<AnnotateMoveResponse>(`/analysis/${encodeURIComponent(analysisId)}/annotate-move`, {
     method: 'POST',
     body: JSON.stringify(data),
   });

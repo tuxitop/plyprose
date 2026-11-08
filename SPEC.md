@@ -399,6 +399,8 @@ class IdentifyOpeningResponse(BaseModel):
 | `GET` | `/api/analysis/{analysis_id}/report-html` | Render styled report HTML with embedded SVGs |
 | `POST` | `/api/analysis/{analysis_id}/ask-move` | Interactive move-level coaching Q&A |
 | `POST` | `/api/analysis/{analysis_id}/append-qa` | Append Q&A chapter to report and auto-push to GitHub |
+| `POST` | `/api/analysis/{analysis_id}/annotate-move` | On-demand verified AI move commentary with `✨ ` prefix |
+| `POST` | `/api/analysis/{analysis_id}/pgn` | Update game PGN with user annotations and saved variations |
 | **Export & Board Tools** | | |
 | `GET` | `/api/analysis/{analysis_id}/export/pdf` | Download analysis report as styled PDF |
 | `GET` | `/api/analysis/{analysis_id}/export/zip` | Download Markdown report and PNG diagrams as ZIP |
@@ -461,7 +463,10 @@ class IdentifyOpeningResponse(BaseModel):
 
 - **Tech Stack:** React 18+, TypeScript (`strict: true`), Vite, Tailwind CSS, Lucide React icons.
 - **Key Components:**
-  - `InteractiveBoard.tsx`: Main analysis interface integrating `@lichess-org/chessground` and browser-side **Stockfish 19 WASM**. Supports free-play exploration, live multi-PV arrows, move badges, opening continuations, docked mobile split mode, and touch drag-resizing.
+  - `InteractiveBoard.tsx`: Main analysis interface integrating `@lichess-org/chessground` and browser-side **Stockfish 19 WASM**. Supports free-play exploration, auto-saved variations, live multi-PV arrows, move badges, opening continuations, docked mobile split mode, and touch drag-resizing.
+  - `MoveContextMenu.tsx`: Context menu triggered via desktop right-click or mobile 450ms long-press on any move in the movelist. Provides Add/Edit Note, Annotate with AI, Delete Note, Delete variation, Delete from here, and Promote variation with boundary-aware viewport anchoring.
+  - `InlineCommentEditor.tsx`: In-place inline textarea replacing comments in the movelist table with Enter-to-save and Esc-to-cancel, maintaining zero toolbar clutter and preserving board space.
+  - `pgnWriter.ts`: Deterministic RFC-compliant standard PGN builder and parser (`buildAnnotatedPgn`, `extractCommentsAndClocksFromPgn`, `extractVariationsFromPgn`) ensuring comments `{ ... }` and variations `( ... )` remain 100% portable to Lichess, Chess.com, and ChessBase.
   - `EvaluationChart.tsx`: Centipawn trajectory chart across every ply with click-to-navigate integration.
   - `GamesTable.tsx`: Searchable, filterable game library table with responsive dual-view (desktop 7-column table with horizontal scroll, and touch-optimized card layout on mobile), tag capsules, platform badges, batch selection, and SSE analysis progress modals.
   - `MoveBadgeGlyph.tsx` & `badges.ts`: Visual move classification badges (Brilliant, Best Move, Inaccuracy, Mistake, Blunder, Missed Win, Checkmate).

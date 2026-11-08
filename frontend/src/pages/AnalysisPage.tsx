@@ -164,6 +164,10 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
     setRecord(prev => (prev ? { ...prev, report_md: newMd } : null));
   }, []);
 
+  const handlePgnUpdated = useCallback((newPgn: string) => {
+    setRecord(prev => (prev ? { ...prev, pgn_text: newPgn } : null));
+  }, []);
+
   const handleScrollToSection = useCallback((sectionName: string) => {
     const container = reportContainerRef.current;
     if (!container) return;
@@ -1061,6 +1065,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 isMobileDocked={true}
                 hideHeader={true}
                 onAnalysisToggled={setIsLiveAnalyzing}
+                onPgnUpdated={handlePgnUpdated}
+                githubPath={record.github_path || undefined}
               />
             </ErrorBoundary>
           </div>
@@ -1086,6 +1092,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 isMobileDocked={false}
                 hideHeader={true}
                 onAnalysisToggled={setIsLiveAnalyzing}
+                onPgnUpdated={handlePgnUpdated}
+                githubPath={record.github_path || undefined}
               />
             </ErrorBoundary>
           </div>
@@ -1178,6 +1186,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               isMobileDocked={false}
               hideHeader={false}
               onAnalysisToggled={setIsLiveAnalyzing}
+              onPgnUpdated={handlePgnUpdated}
+              githubPath={record.github_path || undefined}
             />
           </ErrorBoundary>
         </aside>

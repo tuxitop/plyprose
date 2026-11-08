@@ -937,3 +937,105 @@ export async function downloadGitHubDirectPdf(identifier: number | string): Prom
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Saves updated PGN text directly to the user's GitHub repository using the GitHub Git Data API.
+ */
+export async function saveAnnotatedPgnDirect(
+  folderPath: string,
+  newPgn: string,
+): Promise<{ ok: boolean; commitSha?: string; error?: string }> {
+  const settings = getLocalSettings();
+  if (!settings.github_token || !settings.github_repo) {
+    return { ok: false, error: 'GitHub Direct settings missing' };
+  }
+
+  const [owner, repo] = settings.github_repo.split('/');
+  if (!owner || !repo) {
+    return { ok: false, error: 'Invalid repository name' };
+  }
+
+  const branch = settings.github_branch || 'main';
+  const cleanFolder = folderPath.trim().replace(/^\/+|\/+$/g, '');
+
+  try {
+    // 1. Create blob for new PGN
+    const blobRes = await githubFetch<{ sha: string }>(
+      `/repos/${owner}/${repo}/git/blobs`,
+      settings.github_token,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          content: newPgn,
+          encoding: 'utf-8',
+        }),
+      },
+    );
+
+    // 2. Get latest commit SHA for branch
+    const refData = await githubFetch<{ object: { sha: string } }>(
+      `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`,
+      settings.github_token,
+    );
+    const parentCommitSha = refData.object.sha;
+
+    // 3. Get tree SHA from parent commit
+    const commitData = await githubFetch<{ tree: { sha: string } }>(
+      `/repos/${owner}/${repo}/git/commits/${parentCommitSha}`,
+      settings.github_token,
+    );
+
+    // 4. Create new tree with updated game.pgn
+    const treeRes = await githubFetch<{ sha: string }>(
+      `/repos/${owner}/${repo}/git/trees`,
+      settings.github_token,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          base_tree: commitData.tree.sha,
+          tree: [
+            {
+              path: `${cleanFolder}/game.pgn`,
+              mode: '100644',
+              type: 'blob',
+              sha: blobRes.sha,
+            },
+          ],
+        }),
+      },
+    );
+
+    // 5. Create new commit
+    const newCommit = await githubFetch<{ sha: string }>(
+      `/repos/${owner}/${repo}/git/commits`,
+      settings.github_token,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          message: `Update notes: ${cleanFolder}`,
+          tree: treeRes.sha,
+          parents: [parentCommitSha],
+        }),
+      },
+    );
+
+    // 6. Fast-forward branch ref
+    await githubFetch(
+      `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`,
+      settings.github_token,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          sha: newCommit.sha,
+          force: false,
+        }),
+      },
+    );
+
+    clearBlobCache();
+    return { ok: true, commitSha: newCommit.sha };
+  } catch (err) {
+    console.error('Error saving annotated PGN to GitHub:', err);
+    return { ok: false, error: String(err) };
+  }
+}

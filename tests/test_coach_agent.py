@@ -6,9 +6,11 @@ from google.genai import types
 
 from src.coach_agent import (
     build_coach_user_prompt,
+    extract_upfront_annotations_from_report,
     generate_narrative_report,
     get_coach_config,
     get_system_prompt,
+    inject_annotations_into_pgn,
     probe_gemini_connection,
 )
 from src.inspector import verify_variation_tool
@@ -317,3 +319,28 @@ def test_probe_gemini_connection_error():
     ok, msg = probe_gemini_connection(client=mock_client)
     assert ok is False
     assert "API quota exceeded" in msg
+
+
+def test_extract_and_inject_annotations():
+    report_md = """
+# 4. Critical Moments
+| Move | Player | Classification | What Happened | Why It Mattered | Tactical / Strategic Context |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `1. e4` | White | Best Move | Controls center | Standard opening | Normal |
+
+### Instructive Move Annotations
+- `1. e4`: Claims central space and opens lines for Queen and Bishop.
+- `2. Nf3`: Develops knight with tempo toward center.
+- `3... Bc5`: Italian Game active bishop setup.
+"""
+    ann = extract_upfront_annotations_from_report(report_md)
+    assert "1. e4" in ann
+    assert "Claims central space" in ann["1. e4"]
+    assert "2. Nf3" in ann
+    assert "3... Bc5" in ann
+
+    raw_pgn = '[Event "Test"]\n\n1. e4 { [%clk 0:03:00] } 1... e5 2. Nf3 Nc6 3. Bc4 Bc5 *'
+    annotated_pgn = inject_annotations_into_pgn(raw_pgn, ann)
+    assert "[%clk 0:03:00] ✨ Claims central space" in annotated_pgn
+    assert "✨ Develops knight with tempo" in annotated_pgn
+    assert "✨ Italian Game active bishop setup" in annotated_pgn

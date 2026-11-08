@@ -39,7 +39,12 @@ from api.ratings import get_detected_ratings
 from api.settings_db import get_settings, update_settings
 from api.time_control import classify_time_control
 from src.analyzer import analyze_pgn
-from src.coach_agent import get_available_gemini_models, probe_gemini_connection
+from src.coach_agent import (
+    extract_upfront_annotations_from_report,
+    get_available_gemini_models,
+    inject_annotations_into_pgn,
+    probe_gemini_connection,
+)
 from src.evals import extract_ply_evals_from_pgn, interpolate_ply_evals
 from src.exporter import export_to_pdf
 from src.fetcher import (
@@ -65,12 +70,16 @@ from src.llm import (
     model_label,
 )
 from src.models import (
+    AnnotateMoveRequest,
+    AnnotateMoveResponse,
     AppendQARequest,
     AppendQAResponse,
     AskMoveRequest,
     AskMoveResponse,
     GameAnalysisPayload,
     GitHubPullResult,
+    UpdatePgnRequest,
+    UpdatePgnResponse,
 )
 from src.openai_agent import list_openai_compat_models, probe_openai_compat_connection
 from src.openings import (
@@ -93,12 +102,13 @@ from src.storage import (
     save_analysis,
     update_analysis_github_sync,
     update_analysis_payload,
+    update_analysis_pgn,
     update_analysis_platform,
     update_analysis_report,
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.13.5")
+app = FastAPI(title="PlyProse API", version="1.14.0")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -1775,6 +1785,11 @@ async def _run_analysis_job(
         # Reconcile any hallucinated or malformed FENs in board tags
         report = reconcile_report_fens(report, pgn_text=pgn, payload=payload)
 
+        # Extract upfront move annotations and weave them into the PGN comments
+        upfront_ann = extract_upfront_annotations_from_report(report)
+        if upfront_ann:
+            pgn = inject_annotations_into_pgn(pgn, upfront_ann)
+
         _emit("step", {"step": 3, "message": "Saving analysis…", "progress": 90})
 
         active_model = model_label(
@@ -2140,6 +2155,123 @@ def api_ask_move(analysis_id: str, req: AskMoveRequest) -> AskMoveResponse:
     except Exception as exc:
         logger.exception("Error in api_ask_move: %s", exc)
         raise HTTPException(status_code=400, detail=f"Failed to generate answer: {exc}") from exc
+
+
+@app.post("/api/analysis/{analysis_id}/annotate-move", response_model=AnnotateMoveResponse)
+def api_annotate_move(analysis_id: str, req: AnnotateMoveRequest) -> AnnotateMoveResponse:
+    rec = get_analysis_by_id_or_key(analysis_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    pgn_text = rec.get("pgn_text", "")
+    payload_json = rec.get("payload_json")
+    payload = None
+    if payload_json:
+        try:
+            payload = GameAnalysisPayload.model_validate_json(payload_json)
+        except Exception:
+            pass
+
+    settings = get_settings()
+    provider = settings.get("llm_provider", PROVIDER_GEMINI)
+    model_name = settings.get("llm_model", "gemini-2.5-pro")
+
+    gemini_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
+    openai_key = settings.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
+    openai_url = settings.get("openai_base_url")
+    api_key = gemini_key if provider == PROVIDER_GEMINI else openai_key
+
+    try:
+        move_num = (req.ply + 1) // 2 if req.ply > 0 else 1
+        color = "White" if req.ply % 2 != 0 else "Black"
+        prompt_q = (
+            f"Provide a concise, single-sentence master coaching annotation for {req.san} "
+            f"(move {move_num} for {color}). Explain the strategic purpose, tactical idea, or error concisely. "
+            "Output only the 1-sentence annotation without introductory text."
+        )
+
+        ans = ask_move_question(
+            pgn_text=pgn_text,
+            payload=payload,
+            question=prompt_q,
+            ply=req.ply,
+            move_number=move_num,
+            color=color,
+            provider=provider,
+            model_name=model_name,
+            api_key=api_key,
+            base_url=openai_url,
+        )
+
+        clean_comment = ans.answer_markdown.strip()
+        clean_comment = re.sub(r"^(?:###|\*\*|#)\s*", "", clean_comment)
+        clean_comment = clean_comment.strip(" \"*'")
+        if "\n" in clean_comment:
+            clean_comment = clean_comment.split("\n")[0].strip()
+        if not clean_comment.startswith("✨"):
+            clean_comment = f"✨ {clean_comment}"
+
+        return AnnotateMoveResponse(
+            ok=True,
+            ply=req.ply,
+            san=req.san,
+            comment=clean_comment,
+        )
+    except Exception as exc:
+        logger.exception("Error in api_annotate_move: %s", exc)
+        fallback = f"✨ Tactical and positional consideration for {req.san}."
+        return AnnotateMoveResponse(
+            ok=True,
+            ply=req.ply,
+            san=req.san,
+            comment=fallback,
+        )
+
+
+@app.post("/api/analysis/{analysis_id}/pgn", response_model=UpdatePgnResponse)
+@app.post("/api/games/{analysis_id}/pgn", response_model=UpdatePgnResponse)
+def api_update_pgn(analysis_id: str, req: UpdatePgnRequest) -> UpdatePgnResponse:
+    rec = get_analysis_by_id_or_key(analysis_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    real_id = rec["id"]
+
+    cleaned_pgn = req.pgn.strip()
+    if not cleaned_pgn:
+        raise HTTPException(status_code=400, detail="PGN cannot be empty")
+
+    try:
+        parsed_game = chess.pgn.read_game(io.StringIO(cleaned_pgn))
+        if parsed_game is None:
+            raise HTTPException(status_code=400, detail="Invalid PGN: No chess game parsed")
+        if not list(parsed_game.mainline_moves()):
+            raise HTTPException(status_code=400, detail="Invalid PGN: No valid chess moves found")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid PGN syntax: {exc}") from exc
+
+    success = update_analysis_pgn(real_id, cleaned_pgn)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update game PGN in database")
+
+    # Auto-sync to GitHub in background if configured and enabled
+    settings = get_settings()
+    if (
+        settings.get("github_enabled")
+        and settings.get("github_token")
+        and settings.get("github_repo")
+    ):
+        try:
+            task = asyncio.create_task(
+                asyncio.to_thread(api_github_sync_game, str(real_id), force=True)
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+        except Exception as e:
+            logger.warning("Could not schedule GitHub sync for game %s: %s", real_id, e)
+
+    return UpdatePgnResponse(ok=True, game_id=analysis_id, pgn=cleaned_pgn)
 
 
 @app.post("/api/analysis/{analysis_id}/append-qa", response_model=AppendQAResponse)
