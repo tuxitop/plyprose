@@ -289,6 +289,9 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       return saved !== null ? saved === 'true' : true;
     });
 
+    // Mobile Coach Drawer Visibility (in docked split mode)
+    const [isMobileCoachOpen, setIsMobileCoachOpen] = useState(false);
+
     const handleToggleMoveListEvals = () => {
       setShowMoveListEvals(prev => {
         const next = !prev;
@@ -2555,86 +2558,131 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           )}
         </div>
 
-        {/* Navigation Toolbar */}
-        <div className="px-2 sm:px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 overflow-x-auto scrollbar-none">
-          <div className="flex items-center gap-0.5">
+        {/* Navigation Toolbar (Option 3: Step arrows flanking Current Move + Coach, Flip, Eval) */}
+        <div className="px-2 sm:px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 gap-1 select-none">
+          {/* Left Group: Stepping controls + Current Move Played badge */}
+          <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
             <button
               onClick={handleFirst}
               disabled={safePly === 0 && !isFreePlay}
               title="First Move (Up Arrow)"
-              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
+              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
             >
               <ChevronsLeft size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
+
             <button
               onClick={handlePrevCritical}
               disabled={prevCriticalPly === null}
               title={prevCriticalTooltip}
               aria-label="Previous Critical Moment"
-              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
+              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default shrink-0"
             >
               <ChevronLeft size={13} className="-mr-0.5 sm:w-[12px] sm:h-[12px]" />
               <span className="font-extrabold text-xs sm:text-[11px] font-mono leading-none select-none">
                 !
               </span>
             </button>
+
             <button
               onClick={handlePrev}
               disabled={safePly === 0 && !isFreePlay}
               title="Previous Move (Left Arrow)"
-              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
+              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
             >
               <ChevronLeft size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
+
+            {/* Current Move Played Badge */}
             <button
-              onClick={() => setIsAutoplaying(p => !p)}
-              title={isAutoplaying ? 'Pause Autoplay (Space)' : 'Autoplay Game (Space)'}
-              className={`min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                isAutoplaying
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+              type="button"
+              onClick={() => {
+                if (isMobileDocked) {
+                  setIsMobileCoachOpen(prev => !prev);
+                } else {
+                  setActiveSidebarTab('coach');
+                }
+              }}
+              className={`min-h-[34px] sm:min-h-0 px-2 py-1 sm:py-0.5 rounded-md text-xs font-mono font-bold transition-all cursor-pointer inline-flex items-center gap-1 select-none shrink-0 ${
+                currentPlyData?.criticalMoment
+                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950/70 dark:text-amber-200 border border-amber-300 dark:border-amber-700 shadow-xs'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
               }`}
+              title={
+                currentPlyData?.criticalMoment
+                  ? `${currentPlyData.criticalMoment.classification}: Click to view Coach explanation`
+                  : 'Click to view Coach move breakdown'
+              }
+              aria-label={
+                currentPlyData?.criticalMoment
+                  ? `Current move ${currentPlyData.san}, ${currentPlyData.criticalMoment.classification}`
+                  : `Current move ${currentPlyData?.san || 'Start'}`
+              }
             >
-              {isAutoplaying ? (
-                <Pause size={16} className="sm:w-[15px] sm:h-[15px]" />
-              ) : (
-                <Play size={16} className="sm:w-[15px] sm:h-[15px]" />
+              <span className="truncate max-w-[85px] sm:max-w-[130px]">
+                {isFreePlay
+                  ? currentVarIndex >= 0 && variationPlies[currentVarIndex]
+                    ? `${variationPlies[currentVarIndex].moveNumber}.${variationPlies[currentVarIndex].color === 'b' ? '..' : ''} ${variationPlies[currentVarIndex].san}`
+                    : 'Var'
+                  : safePly > 0
+                    ? `${currentPlyData.moveNumber}.${currentPlyData.color === 'b' ? '..' : ''} ${currentPlyData.san}`
+                    : 'Start'}
+              </span>
+              {currentPlyData?.criticalMoment && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
               )}
             </button>
+
             <button
               onClick={handleNext}
               disabled={safePly >= plies.length - 1 && !isFreePlay}
               title="Next Move (Right Arrow)"
-              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
+              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
             >
               <ChevronRight size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
+
+            <button
+              onClick={handleLast}
+              disabled={safePly >= plies.length - 1 && !isFreePlay}
+              title="Last Move (Down Arrow)"
+              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center shrink-0"
+            >
+              <ChevronsRight size={16} className="sm:w-[15px] sm:h-[15px]" />
+            </button>
+
+            {/* Next Critical Moment button */}
             <button
               onClick={handleNextCritical}
               disabled={nextCriticalPly === null}
               title={nextCriticalTooltip}
               aria-label="Next Critical Moment"
-              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
+              className="min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default shrink-0"
             >
               <span className="font-extrabold text-xs sm:text-[11px] font-mono leading-none select-none">
                 !
               </span>
               <ChevronRight size={13} className="-ml-0.5 sm:w-[12px] sm:h-[12px]" />
             </button>
+
+            {/* Desktop Autoplay */}
             <button
-              onClick={handleLast}
-              disabled={safePly >= plies.length - 1 && !isFreePlay}
-              title="Last Move (Down Arrow)"
-              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
+              onClick={() => setIsAutoplaying(p => !p)}
+              title={isAutoplaying ? 'Pause Autoplay (Space)' : 'Autoplay Game (Space)'}
+              className={`hidden sm:flex min-h-[36px] min-w-[32px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded transition-colors cursor-pointer items-center justify-center shrink-0 ${
+                isAutoplaying
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
             >
-              <ChevronsRight size={16} className="sm:w-[15px] sm:h-[15px]" />
+              {isAutoplaying ? <Pause size={15} /> : <Play size={15} />}
             </button>
 
-            {/* Quick Zoom In / Out on desktop to fine-tune board size */}
-            <div className="hidden sm:flex items-center gap-0.5 border-l border-slate-200 dark:border-slate-800 pl-1 ml-1 text-slate-500">
+            {/* Quick Zoom In / Out on desktop */}
+            <div className="hidden sm:flex items-center gap-0.5 border-l border-slate-200 dark:border-slate-800 pl-1 ml-0.5 text-slate-500">
               <button
                 onClick={() => handlePresetBoardSize(Math.max(180, effectiveBoardSize - 35))}
-                title="Make chessboard smaller (expand move list)"
+                title="Make chessboard smaller"
                 className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
               >
                 <ZoomOut size={13} />
@@ -2650,7 +2698,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               </button>
               <button
                 onClick={() => handlePresetBoardSize(maxBoardWidth)}
-                title="Fit board to sidebar width"
+                title="Fit board to width"
                 className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
               >
                 <Maximize2 size={12} />
@@ -2658,74 +2706,183 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          {/* Right Group: AI Coach, Flip, and Evaluation Chart (all 3 always present) */}
+          <div className="flex items-center gap-1 shrink-0">
             {isFreePlay && shouldHideHeader && (
               <button
                 onClick={handleResetToMainline}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white transition-colors cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white transition-colors cursor-pointer shadow-xs shrink-0"
                 title="Return to Game Mainline"
               >
                 <RotateCcw size={12} />
-                <span>Mainline</span>
+                <span className="hidden sm:inline">Mainline</span>
               </button>
             )}
-            {!isMobileDocked && (
-              <button
-                onClick={() => setActiveSidebarTab(t => (t === 'moves' ? 'coach' : 'moves'))}
-                title={
-                  activeSidebarTab === 'coach'
-                    ? 'Switch to Move List'
-                    : safePly > 0
-                      ? `Ask Coach about ${currentPlyData.moveNumber}.${currentPlyData.san}`
-                      : 'Ask Coach'
+
+            {/* AI Coach Button */}
+            <button
+              onClick={() => {
+                if (isMobileDocked) {
+                  setIsMobileCoachOpen(prev => !prev);
+                } else {
+                  setActiveSidebarTab(t => (t === 'coach' ? 'moves' : 'coach'));
                 }
-                className={`p-1.5 rounded transition-colors cursor-pointer relative ${
-                  activeSidebarTab === 'coach'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
-                }`}
-              >
-                {activeSidebarTab === 'coach' ? (
-                  <List size={14} />
-                ) : (
-                  <>
-                    <Sparkles size={14} className="text-amber-500" />
-                    {currentPlyData.criticalMoment && (
-                      <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                    )}
-                  </>
-                )}
-              </button>
-            )}
+              }}
+              title={
+                currentPlyData?.criticalMoment
+                  ? `Coach: ${currentPlyData.criticalMoment.classification}`
+                  : safePly > 0
+                    ? `Ask Coach about ${currentPlyData.moveNumber}.${currentPlyData.san}`
+                    : 'Ask Coach'
+              }
+              className={`min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-1.5 rounded transition-colors cursor-pointer relative flex items-center justify-center shrink-0 ${
+                (isMobileDocked ? isMobileCoachOpen : activeSidebarTab === 'coach')
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
+              aria-label="Coach breakdown"
+            >
+              <Sparkles
+                size={16}
+                className={
+                  currentPlyData?.criticalMoment &&
+                  !(isMobileDocked ? isMobileCoachOpen : activeSidebarTab === 'coach')
+                    ? 'text-amber-500'
+                    : ''
+                }
+              />
+              {currentPlyData?.criticalMoment && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              )}
+            </button>
+
+            {/* Flip Board Icon */}
             <button
               onClick={handleFlip}
               title="Flip Board Orientation (F)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+              className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer flex items-center justify-center shrink-0"
+              aria-label="Flip board orientation"
             >
-              <RotateCcw size={14} />
+              <RotateCcw size={16} />
             </button>
+
+            {/* Evaluation Graph Icon */}
             <button
               onClick={handleToggleEvalChart}
               title={showEvalChart ? 'Hide Evaluation Chart' : 'Show Evaluation Chart'}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${
+              className={`min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center shrink-0 ${
                 showEvalChart
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
               }`}
+              aria-label="Toggle evaluation chart"
             >
-              <Activity size={14} />
+              <Activity size={16} />
             </button>
+
             {userShapes.length > 0 && (
               <button
                 onClick={handleClearShapes}
                 title="Clear Drawn Arrows & Circles"
-                className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-rose-600 transition-colors cursor-pointer"
+                className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-rose-600 transition-colors cursor-pointer flex items-center justify-center shrink-0"
               >
-                <Trash2 size={14} />
+                <Trash2 size={16} />
               </button>
             )}
           </div>
         </div>
+
+        {/* Mobile Coach Drawer (when opened on mobile docked split view) */}
+        {isMobileDocked && isMobileCoachOpen && (
+          <div className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-2 max-h-60 overflow-y-auto shrink-0 select-text animate-in fade-in slide-in-from-top-1 duration-150 shadow-inner">
+            {/* Header: Move + Classification + Close */}
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <span className="flex items-center gap-1 font-bold text-xs text-slate-900 dark:text-slate-100">
+                  <Sparkles size={14} className="text-amber-500 shrink-0" />
+                  <span>
+                    {safePly > 0
+                      ? `${currentPlyData.moveNumber}.${currentPlyData.color === 'b' ? '..' : ''} ${currentPlyData.san}`
+                      : 'Starting Position'}
+                  </span>
+                  {safePly > 0 && (
+                    <span className="text-slate-400 font-normal text-[11px]">
+                      ({currentPlyData.color === 'w' ? 'White' : 'Black'})
+                    </span>
+                  )}
+                </span>
+                {currentPlyData?.criticalMoment && (
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded text-white ${activeBadge?.bgClass ?? 'bg-amber-600'}`}
+                  >
+                    {currentPlyData.criticalMoment.classification}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileCoachOpen(false)}
+                className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                title="Close Coach breakdown"
+                aria-label="Close Coach breakdown"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Engine Alternative Line (Clickable to load on board) */}
+            {currentPlyData?.criticalMoment?.best_move_san &&
+              currentPlyData.criticalMoment.best_move_san !== currentPlyData.san && (
+                <div className="flex items-center gap-2 p-1.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs">
+                  <span className="text-emerald-800 dark:text-emerald-200 font-medium shrink-0">
+                    Engine recommends:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        currentPlyData.criticalMoment?.pv_san &&
+                        currentPlyData.criticalMoment.pv_san.length > 0
+                      ) {
+                        startVariation(safePly - 1, currentPlyData.criticalMoment.pv_san);
+                        setIsMobileCoachOpen(false);
+                      }
+                    }}
+                    className="font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                    title="Load recommended engine variation on chessboard"
+                  >
+                    {currentPlyData.criticalMoment.best_move_san} ➔
+                  </button>
+                </div>
+              )}
+
+            {/* Tags & Time */}
+            <div className="flex items-center justify-between gap-2 flex-wrap text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              <span>
+                ⏱️ Spent:{' '}
+                {currentPlyData?.timeSpentSeconds !== undefined &&
+                currentPlyData?.timeSpentSeconds !== null
+                  ? `${currentPlyData.timeSpentSeconds}s`
+                  : '—'}
+              </span>
+              {currentPlyData?.criticalMoment?.tags &&
+                currentPlyData.criticalMoment.tags.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {sortTagsNegativeFirst(currentPlyData.criticalMoment.tags).map(t => (
+                      <TagCapsule key={t} tag={t} size="sm" />
+                    ))}
+                  </div>
+                )}
+            </div>
+
+            {/* Deterministic Move Breakdown from payload.json */}
+            <div
+              className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto pt-1 border-t border-slate-200/60 dark:border-slate-800/60"
+              onClick={handleCoachAnswerClick}
+              dangerouslySetInnerHTML={{ __html: moveExplanationHtml }}
+            />
+          </div>
+        )}
 
         {/* Centipawn Evaluation Chart */}
         {showEvalChart && (
