@@ -444,8 +444,10 @@ class IdentifyOpeningResponse(BaseModel):
   - Streamlined Mobile Reader Settings: Automatically surfaces GitHub study repository configuration and connection testing, while suppressing desktop backend polling and collapsing non-applicable desktop engine settings.
   - Reader Move Q&A Fallback: Provides verified deterministic tactical engine explanations directly on mobile without remote LLM synthesis errors.
   - Mobile Docked Split-View & View Switcher (`AnalysisPage.tsx`): Pinned compact chessboard (~36-40vh) with scrollable coaching narrative beneath, accompanied by an instant 3-way view switcher (`[ 📖 Split | 📜 Report | ♟ Board ]`) so readers can follow along interactively without full-screen modal takeovers.
+  - Dedicated Compact Mobile Header (`AnalysisPage.tsx`): Completely eliminates vertical element stacking on small screens (< 640px) with a streamlined 48px top bar (back navigation, truncated player matchup, outcome badge, PDF download, theme toggle, and collapsible details drawer). All secondary actions (opening details, tags, external game link, re-analysis) expand inside an on-demand drawer.
+  - Zero-Overlap Guarantee: Keeps mobile headers strictly within standard document flow (`shrink-0`), removing floating absolute restore overlays on mobile screens to ensure ranks 7 and 8 of the chessboard, player info bars, and report text are 100% visible and accessible.
   - Responsive Mobile Games Card List (`GamesTable.tsx`): Touch-friendly card layout for small screens (< 640px) replacing wide 7-column desktop tables to eliminate horizontal scrolling.
-  - Touch Ergonomics & Safe Areas: Primary chessboard navigation buttons adhere to Apple HIG and Google Material standards (≥44×44px hitboxes), board splitter touch dragging (`onTouchStart`/`onTouchMove`), and iOS notch/gesture bar safe area utilities (`pb-safe`, `pt-safe`).
+  - Touch Ergonomics & Safe Areas: Primary chessboard navigation buttons adhere to Apple HIG and Google Material standards (≥38-44px hitboxes) with `overflow-x-auto` horizontally scrollable toolbars to fit narrow 360px viewports, board splitter touch dragging (`onTouchStart`/`onTouchMove`), and iOS notch/gesture bar safe area utilities (`pb-safe`, `pt-safe`).
 
 ### Module I: Frontend UI Architecture & Interactive Components
 

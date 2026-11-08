@@ -1869,42 +1869,44 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           </div>
 
           <div className="flex items-center gap-1">
-            {/* Quick Board Size Presets */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded p-0.5 text-xs sm:text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-              <button
-                onClick={() => handlePresetBoardSize(220)}
-                className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
-                  effectiveBoardSize <= 240
-                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'hover:text-slate-900 dark:hover:text-slate-100'
-                }`}
-                title="Compact Board (220px) — Maximizes move list space"
-              >
-                S
-              </button>
-              <button
-                onClick={() => handlePresetBoardSize(300)}
-                className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
-                  effectiveBoardSize > 240 && effectiveBoardSize < 360
-                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'hover:text-slate-900 dark:hover:text-slate-100'
-                }`}
-                title="Medium Board (300px)"
-              >
-                M
-              </button>
-              <button
-                onClick={() => handlePresetBoardSize(380)}
-                className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
-                  effectiveBoardSize >= 360
-                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'hover:text-slate-900 dark:hover:text-slate-100'
-                }`}
-                title="Large Board (380px)"
-              >
-                L
-              </button>
-            </div>
+            {/* Quick Board Size Presets (hidden in mobile docked split mode) */}
+            {!isMobileDocked && (
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded p-0.5 text-xs sm:text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                <button
+                  onClick={() => handlePresetBoardSize(220)}
+                  className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
+                    effectiveBoardSize <= 240
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                  title="Compact Board (220px) — Maximizes move list space"
+                >
+                  S
+                </button>
+                <button
+                  onClick={() => handlePresetBoardSize(300)}
+                  className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
+                    effectiveBoardSize > 240 && effectiveBoardSize < 360
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                  title="Medium Board (300px)"
+                >
+                  M
+                </button>
+                <button
+                  onClick={() => handlePresetBoardSize(380)}
+                  className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
+                    effectiveBoardSize >= 360
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                  title="Large Board (380px)"
+                >
+                  L
+                </button>
+              </div>
+            )}
 
             <button
               onClick={handleToggleSettings}
@@ -2180,7 +2182,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             {/* White Player (Left) */}
             <div className="flex flex-col items-start min-w-0 pr-2">
               <span
-                className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[180px] sm:max-w-[220px]"
+                className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[95px] sm:max-w-[220px]"
                 title={whiteName}
               >
                 {whiteName}
@@ -2201,7 +2203,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             {/* Black Player (Right) */}
             <div className="flex flex-col items-end min-w-0 pl-2">
               <span
-                className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[180px] sm:max-w-[220px] text-right"
+                className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[95px] sm:max-w-[220px] text-right"
                 title={blackName}
               >
                 {blackName}
@@ -2350,24 +2352,24 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         </div>
 
         {/* Navigation Toolbar */}
-        <div className="px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0">
-          <div className="flex items-center gap-1 sm:gap-0.5">
+        <div className="px-2 sm:px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 overflow-x-auto scrollbar-none">
+          <div className="flex items-center gap-0.5">
             <button
               onClick={handleFirst}
               disabled={safePly === 0 && !isFreePlay}
               title="First Move (Up Arrow)"
-              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
+              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
             >
-              <ChevronsLeft size={17} className="sm:w-[15px] sm:h-[15px]" />
+              <ChevronsLeft size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
             <button
               onClick={handlePrevCritical}
               disabled={prevCriticalPly === null}
               title={prevCriticalTooltip}
               aria-label="Previous Critical Moment"
-              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
+              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
             >
-              <ChevronLeft size={14} className="-mr-0.5 sm:w-[12px] sm:h-[12px]" />
+              <ChevronLeft size={13} className="-mr-0.5 sm:w-[12px] sm:h-[12px]" />
               <span className="font-extrabold text-xs sm:text-[11px] font-mono leading-none select-none">
                 !
               </span>
@@ -2376,52 +2378,52 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               onClick={handlePrev}
               disabled={safePly === 0 && !isFreePlay}
               title="Previous Move (Left Arrow)"
-              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
+              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
             >
-              <ChevronLeft size={17} className="sm:w-[15px] sm:h-[15px]" />
+              <ChevronLeft size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
             <button
               onClick={() => setIsAutoplaying(p => !p)}
               title={isAutoplaying ? 'Pause Autoplay (Space)' : 'Autoplay Game (Space)'}
-              className={`min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded transition-colors cursor-pointer flex items-center justify-center ${
+              className={`min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded transition-colors cursor-pointer flex items-center justify-center ${
                 isAutoplaying
                   ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
               }`}
             >
               {isAutoplaying ? (
-                <Pause size={17} className="sm:w-[15px] sm:h-[15px]" />
+                <Pause size={16} className="sm:w-[15px] sm:h-[15px]" />
               ) : (
-                <Play size={17} className="sm:w-[15px] sm:h-[15px]" />
+                <Play size={16} className="sm:w-[15px] sm:h-[15px]" />
               )}
             </button>
             <button
               onClick={handleNext}
               disabled={safePly >= plies.length - 1 && !isFreePlay}
               title="Next Move (Right Arrow)"
-              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
+              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
             >
-              <ChevronRight size={17} className="sm:w-[15px] sm:h-[15px]" />
+              <ChevronRight size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
             <button
               onClick={handleNextCritical}
               disabled={nextCriticalPly === null}
               title={nextCriticalTooltip}
               aria-label="Next Critical Moment"
-              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
+              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
             >
               <span className="font-extrabold text-xs sm:text-[11px] font-mono leading-none select-none">
                 !
               </span>
-              <ChevronRight size={14} className="-ml-0.5 sm:w-[12px] sm:h-[12px]" />
+              <ChevronRight size={13} className="-ml-0.5 sm:w-[12px] sm:h-[12px]" />
             </button>
             <button
               onClick={handleLast}
               disabled={safePly >= plies.length - 1 && !isFreePlay}
               title="Last Move (Down Arrow)"
-              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
+              className="min-h-[38px] min-w-[38px] sm:min-h-0 sm:min-w-0 p-1.5 sm:p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
             >
-              <ChevronsRight size={17} className="sm:w-[15px] sm:h-[15px]" />
+              <ChevronsRight size={16} className="sm:w-[15px] sm:h-[15px]" />
             </button>
 
             {/* Quick Zoom In / Out on desktop to fine-tune board size */}
@@ -2453,32 +2455,34 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           </div>
 
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => setActiveSidebarTab(t => (t === 'moves' ? 'coach' : 'moves'))}
-              title={
-                activeSidebarTab === 'coach'
-                  ? 'Switch to Move List'
-                  : safePly > 0
-                    ? `Ask Coach about ${currentPlyData.moveNumber}.${currentPlyData.san}`
-                    : 'Ask Coach'
-              }
-              className={`p-1.5 rounded transition-colors cursor-pointer relative ${
-                activeSidebarTab === 'coach'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              {activeSidebarTab === 'coach' ? (
-                <List size={14} />
-              ) : (
-                <>
-                  <Sparkles size={14} className="text-amber-500" />
-                  {currentPlyData.criticalMoment && (
-                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  )}
-                </>
-              )}
-            </button>
+            {!isMobileDocked && (
+              <button
+                onClick={() => setActiveSidebarTab(t => (t === 'moves' ? 'coach' : 'moves'))}
+                title={
+                  activeSidebarTab === 'coach'
+                    ? 'Switch to Move List'
+                    : safePly > 0
+                      ? `Ask Coach about ${currentPlyData.moveNumber}.${currentPlyData.san}`
+                      : 'Ask Coach'
+                }
+                className={`p-1.5 rounded transition-colors cursor-pointer relative ${
+                  activeSidebarTab === 'coach'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {activeSidebarTab === 'coach' ? (
+                  <List size={14} />
+                ) : (
+                  <>
+                    <Sparkles size={14} className="text-amber-500" />
+                    {currentPlyData.criticalMoment && (
+                      <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    )}
+                  </>
+                )}
+              </button>
+            )}
             <button
               onClick={handleFlip}
               title="Flip Board Orientation (F)"
