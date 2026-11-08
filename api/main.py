@@ -109,7 +109,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.14.4")
+app = FastAPI(title="PlyProse API", version="1.14.5")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -2168,6 +2168,7 @@ def api_ask_move(analysis_id: str, req: AskMoveRequest) -> AskMoveResponse:
     openai_url = settings.get("llm_base_url") or settings.get("openai_base_url")
 
     api_key = gemini_key if provider == PROVIDER_GEMINI else openai_key
+    user_color = rec.get("user_color") or (payload.user_color if payload else None)
 
     try:
         ans = ask_move_question(
@@ -2177,6 +2178,7 @@ def api_ask_move(analysis_id: str, req: AskMoveRequest) -> AskMoveResponse:
             ply=req.ply,
             move_number=req.move_number,
             color=req.color,
+            user_color=user_color,
             provider=provider,
             model_name=model_name,
             api_key=api_key,
@@ -2239,11 +2241,13 @@ def api_annotate_move(analysis_id: str, req: AnnotateMoveRequest) -> AnnotateMov
             )
 
     try:
+        user_color = rec.get("user_color") or (payload.user_color if payload else None)
         annotation = annotate_single_move(
             pgn_text=pgn_text,
             payload=payload,
             ply=req.ply,
             san=req.san,
+            user_color=user_color,
             provider=provider,
             model_name=model_name,
             api_key=api_key,

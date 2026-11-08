@@ -1458,25 +1458,38 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               return;
             }
 
-            // 1b-2. If user played the first move of an existing saved variation branching from safePly
-            const matchingSaved = savedVariations.find(
-              sv =>
-                sv.branchPly === safePly &&
-                sv.moves.length > 0 &&
-                ((sv.moves[0].from === orig && sv.moves[0].to === dest) ||
-                  sv.moves[0].san === moveRes.san),
-            );
+            // 1b-2. If user played a move matching an existing saved variation
+            const isFinalPly = safePly === plies.length - 1 && safePly > 0;
+            const targetBranchPly = isFinalPly ? safePly - 1 : safePly;
+            const matchingSaved = savedVariations.find(sv => {
+              if (sv.branchPly !== targetBranchPly || sv.moves.length === 0) return false;
+              if (isFinalPly) {
+                return (
+                  sv.moves.length > 1 &&
+                  sv.moves[0].san === plies[safePly].san &&
+                  ((sv.moves[1].from === orig && sv.moves[1].to === dest) ||
+                    sv.moves[1].san === moveRes.san)
+                );
+              }
+              return (
+                (sv.moves[0].from === orig && sv.moves[0].to === dest) ||
+                sv.moves[0].san === moveRes.san
+              );
+            });
+
             if (matchingSaved) {
-              handleSelectVariationMove(safePly, matchingSaved.moves, 0);
+              const targetIdx = isFinalPly ? 1 : 0;
+              handleSelectVariationMove(targetBranchPly, matchingSaved.moves, targetIdx);
               if (cgApiRef.current) {
-                const turnColor: Color = matchingSaved.moves[0].color === 'w' ? 'black' : 'white';
+                const targetMove = matchingSaved.moves[targetIdx];
+                const turnColor: Color = targetMove.color === 'w' ? 'black' : 'white';
                 cgApiRef.current.set({
-                  fen: matchingSaved.moves[0].fen,
+                  fen: targetMove.fen,
                   turnColor,
                   lastMove: [orig, dest],
                   movable: {
                     color: 'both',
-                    dests: getLegalDests(matchingSaved.moves[0].fen),
+                    dests: getLegalDests(targetMove.fen),
                   },
                 });
               }
@@ -1484,29 +1497,61 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             }
 
             // 1c. Starting a new variation from mainline
-            setBranchPly(safePly);
-            const newVarPly: VariationPly = {
-              plyIndex: 0,
-              fen: nextFen,
-              san: moveRes.san,
-              moveNumber: moveNum,
-              color: moveRes.color,
-              from: orig,
-              to: dest,
-            };
-            const newVarList = [newVarPly];
+            let newVarList: VariationPly[];
+            if (isFinalPly) {
+              const lastMainPly = plies[safePly];
+              const rootVarPly: VariationPly = {
+                plyIndex: 0,
+                fen: lastMainPly.fen,
+                san: lastMainPly.san,
+                moveNumber: lastMainPly.moveNumber,
+                color: lastMainPly.color,
+                from: lastMainPly.from,
+                to: lastMainPly.to,
+              };
+              const nextVarPly: VariationPly = {
+                plyIndex: 1,
+                fen: nextFen,
+                san: moveRes.san,
+                moveNumber: moveNum,
+                color: moveRes.color,
+                from: orig,
+                to: dest,
+              };
+              newVarList = [rootVarPly, nextVarPly];
+            } else {
+              const newVarPly: VariationPly = {
+                plyIndex: 0,
+                fen: nextFen,
+                san: moveRes.san,
+                moveNumber: moveNum,
+                color: moveRes.color,
+                from: orig,
+                to: dest,
+              };
+              newVarList = [newVarPly];
+            }
+
+            setBranchPly(targetBranchPly);
             setVariationPlies(newVarList);
-            setCurrentVarIndex(0);
+            setCurrentVarIndex(newVarList.length - 1);
             setIsFreePlay(true);
             setFreeChess(chessInst);
 
-            const newVarId = `var-${safePly}-${Date.now()}`;
+            const newVarId = `var-${targetBranchPly}-${Date.now()}`;
             setSavedVariations(prev => {
               const nextVars = [
-                ...prev.filter(v => !(v.branchPly === safePly && v.moves[0]?.san === moveRes.san)),
+                ...prev.filter(
+                  v =>
+                    !(
+                      v.branchPly === targetBranchPly &&
+                      v.moves[0]?.san === newVarList[0].san &&
+                      (newVarList.length <= 1 || v.moves[1]?.san === newVarList[1].san)
+                    ),
+                ),
                 {
                   id: newVarId,
-                  branchPly: safePly,
+                  branchPly: targetBranchPly,
                   moves: newVarList,
                 },
               ];
@@ -3734,8 +3779,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                             key={rootVar.id}
                             className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-200 dark:border-slate-800"
                           >
-                            <td colSpan={3} className="py-1 px-0">
-                              <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed ml-1 pl-7 border-l-2 border-slate-300 dark:border-slate-600">
+                            <td className="w-9 py-1 px-0 relative align-top select-none font-mono text-xs">
+                              <div
+                                className="absolute top-0 bottom-0 w-0.5 bg-slate-300 dark:bg-slate-600"
+                                style={{ right: 'calc(0.375rem + 2ch - 2px)' }}
+                              />
+                            </td>
+                            <td colSpan={2} className="py-1 px-1.5">
+                              <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed pl-1">
                                 <span className="text-slate-400 dark:text-slate-500 font-sans">
                                   (
                                 </span>
@@ -4078,12 +4129,20 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                         // Helper to render variation list with quote left border aligned with move number
                         const renderVariationList = (
                           vars: Array<{ id: string; branchPly: number; moves: VariationPly[] }>,
+                          moveNum: number,
                         ) => {
                           if (vars.length === 0) return null;
+                          const charCount = String(moveNum).length + 1;
                           return (
                             <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800/40">
-                              <td colSpan={3} className="py-1 px-0">
-                                <div className="ml-1 pl-7 border-l-2 border-slate-300 dark:border-slate-600 flex flex-col gap-1 text-[11px] font-mono leading-relaxed">
+                              <td className="w-9 py-1 px-0 relative align-top select-none font-mono text-xs">
+                                <div
+                                  className="absolute top-0 bottom-0 w-0.5 bg-slate-300 dark:bg-slate-600"
+                                  style={{ right: `calc(0.375rem + ${charCount}ch - 2px)` }}
+                                />
+                              </td>
+                              <td colSpan={2} className="py-1 px-1.5">
+                                <div className="flex flex-col gap-1 text-[11px] font-mono leading-relaxed pl-1">
                                   {vars.map(variation => (
                                     <div
                                       key={variation.id}
@@ -4280,7 +4339,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                 )}
 
                               {/* 3. White variations */}
-                              {renderVariationList(whiteVariations)}
+                              {renderVariationList(whiteVariations, pair.moveNumber)}
 
                               {/* 4. Black row: 6. ... e6 */}
                               <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
@@ -4310,7 +4369,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               )}
 
                               {/* 6. Black variations */}
-                              {renderVariationList(blackVariations)}
+                              {renderVariationList(blackVariations, pair.moveNumber)}
                             </Fragment>
                           );
                         }
@@ -4356,7 +4415,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                 isEditingWhite,
                                 `Move ${pair.moveNumber}. ${pair.white.san}`,
                               )}
-                            {!pair.black && renderVariationList(whiteVariations)}
+                            {!pair.black && renderVariationList(whiteVariations, pair.moveNumber)}
 
                             {/* Black comment row */}
                             {pair.black &&
@@ -4368,7 +4427,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               )}
 
                             {/* Black variations */}
-                            {pair.black && renderVariationList(blackVariations)}
+                            {pair.black && renderVariationList(blackVariations, pair.moveNumber)}
                           </Fragment>
                         );
                       })}

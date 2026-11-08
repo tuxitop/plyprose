@@ -82,6 +82,7 @@ def ask_move_question(
     ply: int | None = None,
     move_number: int | None = None,
     color: str | None = None,
+    user_color: str | None = None,
     provider: str = PROVIDER_GEMINI,
     model_name: str = "gemini-2.5-pro",
     api_key: str | None = None,
@@ -97,6 +98,7 @@ def ask_move_question(
         ply=ply,
         move_number=move_number,
         color=color,
+        user_color=user_color,
     )
     if provider == PROVIDER_OPENAI_COMPAT:
         return ask_move_question_openai(
@@ -121,6 +123,7 @@ def annotate_single_move(
     payload: GameAnalysisPayload | None,
     ply: int,
     san: str,
+    user_color: str | None = None,
     provider: str = PROVIDER_GEMINI,
     model_name: str = "gemini-2.5-flash",
     api_key: str | None = None,
@@ -135,6 +138,7 @@ def annotate_single_move(
         pgn_text=pgn_text,
         payload=payload,
         ply=ply,
+        user_color=user_color,
     )
 
     if provider == PROVIDER_OPENAI_COMPAT:

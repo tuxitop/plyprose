@@ -92,3 +92,53 @@ test('buildAnnotatedPgn and extractVariationsFromPgn support variations after th
   assert.strictEqual(extracted[0].moves[1].moveNumber, 3);
   assert.strictEqual(extracted[0].moves[1].color, 'b');
 });
+
+test('buildAnnotatedPgn and extractVariationsFromPgn support final move variations with root ply (e.g. 29... Qxd5+ 30. Ke3)', () => {
+  const basePgn = `[Event "Final Move Test"]\n\n1. e4 e5 2. Nf3 Nc6 0-1`;
+  // Move 2... Nc6 is ply 4.
+  // Variation attached to final move branches at ply 3 (before 2... Nc6) and includes 2... Nc6 as root:
+  const finalMoveVars = [
+    {
+      id: 'final-move-var-1',
+      branchPly: 3,
+      moves: [
+        {
+          plyIndex: 0,
+          fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 3',
+          san: 'Nc6',
+          moveNumber: 2,
+          color: 'b' as const,
+          from: 'b8' as const,
+          to: 'c6' as const,
+        },
+        {
+          plyIndex: 1,
+          fen: 'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 3',
+          san: 'Bb5',
+          moveNumber: 3,
+          color: 'w' as const,
+          from: 'f1' as const,
+          to: 'b5' as const,
+          comment: 'Exploring what could happen',
+        },
+      ],
+    },
+  ];
+
+  const emptyComments = new Map<number, string>();
+  const annotated = buildAnnotatedPgn(basePgn, emptyComments, finalMoveVars);
+
+  assert.ok(annotated.includes('Nc6 ( 2... Nc6 3. Bb5 { Exploring what could happen } )'));
+  assert.ok(annotated.endsWith('0-1'));
+
+  const extracted = extractVariationsFromPgn(annotated);
+  assert.strictEqual(extracted.length, 1);
+  assert.strictEqual(extracted[0].branchPly, 3);
+  assert.strictEqual(extracted[0].moves.length, 2);
+  assert.strictEqual(extracted[0].moves[0].san, 'Nc6');
+  assert.strictEqual(extracted[0].moves[0].moveNumber, 2);
+  assert.strictEqual(extracted[0].moves[0].color, 'b');
+  assert.strictEqual(extracted[0].moves[1].san, 'Bb5');
+  assert.strictEqual(extracted[0].moves[1].moveNumber, 3);
+  assert.strictEqual(extracted[0].moves[1].color, 'w');
+});

@@ -593,6 +593,7 @@ def extract_move_qa_context(
     ply: int | None = None,
     move_number: int | None = None,
     color: str | None = None,
+    user_color: str | None = None,
 ) -> dict[str, Any]:
     """
     Extracts deterministic board facts, engine critical moments, and context
@@ -646,13 +647,16 @@ def extract_move_qa_context(
                 matched_cm = cm
                 break
 
-    student_color = (payload.user_color if payload else "Both") or "Both"
+    student_color = user_color or (payload.user_color if payload else None) or "Both"
+    white_name = (payload.white_player if payload else None) or game.headers.get("White") or "White"
+    black_name = (payload.black_player if payload else None) or game.headers.get("Black") or "Black"
+
     if student_color == "White":
-        student_name = payload.white_player if payload else "You"
-        opponent_name = payload.black_player if payload else "Opponent"
+        student_name = white_name
+        opponent_name = black_name
     elif student_color == "Black":
-        student_name = payload.black_player if payload else "You"
-        opponent_name = payload.white_player if payload else "Opponent"
+        student_name = black_name
+        opponent_name = white_name
     else:
         student_name = "You"
         opponent_name = "Opponent"
@@ -858,6 +862,12 @@ def build_move_annotation_prompt(context: dict[str, Any]) -> str:
     cm: CriticalMoment | None = context.get("critical_moment")
     facts_before: TacticalFacts = context["facts_before"]
     facts_after: TacticalFacts = context["facts_after"]
+    student_color = context.get("student_color") or "Both"
+    student_name = context.get("student_name") or "You"
+    opponent_name = context.get("opponent_name") or "Opponent"
+
+    is_student_move = (student_color == "Both") or (color == student_color)
+    is_opponent_move = (student_color in ("White", "Black")) and (color != student_color)
 
     cm_details = ""
     is_missed_best = False
@@ -883,33 +893,71 @@ def build_move_annotation_prompt(context: dict[str, Any]) -> str:
     )
     hanging_after = ", ".join(facts_after.hanging_pieces) if facts_after.hanging_pieces else "None"
 
-    if cm and is_missed_best:
-        tactical_directive = (
-            f"4. CRITICAL TACTICAL COMPARISON (Played {played_san} vs Best Move {cm.best_move_san}):\n"
-            f"   - Explain the student's idea with {played_san} (e.g. what fork, pin, attack, or piece activation was intended).\n"
-            f"   - CRITICALLY: Do not merely praise the move if a superior move was available! Explicitly explain why {cm.best_move_san} was the stronger tactic or cleaner intermediate move (zwischenzug), what was missed or complicated by playing {played_san} instead, and why {cm.best_move_san} was preferred."
+    if is_opponent_move:
+        perspective_directive = (
+            f"### CRITICAL PLAYER PERSPECTIVE (OPPONENT'S MOVE):\n"
+            f"- This move was played by the OPPONENT ({color} / {opponent_name}). The coached student ({student_name}) plays {student_color}.\n"
+            f"- STRICT INSTRUCTION: NEVER refer to this move as 'You played {played_san}' or 'Your move'! The student did NOT play this move.\n"
+            f"- Refer to the move as '{color} played {played_san}' or 'Your opponent pushed/played {played_san}'.\n"
+            f"- Frame the coaching advice for the student: explain what threat, attack, trap, or positional pressure {color} is setting up against the student.\n"
+            f"- Explain how the student should respond, defend, or seize counter-play.\n"
+            f"- If the opponent's move was a mistake or inaccuracy ({cm.classification if cm else ''}), explain what weakness or opportunity the opponent gave to the student, and what the opponent should have played instead."
         )
-    elif cm and cm.classification in ("Blunder", "Mistake", "Inaccuracy"):
-        tactical_directive = (
-            f"4. ERROR ANALYSIS: The move was flawed ({cm.classification}). Clearly explain what danger was overlooked, "
-            f"what tactical or positional threat the opponent can now exploit, and why the alternative was needed."
-        )
+        if cm and is_missed_best:
+            tactical_directive = (
+                f"4. OPPONENT TACTICAL COMPARISON (Opponent Played {played_san} vs Opponent's Best Move {cm.best_move_san}):\n"
+                f"   - Explain what your opponent ({color}) attempted with {played_san}.\n"
+                f"   - Explain why {played_san} was inaccurate or gave the student counter-play compared to {cm.best_move_san}, and what tactical window is now open for the student."
+            )
+        elif cm and cm.classification in ("Blunder", "Mistake", "Inaccuracy"):
+            tactical_directive = f"4. OPPONENT ERROR ANALYSIS: Your opponent's move was flawed ({cm.classification}). Clearly explain what danger, hanging piece, or counter-stroke your opponent allowed, and how the student can exploit it."
+        else:
+            tactical_directive = f"4. OPPONENT THREAT & PURPOSE ANALYSIS: Concretely explain what threat, pin, outpost, or pressure your opponent ({color}) is creating with {played_san}, and what defensive alertness is required from the student."
     else:
-        tactical_directive = (
-            f"4. ACCURATE MOVE ANALYSIS: Explain concretely why {played_san} is strong, what threats or pressure it sets up, "
-            f"and what harmonious coordination it establishes."
-        )
+        if student_color in ("White", "Black"):
+            perspective_directive = (
+                f"### CRITICAL PLAYER PERSPECTIVE (STUDENT'S MOVE):\n"
+                f"- This move was played by the STUDENT ({student_name} / {student_color}).\n"
+                f"- Address the student: 'You played {played_san}' or 'Your idea with {played_san}...'.\n"
+                f"- Explain what you aimed to accomplish (e.g. piece development, pawn break, tactical attack).\n"
+                f"- If this move overlooked a superior tactical alternative ({cm.best_move_san if cm else ''}), compare your choice against the cleaner engine recommendation."
+            )
+        else:
+            perspective_directive = (
+                f"### PLAYER PERSPECTIVE:\n"
+                f"- Provide objective master coaching commentary on {color}'s move {played_san}."
+            )
+
+        if cm and is_missed_best:
+            tactical_directive = (
+                f"4. CRITICAL TACTICAL COMPARISON (Played {played_san} vs Best Move {cm.best_move_san}):\n"
+                f"   - Explain the player's idea with {played_san} (e.g. what fork, pin, attack, or piece activation was intended).\n"
+                f"   - CRITICALLY: Do not merely praise the move if a superior move was available! Explicitly explain why {cm.best_move_san} was the stronger tactic or cleaner intermediate move (zwischenzug), what was missed or complicated by playing {played_san} instead, and why {cm.best_move_san} was preferred."
+            )
+        elif cm and cm.classification in ("Blunder", "Mistake", "Inaccuracy"):
+            tactical_directive = (
+                f"4. STUDENT ERROR ANALYSIS: The move was flawed ({cm.classification}). Clearly explain what danger was overlooked, "
+                f"what tactical or positional threat the opponent can now exploit, and why the alternative was needed."
+            )
+        else:
+            tactical_directive = (
+                f"4. ACCURATE MOVE ANALYSIS: Explain concretely why {played_san} is strong, what threats or pressure it sets up, "
+                f"and what harmonious coordination it establishes."
+            )
 
     return (
         f"You are a master chess coach writing an educational move annotation for a student's game.\n\n"
         f"### POSITION & MOVE FACTS:\n"
         f"- Move Played: {move_num}{dot_str} {played_san} ({color})\n"
+        f"- Coached Student: {student_name} ({student_color})\n"
+        f"- Move Actor: {'Student' if is_student_move else 'Opponent'}\n"
         f"- Position Before: {context['fen_before']}\n"
         f"- Position After: {context['fen_after']}\n"
         f"{cm_details}"
         f"- Hanging Pieces Before: {hanging_before}\n"
         f"- Hanging Pieces After: {hanging_after}\n"
         f"- Check: {'Yes' if facts_after.is_check else 'No'}\n\n"
+        f"{perspective_directive}\n\n"
         f"### COACHING DIRECTIVES:\n"
         f"1. Explain the concrete CHESS REASONS and ideas: what was the strategic, positional, or tactical purpose of playing {played_san}? What does it threaten, defend, activate, or overlook?\n"
         f"2. DO NOT state raw engine numbers or write phrases like 'shifting evaluation from X to Y' or 'You played X (Good Move)'. Teach chess concepts, piece coordination, and tactics instead of stating numbers.\n"

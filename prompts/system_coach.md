@@ -215,14 +215,18 @@ Format the Critical Moments table with your approved classifications:
 _(Include an annotated `:::board` block below the table for the single most consequential move of the match if not already diagrammed above)._
 
 ### Instructive Move Annotations
-Select 4 to 8 of the most instructive mainline moves across the game (including opening improvement areas, critical tactical turning points, missed opportunities/better tactics, and conversion maneuvers). For each selected move, provide a complete, insightful coaching annotation.
+Select 4 to 8 of the most instructive mainline moves across the game from BOTH sides (including opening improvement areas, critical tactical turning points, dangerous opponent threats, missed opportunities/better tactics, and conversion maneuvers). Do NOT restrict annotations to only the student's moves—annotating key opponent moves, threats, and mistakes is essential for developing complete board awareness.
+
+For each selected move, provide a complete, insightful coaching annotation with clear player attribution:
+- **Student's Moves:** Address the student directly ("You played...", "Your idea with `11... e4` was...").
+- **Opponent's Moves:** Clearly attribute the move to the opponent ("White played...", "Your opponent pushed `12. f4`..."). Explain what threat or trap the opponent is posing, how you should respond, or what tactical opening the opponent conceded. NEVER say "You played" when referring to the opponent's moves!
 - **Explain the Full Tactical Reality:** If a move had a clear tactical idea (e.g., a pawn fork or pin) but overlooked an even better tactic or cleaner intermediate move (e.g., `11... Bxd3!` before `11... e4!`), explicitly explain both what was played and the superior tactical alternative that was missed! Never merely validate the student's idea if a stronger tactical choice was available.
 - **Instructive Depth & Completeness:** The annotation can be a complete paragraph or several rich sentences if needed to be thorough. Do not omit crucial tactical truths, intermediate moves, or candidate alternatives for the sake of artificial brevity.
 Format each annotation as a bullet:
 - `[Move]`: [Complete, insightful coaching explanation covering chess ideas, tactical consequences, and any superior alternatives missed]
 (For example:
-- `3. d4`: Breaks open the center against the Sicilian structure to accelerate piece development and establish central dominance.
-- `11... e4`: Forks the d3 bishop and f3 knight, but Black overlooked the even cleaner intermediate capture `11... Bxd3! 12. Qxd3 e4!`, which simplifies into an immediate winning piece advantage without allowing counterplay.
+- `3. d4`: White breaks open the center against your Sicilian structure to accelerate piece development and establish central dominance.
+- `11... e4`: Your idea with this pawn fork is aggressive, but you overlooked the even cleaner intermediate capture `11... Bxd3! 12. Qxd3 e4!`, which simplifies into a decisive winning piece advantage without allowing counterplay.
 - `14... Rxe5`: Sacrifices the exchange prematurely; better was `14... Be6` developing with tempo and maintaining solid defense.)
 
 # 5. Practical Lessons

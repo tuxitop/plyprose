@@ -360,6 +360,27 @@ def test_build_move_annotation_prompt():
     assert "Instructive depth and completeness" in prompt
 
 
+def test_build_move_annotation_prompt_player_perspective():
+    pgn = '[Event "Test"]\n\n1. e4 e5 2. Nf3 Nc6 *'
+
+    # Student plays Black: Move 1 (White 1. e4) is Opponent's move
+    opp_context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1, user_color="Black")
+    opp_prompt = build_move_annotation_prompt(opp_context)
+
+    assert "Move Actor: Opponent" in opp_prompt
+    assert "CRITICAL PLAYER PERSPECTIVE (OPPONENT'S MOVE)" in opp_prompt
+    assert "NEVER refer to this move as 'You played e4'" in opp_prompt
+    assert "Your opponent pushed/played e4" in opp_prompt
+
+    # Student plays Black: Move 2 (Black 1... e5) is Student's move
+    stu_context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=2, user_color="Black")
+    stu_prompt = build_move_annotation_prompt(stu_context)
+
+    assert "Move Actor: Student" in stu_prompt
+    assert "CRITICAL PLAYER PERSPECTIVE (STUDENT'S MOVE)" in stu_prompt
+    assert "Address the student: 'You played e5'" in stu_prompt
+
+
 def test_build_move_annotation_prompt_missed_better_tactic(sample_payload):
     pgn = '[Event "Test"]\n\n1. e4 e5 2. Nf3 Nc6 *'
     context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1)
