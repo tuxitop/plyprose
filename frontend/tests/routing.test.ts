@@ -31,7 +31,12 @@ test('getBasePath on GitHub Pages project site resolves repository name', () => 
 });
 
 test('getBasePath on GitHub Pages user site (no repository subpath) returns empty', () => {
-  // If user site has route at root /analysis/1 (should not mistake 'analysis' for repo name)
+  // Clear any existing localStorage mock
+  if (typeof globalThis.localStorage !== 'undefined') {
+    globalThis.localStorage.clear();
+  }
+
+  // If user site has route at root /analysis/1 and no localStorage fallback (should not mistake 'analysis' for repo name)
   assert.equal(
     getBasePath({ hostname: 'tuxitop.github.io', pathname: '/analysis/1' }),
     '',
@@ -44,6 +49,47 @@ test('getBasePath on GitHub Pages user site (no repository subpath) returns empt
     getBasePath({ hostname: 'tuxitop.github.io', pathname: '/' }),
     '',
   );
+});
+
+test('getBasePath on GitHub Pages falls back to localStorage github_repo if path starts with analysis', () => {
+  const mockStorage: Record<string, string> = {
+    chess_local_settings: JSON.stringify({ github_repo: 'tuxitop/plyprose' }),
+  };
+
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const storageMock: Storage = {
+    length: 1,
+    key: (index: number) => (index === 0 ? 'chess_local_settings' : null),
+    getItem: (key: string) => mockStorage[key] ?? null,
+    setItem: (key: string, val: string) => {
+      mockStorage[key] = val;
+    },
+    removeItem: (key: string) => {
+      delete mockStorage[key];
+    },
+    clear: () => {
+      for (const k of Object.keys(mockStorage)) delete mockStorage[k];
+    },
+  };
+
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storageMock,
+    configurable: true,
+    writable: true,
+  });
+
+  try {
+    assert.equal(
+      getBasePath({ hostname: 'tuxitop.github.io', pathname: '/analysis/1' }),
+      '/plyprose',
+    );
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'localStorage', originalDescriptor);
+    } else {
+      delete (globalThis as Record<string, unknown>).localStorage;
+    }
+  }
 });
 
 test('getBasePath on localhost or custom domain without base returns empty', () => {

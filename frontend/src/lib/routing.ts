@@ -12,6 +12,25 @@ export function getBasePath(loc?: { hostname: string; pathname: string }): strin
     if (parts.length > 0 && parts[0] !== 'analysis' && parts[0] !== 'settings') {
       return `/${parts[0]}`;
     }
+
+    // Fallback: Check if localStorage has github_repo configured in GitHub Direct settings
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('chess_local_settings');
+        if (raw) {
+          const parsed = JSON.parse(raw) as { github_repo?: unknown };
+          if (typeof parsed?.github_repo === 'string') {
+            const repoParts = parsed.github_repo.split('/');
+            const repoName = repoParts[repoParts.length - 1].trim();
+            if (repoName) {
+              return `/${repoName}`;
+            }
+          }
+        }
+      } catch {
+        // Ignore JSON/storage errors
+      }
+    }
   }
 
   const metaBase = typeof import.meta !== 'undefined' ? import.meta.env?.BASE_URL : '';

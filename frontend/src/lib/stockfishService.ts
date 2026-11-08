@@ -29,6 +29,7 @@ type UpdateListener = (lines: EngineLine[]) => void;
 export class StockfishService {
   private worker: Worker | null = null;
   private isReady = false;
+  private initPromise: Promise<void> | null = null;
   private currentFen = '';
   private listeners: Set<UpdateListener> = new Set();
   private linesMap: Map<number, EngineLine> = new Map();
@@ -54,15 +55,36 @@ export class StockfishService {
   }
 
   public init(): Promise<void> {
-    if (this.worker) return Promise.resolve();
+    if (this.isReady) return Promise.resolve();
+    if (this.initPromise) return this.initPromise;
 
-    return new Promise(resolve => {
+    this.initPromise = new Promise(resolve => {
       try {
         const workerUrl = getStockfishWorkerUrl();
         this.worker = new Worker(workerUrl);
-        this.worker.onmessage = (event: MessageEvent<string>) => {
-          this.handleWorkerMessage(event.data, resolve);
+        let resolved = false;
+
+        const onDone = () => {
+          if (!resolved) {
+            resolved = true;
+            resolve();
+          }
         };
+
+        this.worker.onmessage = (event: MessageEvent<string>) => {
+          this.handleWorkerMessage(event.data, onDone);
+        };
+
+        this.worker.onerror = (err: ErrorEvent) => {
+          console.error('Stockfish 19 Web Worker error:', err.message || err);
+          this.isReady = false;
+          onDone();
+        };
+
+        // Safety timeout so caller is never hung if worker fails silently
+        setTimeout(() => {
+          onDone();
+        }, 10000);
 
         // Initialize UCI
         this.worker.postMessage('uci');
@@ -73,6 +95,8 @@ export class StockfishService {
         resolve();
       }
     });
+
+    return this.initPromise;
   }
 
   private handleWorkerMessage(message: string, onReady?: () => void) {
@@ -185,14 +209,18 @@ export class StockfishService {
     this.currentFen = fen;
     this.linesMap.clear();
 
-    if (!this.worker) {
-      this.init().then(() => this.evaluate(fen));
+    if (!this.isReady) {
+      this.init().then(() => {
+        if (this.currentFen === fen && this.isReady) {
+          this.evaluate(fen);
+        }
+      });
       return;
     }
 
-    this.worker.postMessage('stop');
-    this.worker.postMessage(`position fen ${fen}`);
-    this.worker.postMessage(`go depth ${this.settings.maxDepth}`);
+    this.worker?.postMessage('stop');
+    this.worker?.postMessage(`position fen ${fen}`);
+    this.worker?.postMessage(`go depth ${this.settings.maxDepth}`);
   }
 
   public stop() {
@@ -214,6 +242,8 @@ export class StockfishService {
       this.worker.terminate();
       this.worker = null;
     }
+    this.isReady = false;
+    this.initPromise = null;
     this.listeners.clear();
     this.linesMap.clear();
   }
