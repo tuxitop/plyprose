@@ -1051,15 +1051,24 @@ def test_api_update_pgn_and_annotate_move(tmp_path, monkeypatch):
     assert "OpenAI API key is not configured" in res_no_openai.json()["detail"]
 
     # 3. Annotate Move with AI provider succeeds
-    monkeypatch.setattr(
-        "api.main.annotate_single_move",
-        lambda **kwargs: (
-            "✨ 1. e4 stakes immediate claim to the center and opens diagonals for piece development."
-        ),
-    )
+    recorded_kwargs = {}
+
+    def mock_annotate(**kwargs):
+        recorded_kwargs.update(kwargs)
+        return "✨ 1. e4 stakes immediate claim to the center and opens diagonals for piece development."
+
+    monkeypatch.setattr("api.main.annotate_single_move", mock_annotate)
     monkeypatch.setattr(
         "api.main.get_settings",
-        lambda: {"llm_provider": "gemini", "gemini_api_key": "dummy-key"},
+        lambda: {
+            "llm_provider": "openai-compat",
+            "llm_base_url": "http://localhost:20128/v1",
+            "llm_model": "ag",
+            "llm_api_key": "my-secret-key",
+            "openai_base_url": "http://localhost:11434/v1",  # stale default must NOT override
+            "openai_model": "gpt-4o-mini",
+            "openai_api_key": "",
+        },
     )
     res_ann = client.post(
         f"/api/analysis/{aid}/annotate-move",
@@ -1071,6 +1080,10 @@ def test_api_update_pgn_and_annotate_move(tmp_path, monkeypatch):
     assert ann_data["ply"] == 1
     assert ann_data["san"] == "e4"
     assert "stakes immediate claim to the center" in ann_data["comment"]
+    # Verify active llm_* settings were prioritized over stale defaults
+    assert recorded_kwargs["base_url"] == "http://localhost:20128/v1"
+    assert recorded_kwargs["model_name"] == "ag"
+    assert recorded_kwargs["api_key"] == "my-secret-key"
 
 
 def test_api_get_analysis_auto_weaves_report_annotations(tmp_path, monkeypatch):

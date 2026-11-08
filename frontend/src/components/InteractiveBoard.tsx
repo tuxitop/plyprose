@@ -38,7 +38,10 @@ import {
   ExternalLink,
   Trophy,
   Clock,
+  AlertCircle,
 } from 'lucide-react';
+import { Modal } from './Modal';
+import { getSettingsUrl } from '../lib/routing';
 import { MoveBadgeGlyph } from './MoveBadgeGlyph';
 import {
   askMoveQuestion,
@@ -853,6 +856,12 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
     const [editingText, setEditingText] = useState<string>('');
     const [isAiAnnotating, setIsAiAnnotating] = useState<boolean>(false);
+    const [aiNoticeModal, setAiNoticeModal] = useState<{
+      title: string;
+      message: string;
+      actionUrl?: string;
+      actionLabel?: string;
+    } | null>(null);
 
     // Sync from external pgnText when not actively editing
     useEffect(() => {
@@ -1293,8 +1302,13 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               ? err.message
               : typeof err === 'object' && err !== null && 'detail' in err
                 ? String((err as { detail: unknown }).detail)
-                : 'AI annotation is currently unavailable. Please check your AI API key in Settings.';
-          alert(`AI Annotation Unavailable:\n\n${errorMsg}`);
+                : 'AI annotation is currently unavailable. Please verify your AI provider settings.';
+          setAiNoticeModal({
+            title: 'AI Annotation Notice',
+            message: errorMsg,
+            actionUrl: getSettingsUrl(),
+            actionLabel: 'Open Settings',
+          });
         } finally {
           setIsAiAnnotating(false);
         }
@@ -2190,9 +2204,11 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       if (!analysisId || !activeCoachAnswer) return;
 
       if (isDirectMode()) {
-        alert(
-          'Appending Q&A to the study repository report requires the PlyProse desktop backend server.',
-        );
+        setAiNoticeModal({
+          title: 'Direct Mode Notice',
+          message:
+            'Appending Q&A to the study repository report requires the PlyProse desktop backend server.',
+        });
         return;
       }
 
@@ -2210,7 +2226,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to add Q&A to review';
-        alert(msg);
+        setAiNoticeModal({
+          title: 'Error Appending Q&A',
+          message: msg,
+        });
       } finally {
         setIsAppendingQA(false);
       }
@@ -4678,6 +4697,48 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                 : undefined
             }
           />
+        )}
+
+        {aiNoticeModal && (
+          <Modal
+            open={Boolean(aiNoticeModal)}
+            onClose={() => setAiNoticeModal(null)}
+            title={aiNoticeModal.title}
+          >
+            <div className="flex flex-col gap-4">
+              <div className="flex items-start gap-3 p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg text-amber-800 dark:text-amber-200 text-xs leading-relaxed">
+                <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold mb-1">Notice</p>
+                  <p className="text-slate-600 dark:text-slate-300 font-mono text-[11px] break-words whitespace-pre-wrap">
+                    {aiNoticeModal.message}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Please verify that your AI provider endpoint is reachable and your API credentials
+                or local proxy address are correctly configured in Settings.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setAiNoticeModal(null)}
+                  className="px-3.5 py-1.5 text-xs rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium cursor-pointer transition-colors"
+                >
+                  Close
+                </button>
+                {aiNoticeModal.actionUrl && (
+                  <a
+                    href={aiNoticeModal.actionUrl}
+                    className="px-3.5 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium cursor-pointer transition-colors flex items-center gap-1.5 shadow-xs"
+                  >
+                    <SettingsIcon size={13} />
+                    {aiNoticeModal.actionLabel || 'Open Settings'}
+                  </a>
+                )}
+              </div>
+            </div>
+          </Modal>
         )}
       </div>
     );

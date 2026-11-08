@@ -109,7 +109,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.14.2")
+app = FastAPI(title="PlyProse API", version="1.14.3")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -2144,12 +2144,28 @@ def api_ask_move(analysis_id: str, req: AskMoveRequest) -> AskMoveResponse:
             pass
 
     settings = get_settings()
-    provider = req.provider or settings.get("provider", PROVIDER_GEMINI)
-    model_name = req.model_name or settings.get("model_name", "gemini-2.5-pro")
+    provider = req.provider or settings.get("llm_provider", PROVIDER_GEMINI)
+    model_name = (
+        req.model_name
+        or settings.get("llm_model")
+        or (
+            settings.get("gemini_model", "gemini-2.5-pro")
+            if provider == PROVIDER_GEMINI
+            else settings.get("openai_model", "gpt-4o-mini")
+        )
+    )
 
-    gemini_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
-    openai_key = settings.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
-    openai_url = settings.get("openai_base_url")
+    gemini_key = (
+        settings.get("llm_api_key")
+        or settings.get("gemini_api_key")
+        or os.environ.get("GEMINI_API_KEY")
+    )
+    openai_key = (
+        settings.get("llm_api_key")
+        or settings.get("openai_api_key")
+        or os.environ.get("OPENAI_API_KEY")
+    )
+    openai_url = settings.get("llm_base_url") or settings.get("openai_base_url")
 
     api_key = gemini_key if provider == PROVIDER_GEMINI else openai_key
 
@@ -2188,15 +2204,15 @@ def api_annotate_move(analysis_id: str, req: AnnotateMoveRequest) -> AnnotateMov
             pass
 
     settings = get_settings()
-    provider = settings.get("llm_provider") or PROVIDER_GEMINI
+    provider = settings.get("llm_provider", PROVIDER_GEMINI)
 
     if provider == PROVIDER_GEMINI:
         api_key = (
-            settings.get("gemini_api_key")
-            or settings.get("llm_api_key")
+            settings.get("llm_api_key")
+            or settings.get("gemini_api_key")
             or os.environ.get("GEMINI_API_KEY")
         )
-        model_name = settings.get("gemini_model") or settings.get("llm_model") or "gemini-2.5-flash"
+        model_name = settings.get("llm_model") or settings.get("gemini_model") or "gemini-2.5-flash"
         base_url = None
         if not api_key:
             raise HTTPException(
@@ -2205,16 +2221,16 @@ def api_annotate_move(analysis_id: str, req: AnnotateMoveRequest) -> AnnotateMov
             )
     else:
         api_key = (
-            settings.get("openai_api_key")
-            or settings.get("llm_api_key")
+            settings.get("llm_api_key")
+            or settings.get("openai_api_key")
             or os.environ.get("OPENAI_API_KEY")
         )
         base_url = (
-            settings.get("openai_base_url")
-            or settings.get("llm_base_url")
+            settings.get("llm_base_url")
+            or settings.get("openai_base_url")
             or "http://localhost:11434/v1"
         )
-        model_name = settings.get("openai_model") or settings.get("llm_model") or "gpt-4o-mini"
+        model_name = settings.get("llm_model") or settings.get("openai_model") or "gpt-4o-mini"
         is_local = "localhost" in (base_url or "") or "127.0.0.1" in (base_url or "")
         if not api_key and not is_local:
             raise HTTPException(
