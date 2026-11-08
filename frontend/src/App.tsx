@@ -5,14 +5,9 @@ import { SettingsPage } from './pages/SettingsPage';
 import { AnalysisPage } from './pages/AnalysisPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './hooks/useTheme';
+import { getBasePath } from './lib/routing';
 
 type Route = { page: 'games' } | { page: 'settings' } | { page: 'analysis'; id: number | string };
-
-function getBasePath(): string {
-  const base = import.meta.env.BASE_URL || '/';
-  if (base === './' || base === '/') return '';
-  return base.replace(/\/+$/, '');
-}
 
 function parseRoute(path: string): Route {
   const base = getBasePath();

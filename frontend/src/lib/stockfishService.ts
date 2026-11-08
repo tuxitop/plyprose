@@ -1,4 +1,5 @@
 import { Chess } from 'chess.js';
+import { getBasePath } from './routing.ts';
 
 export interface EngineLine {
   multipv: number;
@@ -19,26 +20,8 @@ export interface EngineSettings {
 }
 
 export function getStockfishWorkerUrl(loc?: { hostname: string; pathname: string }): string {
-  const currentLoc =
-    loc ||
-    (typeof window !== 'undefined' ? window.location : { hostname: 'localhost', pathname: '/' });
-  const isGithubIo = currentLoc.hostname.endsWith('github.io');
-  if (isGithubIo) {
-    const parts = currentLoc.pathname
-      .replace(/^\/|\/$/g, '')
-      .split('/')
-      .filter(Boolean);
-    const repo = parts.length > 0 ? parts[0] : '';
-    return repo
-      ? `/${repo}/stockfish/stockfish-19-lite-single.js`
-      : '/stockfish/stockfish-19-lite-single.js';
-  }
-  const metaBase = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) || '';
-  if (metaBase && metaBase !== '.' && metaBase !== './' && !metaBase.startsWith('./')) {
-    const cleanBase = metaBase.replace(/\/+$/, '');
-    return `${cleanBase}/stockfish/stockfish-19-lite-single.js`;
-  }
-  return '/stockfish/stockfish-19-lite-single.js';
+  const base = getBasePath(loc);
+  return `${base}/stockfish/stockfish-19-lite-single.js`;
 }
 
 type UpdateListener = (lines: EngineLine[]) => void;

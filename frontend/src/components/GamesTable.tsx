@@ -10,6 +10,7 @@ import {
   sortTagsNegativeFirst,
 } from '../lib/badges';
 import { formatTC, formatGameTimeLocal as formatGameTime } from '../lib/timeControl';
+import { getAnalysisUrl } from '../lib/routing';
 import type { GameRecord } from '../types';
 
 interface GamesTableProps {
@@ -273,7 +274,7 @@ export function GamesTable({
                     <div className="flex flex-col gap-0.5">
                       {isAnalyzed ? (
                         <a
-                          href={`/analysis/${encodeURIComponent(g.game_key || g.id)}`}
+                          href={getAnalysisUrl(g.game_key || g.id)}
                           onClick={e => {
                             if (isAnyAnalyzing) {
                               e.preventDefault();
@@ -394,7 +395,7 @@ export function GamesTable({
                       ) : isAnalyzed ? (
                         <>
                           <a
-                            href={`/analysis/${encodeURIComponent(g.game_key || g.id)}`}
+                            href={getAnalysisUrl(g.game_key || g.id)}
                             onClick={e => {
                               if (isAnyAnalyzing) {
                                 e.preventDefault();

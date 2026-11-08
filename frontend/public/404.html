@@ -7,9 +7,11 @@
       // Single Page Apps for GitHub Pages SPA redirect
       var l = window.location;
       var isGithubIo = l.hostname.endsWith('github.io');
-      var path = l.pathname.replace(/^\/|\/$/g, '').split('/');
-      var repo = (isGithubIo && path.length > 0) ? path[0] : '';
-      var route = (isGithubIo && path.length > 0) ? path.slice(1).join('/') : path.join('/');
+      var path = l.pathname.replace(/^\/|\/$/g, '').split('/').filter(Boolean);
+      var hasRepoPrefix = isGithubIo && path.length > 0 && path[0] !== 'analysis' && path[0] !== 'settings';
+      var repo = hasRepoPrefix ? path[0] : '';
+      var routeParts = hasRepoPrefix ? path.slice(1) : path;
+      var route = routeParts.join('/');
       var target = l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
         (repo ? '/' + repo : '') +
         '/?p=/' + encodeURIComponent(route) +
