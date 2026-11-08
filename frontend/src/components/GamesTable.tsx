@@ -532,8 +532,14 @@ export function GamesTable({
           const isAnyAnalyzing = Boolean(activeJobId);
           const white = g.white_player || g.white || 'White';
           const black = g.black_player || g.black || 'Black';
-          const isWhite = g.side === 'white';
-          const isBlack = g.side === 'black';
+          const whiteLow = white.toLowerCase();
+          const blackLow = black.toLowerCase();
+          const isWhite =
+            g.side === 'white' ||
+            (!g.side && (whiteLow === 'tuxitop' || whiteLow.includes('tuxitop')));
+          const isBlack =
+            g.side === 'black' ||
+            (!g.side && (blackLow === 'tuxitop' || blackLow.includes('tuxitop')));
           const movesCount =
             g.moves_count ||
             (g.total_plies
@@ -569,45 +575,67 @@ export function GamesTable({
                     {formatGameTime(g.played_at || g.created_at)}
                   </span>
                   <Badge
-                    variant={resultBadgeVariant(g.result)}
+                    variant={resultBadgeVariant(g.result, g.side, white, black)}
                     className="font-mono text-[11px] font-bold"
                   >
-                    {resultLabel(g.result)}
+                    {resultLabel(g.result, g.side, white, black)}
                   </Badge>
                 </div>
               </div>
 
-              {/* Matchup: White vs Black */}
-              <div className="flex flex-col gap-1 py-1 border-y border-slate-100 dark:border-slate-800/60">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-400 shrink-0" />
-                    <span
-                      className={`truncate font-medium ${isWhite ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-800 dark:text-slate-200'}`}
-                    >
-                      {white}
+              {/* Matchup: White vs Black on a single line */}
+              <div
+                onClick={() => {
+                  if (isAnalyzed && !isAnyAnalyzing) {
+                    onViewReport(g.game_key || g.id);
+                  }
+                }}
+                className={`flex items-center justify-between text-xs py-1.5 border-y border-slate-100 dark:border-slate-800/60 min-w-0 gap-1.5 ${
+                  isAnalyzed && !isAnyAnalyzing
+                    ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30 active:bg-slate-100 dark:active:bg-slate-800/60 transition-colors'
+                    : ''
+                }`}
+                title={isAnalyzed ? 'View Report' : undefined}
+              >
+                {/* White Player */}
+                <div className="flex items-center gap-1.5 truncate min-w-0 flex-1">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full bg-white border border-slate-400 shrink-0"
+                    title="White"
+                  />
+                  <span
+                    className={`truncate font-medium ${isWhite ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-800 dark:text-slate-200'}`}
+                  >
+                    {white}
+                  </span>
+                  {isWhite && (
+                    <span className="text-[10px] px-1 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 shrink-0 font-normal">
+                      You
                     </span>
-                    {isWhite && (
-                      <span className="text-[10px] px-1 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 shrink-0">
-                        You
-                      </span>
-                    )}
-                  </div>
+                  )}
                 </div>
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-700 shrink-0" />
-                    <span
-                      className={`truncate font-medium ${isBlack ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-800 dark:text-slate-200'}`}
-                    >
-                      {black}
+
+                {/* VS separator */}
+                <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 shrink-0 px-0.5">
+                  vs
+                </span>
+
+                {/* Black Player */}
+                <div className="flex items-center justify-end gap-1.5 truncate min-w-0 flex-1">
+                  {isBlack && (
+                    <span className="text-[10px] px-1 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 shrink-0 font-normal">
+                      You
                     </span>
-                    {isBlack && (
-                      <span className="text-[10px] px-1 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 shrink-0">
-                        You
-                      </span>
-                    )}
-                  </div>
+                  )}
+                  <span
+                    className={`truncate font-medium text-right ${isBlack ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-800 dark:text-slate-200'}`}
+                  >
+                    {black}
+                  </span>
+                  <span
+                    className="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-700 shrink-0"
+                    title="Black"
+                  />
                 </div>
               </div>
 

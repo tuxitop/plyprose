@@ -5,6 +5,7 @@
 
 import { Chess } from 'chess.js';
 import { marked } from 'marked';
+import { getUserOutcome } from './badges.ts';
 import type { AnalysisRecord, GameRecord, GamesResponse, Settings } from '../types';
 
 const STORAGE_SETTINGS_KEY = 'plyprose_direct_settings';
@@ -389,6 +390,7 @@ export interface CachedFolderMeta {
   white?: string;
   black?: string;
   result?: string;
+  side?: 'white' | 'black' | 'both';
 }
 
 const _folderMetaCache = new Map<string, CachedFolderMeta>();
@@ -405,6 +407,7 @@ export async function populateFolderMeta(rf: RemoteGameFolder): Promise<CachedFo
   let white: string | undefined;
   let black: string | undefined;
   let result: string | undefined;
+  let side: 'white' | 'black' | 'both' | undefined;
 
   if (rf.payloadBlobSha) {
     try {
@@ -426,6 +429,13 @@ export async function populateFolderMeta(rf: RemoteGameFolder): Promise<CachedFo
       if (typeof parsed.white_player === 'string') white = parsed.white_player;
       if (typeof parsed.black_player === 'string') black = parsed.black_player;
       if (typeof parsed.result === 'string') result = parsed.result;
+
+      const userCol =
+        typeof parsed.user_color === 'string' ? parsed.user_color.toLowerCase().trim() : '';
+      const rawSide = typeof parsed.side === 'string' ? parsed.side.toLowerCase().trim() : '';
+      if (userCol === 'white' || rawSide === 'white') side = 'white';
+      else if (userCol === 'black' || rawSide === 'black') side = 'black';
+      else if (userCol === 'both' || rawSide === 'both') side = 'both';
     } catch {
       /* ignore */
     }
@@ -455,6 +465,7 @@ export async function populateFolderMeta(rf: RemoteGameFolder): Promise<CachedFo
     white,
     black,
     result,
+    side,
   };
   _folderMetaCache.set(rf.folder, meta);
   return meta;
@@ -502,17 +513,39 @@ export async function getGitHubDirectGames(
   const sortBy = String(params.sort_by || 'date');
   const sortOrder = String(params.sort_order || 'desc');
 
+  const s = getLocalSettings();
+  const userCandidates = [
+    s.chesscom_username?.toLowerCase().trim(),
+    s.lichess_username?.toLowerCase().trim(),
+    'tuxitop',
+  ].filter(Boolean);
+
   const allRecords: GameRecord[] = folders.map((rf, idx) => {
     const meta = parseFolderMetadata(rf.folder);
     const cached = _folderMetaCache.get(rf.folder);
+    const white = cached?.white || meta.white;
+    const black = cached?.black || meta.black;
+
+    let side = cached?.side;
+    if (!side) {
+      const whiteLow = white.toLowerCase();
+      const blackLow = black.toLowerCase();
+      if (userCandidates.some(c => c && (whiteLow === c || whiteLow.includes(c)))) {
+        side = 'white';
+      } else if (userCandidates.some(c => c && (blackLow === c || blackLow.includes(c)))) {
+        side = 'black';
+      }
+    }
+
     return {
       id: idx + 1,
       game_key: rf.folder,
       created_at: meta.playedAt || new Date().toISOString(),
       played_at: meta.playedAt,
       date: meta.dateStr,
-      white_player: cached?.white || meta.white,
-      black_player: cached?.black || meta.black,
+      white_player: white,
+      black_player: black,
+      side,
       result: cached?.result || meta.result,
       time_control: meta.speed,
       opening_name: cached?.opening_name || null,
@@ -531,9 +564,16 @@ export async function getGitHubDirectGames(
 
   const filtered = allRecords.filter(g => {
     if (statusFilter === 'unanalyzed') return false; // all remote games are analyzed
-    if (resultFilter === 'win' && g.result !== '1-0') return false;
-    if (resultFilter === 'loss' && g.result !== '0-1') return false;
-    if (resultFilter === 'draw' && g.result !== '1/2-1/2') return false;
+    const outcome = getUserOutcome(
+      g.result,
+      g.side,
+      g.white_player,
+      g.black_player,
+      userCandidates,
+    );
+    if (resultFilter === 'win' && outcome !== 'win') return false;
+    if (resultFilter === 'loss' && outcome !== 'loss') return false;
+    if (resultFilter === 'draw' && outcome !== 'draw') return false;
     if (platformFilter !== 'all' && !g.platform?.toLowerCase().includes(platformFilter)) {
       return false;
     }
@@ -694,6 +734,37 @@ export async function getGitHubDirectAnalysis(
     }
   }
 
+  let side: 'white' | 'black' | 'both' | undefined;
+  if (payloadRaw) {
+    try {
+      const parsed = JSON.parse(payloadRaw) as Record<string, unknown>;
+      const userCol =
+        typeof parsed.user_color === 'string' ? parsed.user_color.toLowerCase().trim() : '';
+      const rawSide = typeof parsed.side === 'string' ? parsed.side.toLowerCase().trim() : '';
+      if (userCol === 'white' || rawSide === 'white') side = 'white';
+      else if (userCol === 'black' || rawSide === 'black') side = 'black';
+      else if (userCol === 'both' || rawSide === 'both') side = 'both';
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!side) {
+    const whiteLow = whitePlayer.toLowerCase();
+    const blackLow = blackPlayer.toLowerCase();
+    const s = getLocalSettings();
+    const userCandidates = [
+      s.chesscom_username?.toLowerCase().trim(),
+      s.lichess_username?.toLowerCase().trim(),
+      'tuxitop',
+    ].filter(Boolean);
+    if (userCandidates.some(c => c && (whiteLow === c || whiteLow.includes(c)))) {
+      side = 'white';
+    } else if (userCandidates.some(c => c && (blackLow === c || blackLow.includes(c)))) {
+      side = 'black';
+    }
+  }
+
   return {
     id: folders.indexOf(target) + 1,
     game_key: target.folder,
@@ -702,6 +773,7 @@ export async function getGitHubDirectAnalysis(
     date: dateStr,
     white_player: whitePlayer,
     black_player: blackPlayer,
+    side,
     result: gameResult,
     time_control: timeControl,
     opening_name: openingName,
