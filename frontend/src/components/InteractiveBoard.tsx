@@ -1272,6 +1272,84 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       cgApiRef.current?.toggleOrientation();
     };
 
+    // Touch swipe / scrub navigation on toolbar
+    const touchNavStartXRef = useRef<number | null>(null);
+    const touchNavStartYRef = useRef<number | null>(null);
+    const touchNavAccumulatedXRef = useRef<number>(0);
+    const hasNavSwipedRef = useRef<boolean>(false);
+
+    const handleToolbarTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+      if (e.touches.length > 0) {
+        touchNavStartXRef.current = e.touches[0].clientX;
+        touchNavStartYRef.current = e.touches[0].clientY;
+        touchNavAccumulatedXRef.current = 0;
+        hasNavSwipedRef.current = false;
+      }
+    };
+
+    const handleToolbarTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+      if (
+        e.touches.length === 0 ||
+        touchNavStartXRef.current === null ||
+        touchNavStartYRef.current === null
+      ) {
+        return;
+      }
+      const touch = e.touches[0];
+      const diffX = touch.clientX - touchNavStartXRef.current;
+      const diffY = touch.clientY - touchNavStartYRef.current;
+
+      // Only engage if horizontal swipe is dominant
+      if (Math.abs(diffX) > Math.abs(diffY)) {
+        const STEP_THRESHOLD = 28;
+        const deltaSinceLastStep = diffX - touchNavAccumulatedXRef.current;
+
+        if (deltaSinceLastStep >= STEP_THRESHOLD) {
+          // Swiped right -> Next move
+          handleNext();
+          touchNavAccumulatedXRef.current += STEP_THRESHOLD;
+          hasNavSwipedRef.current = true;
+          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+            try {
+              navigator.vibrate?.(5);
+            } catch {
+              // Ignore haptic error
+            }
+          }
+        } else if (deltaSinceLastStep <= -STEP_THRESHOLD) {
+          // Swiped left -> Previous move
+          handlePrev();
+          touchNavAccumulatedXRef.current -= STEP_THRESHOLD;
+          hasNavSwipedRef.current = true;
+          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+            try {
+              navigator.vibrate?.(5);
+            } catch {
+              // Ignore haptic error
+            }
+          }
+        }
+      }
+    };
+
+    const handleToolbarTouchEnd = () => {
+      touchNavStartXRef.current = null;
+      touchNavStartYRef.current = null;
+      touchNavAccumulatedXRef.current = 0;
+      if (hasNavSwipedRef.current) {
+        setTimeout(() => {
+          hasNavSwipedRef.current = false;
+        }, 80);
+      }
+    };
+
+    const handleToolbarClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+      if (hasNavSwipedRef.current) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+
     const handleClearShapes = () => {
       setUserShapes([]);
       cgApiRef.current?.setShapes([]);
@@ -2558,8 +2636,15 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           )}
         </div>
 
-        {/* Navigation Toolbar (Fixed-width Move Badge + Stable Navigation Buttons) */}
-        <div className="px-2 sm:px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 gap-1 select-none">
+        {/* Navigation Toolbar (Fixed-width Move Badge + Stable Navigation Buttons + Touch Swipe) */}
+        <div
+          onTouchStart={handleToolbarTouchStart}
+          onTouchMove={handleToolbarTouchMove}
+          onTouchEnd={handleToolbarTouchEnd}
+          onTouchCancel={handleToolbarTouchEnd}
+          onClickCapture={handleToolbarClickCapture}
+          className="px-2 sm:px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 gap-1 select-none touch-pan-y"
+        >
           {/* Left Group: Stepping controls + Fixed-width Current Move Played badge */}
           <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
             <button
