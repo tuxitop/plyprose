@@ -979,10 +979,10 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
 
         {/* Floating Restore Pill on mobile when header is hidden (fixed at bottom, never blocks board or top text) */}
         {!isHeaderVisible && (
-          <div className="sm:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2.5 bg-slate-900/95 dark:bg-slate-800/95 text-white backdrop-blur-md border border-slate-700/80 shadow-2xl rounded-full px-4 py-2 text-xs transition-all animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <div className="sm:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-slate-900/95 dark:bg-slate-800/95 text-white backdrop-blur-md border border-slate-700/80 shadow-2xl rounded-full px-3 py-1.5 text-xs whitespace-nowrap select-none transition-all animate-in fade-in slide-in-from-bottom-2 duration-150">
             <button
               onClick={onBack}
-              className="flex items-center gap-1.5 font-medium text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0 py-0.5"
+              className="flex items-center gap-1.5 font-medium text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0 px-2 py-1 rounded-full hover:bg-slate-800/80 active:bg-slate-700/80"
               title="Back to Games"
               aria-label="Back to Games"
             >
@@ -990,11 +990,11 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               <span>Back</span>
             </button>
 
-            <span className="text-slate-600 dark:text-slate-600 shrink-0 select-none">|</span>
+            <span className="w-px h-3.5 bg-slate-700 shrink-0 select-none" aria-hidden="true" />
 
             <button
               onClick={() => setIsHeaderVisible(true)}
-              className="inline-flex items-center gap-1 font-semibold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer shrink-0 py-0.5"
+              className="inline-flex items-center gap-1 font-semibold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer shrink-0 px-2.5 py-1 rounded-full hover:bg-slate-800/80 active:bg-slate-700/80"
               title="Show match header and controls"
               aria-label="Show match header and controls"
             >
@@ -1002,7 +1002,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               <span>Show Headers</span>
             </button>
 
-            <span className="text-slate-600 dark:text-slate-600 shrink-0 select-none">|</span>
+            <span className="w-px h-3.5 bg-slate-700 shrink-0 select-none" aria-hidden="true" />
 
             <button
               onClick={() => {
@@ -1012,13 +1012,19 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                   handleSetMobileView('report');
                 }
               }}
-              className="inline-flex items-center gap-1 text-slate-300 hover:text-white transition-colors cursor-pointer text-xs shrink-0 py-0.5"
-              title={mobileView === 'report' ? 'Open board in split view' : 'Switch to report only'}
+              className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-800/90 hover:bg-slate-700 active:bg-slate-600 border border-slate-700/70 text-slate-200 hover:text-white transition-all cursor-pointer shrink-0 shadow-xs"
+              title={
+                mobileView === 'report'
+                  ? 'Show interactive board (split view)'
+                  : 'Show full report document'
+              }
               aria-label={
-                mobileView === 'report' ? 'Open board in split view' : 'Switch to report only'
+                mobileView === 'report' ? 'Show interactive board' : 'Show full report document'
               }
             >
-              <span>{mobileView === 'report' ? '♟️ Board' : '📜 Report'}</span>
+              <span className="leading-none select-none text-[15px]" role="img" aria-hidden="true">
+                {mobileView === 'report' ? '♟️' : '📜'}
+              </span>
             </button>
           </div>
         )}
