@@ -54,6 +54,19 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
   const [isMobileDetailsOpen, setIsMobileDetailsOpen] = useState(false);
 
   // Interactive Chessboard sidebar state: default to closed on mobile screens (<640px)
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 640;
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [isBoardOpen, setIsBoardOpen] = useState(
     () => !(typeof window !== 'undefined' && window.innerWidth < 640),
   );
@@ -63,7 +76,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
       if (saved === 'split' || saved === 'report' || saved === 'board') return saved;
       return 'report';
     }
-    return 'split';
+    return 'report';
   });
 
   const [isLiveAnalyzing, setIsLiveAnalyzing] = useState<boolean>(() => {
@@ -977,7 +990,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
         )}
 
         {/* Floating Restore Pill on mobile when header is hidden (fixed at bottom, never blocks board or top text) */}
-        {!isHeaderVisible && (
+        {!isHeaderVisible && isMobile && (
           <div className="sm:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-slate-900/95 dark:bg-slate-800/95 text-white backdrop-blur-md border border-slate-700/80 shadow-2xl rounded-full px-3 py-1.5 text-xs whitespace-nowrap select-none transition-all animate-in fade-in slide-in-from-bottom-2 duration-150">
             <button
               onClick={onBack}
@@ -1029,7 +1042,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
         )}
 
         {/* On Mobile: Top Docked Board in Split Mode */}
-        {mobileView === 'split' && (
+        {isMobile && mobileView === 'split' && (
           <div className="sm:hidden w-full shrink-0 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col z-20 overflow-hidden">
             <ErrorBoundary fallbackTitle="Could not display chessboard">
               <InteractiveBoard
@@ -1054,7 +1067,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
         )}
 
         {/* On Mobile: Full Interactive Board in Board Mode */}
-        {mobileView === 'board' ? (
+        {isMobile && mobileView === 'board' ? (
           <div className="sm:hidden flex-1 h-full overflow-hidden bg-white dark:bg-slate-900">
             <ErrorBoundary fallbackTitle="Could not display chessboard">
               <InteractiveBoard
@@ -1131,7 +1144,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
       </div>
 
       {/* Desktop Interactive Board Sidebar (>= sm breakpoint) */}
-      {isBoardOpen && (
+      {!isMobile && isBoardOpen && (
         <aside
           style={{ width: `${sidebarWidth}px` }}
           className="hidden sm:flex h-full w-[var(--sidebar-width)] max-w-full border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex-col shrink-0 overflow-hidden shadow-xl z-20 relative transition-none"

@@ -2685,7 +2685,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                 if (isMobileDocked) {
                   setIsMobileCoachOpen(prev => !prev);
                 } else {
-                  setActiveSidebarTab('coach');
+                  setActiveSidebarTab(t => (t === 'coach' ? 'moves' : 'coach'));
                 }
               }}
               className={`relative min-h-[34px] sm:min-h-0 w-[80px] sm:w-[94px] px-1 py-1 sm:py-0.5 rounded-md text-xs font-mono font-bold transition-colors cursor-pointer flex items-center justify-center text-center select-none shrink-0 ${
@@ -2695,8 +2695,8 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               }`}
               title={
                 currentPlyData?.criticalMoment
-                  ? `${currentPlyData.criticalMoment.classification}: Click to view Coach explanation`
-                  : 'Click to view Coach move breakdown'
+                  ? `${currentPlyData.criticalMoment.classification}: Click to toggle Coach explanation`
+                  : 'Click to toggle Coach move breakdown'
               }
               aria-label={
                 currentPlyData?.criticalMoment
