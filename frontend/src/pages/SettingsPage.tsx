@@ -1106,7 +1106,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           type={showGhToken ? 'text' : 'password'}
           value={settings.github_token ?? ''}
           onChange={e => update({ github_token: e.target.value })}
-          placeholder="ghp_… or github_pat_…"
+          placeholder="ghp_…, github_pat_…, or ghs_…"
           hint="Requires 'Contents: Read and write' permission (or classic token with 'repo' scope)."
           rightElement={
             <button
