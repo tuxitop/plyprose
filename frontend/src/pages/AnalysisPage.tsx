@@ -301,9 +301,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
     setIsBoardOpen(true);
     if (typeof window !== 'undefined' && window.innerWidth < 640) {
       setMobileView(prev => (prev === 'report' ? 'split' : prev));
-      setIsHeaderVisible(true);
     }
-  }, [setIsBoardOpen, setMobileView, setIsHeaderVisible]);
+  }, [setIsBoardOpen, setMobileView]);
 
   // Handle clicking on moves or board figures in the report HTML
   const handleReportClick = useCallback(

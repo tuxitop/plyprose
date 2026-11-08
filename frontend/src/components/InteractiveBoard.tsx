@@ -259,10 +259,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 420;
     const effectiveContainerWidth = Math.min(sidebarWidth, viewportWidth);
     const maxBoardWidth = Math.max(180, effectiveContainerWidth - 32);
-    // On mobile docked split view, reserve 30px for the vertical eval bar on the right.
+    // On mobile docked split view, reserve 38px for the vertical eval bar (30px) + gap (8px).
     // On desktop view, evaluation bar is horizontal below board, so full board width is used.
     const effectiveBoardSize = isMobileDocked
-      ? Math.min(260, Math.max(180, maxBoardWidth - 30))
+      ? Math.min(260, Math.max(180, maxBoardWidth - 38))
       : Math.max(180, Math.min(boardSize, maxBoardWidth));
 
     // Dynamic scaling for badges and coordinates based on square size
@@ -1852,6 +1852,56 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
     const shouldHideHeader = hideHeader || isMobileDocked;
 
+    // Header of the chessboard showing players, ratings, and clocks (same width as chessboard)
+    const playerInfoBar = (
+      <div
+        style={{ width: `${effectiveBoardSize}px` }}
+        className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg flex items-center justify-between text-xs select-none shadow-xs"
+      >
+        {/* White Player (Left) */}
+        <div className="flex flex-col items-start min-w-0 pr-2">
+          <span
+            className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[95px] sm:max-w-[220px]"
+            title={whiteName}
+          >
+            {whiteName}
+          </span>
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+            <span className="flex items-center gap-1 font-mono">
+              <Trophy size={11} className="text-amber-500 shrink-0" />
+              {whiteElo || '—'}
+            </span>
+            <span>-</span>
+            <span className="flex items-center gap-1 font-mono">
+              <Clock size={11} className="text-slate-400 shrink-0" />
+              {whiteClock || '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* Black Player (Right) */}
+        <div className="flex flex-col items-end min-w-0 pl-2">
+          <span
+            className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[95px] sm:max-w-[220px] text-right"
+            title={blackName}
+          >
+            {blackName}
+          </span>
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 justify-end">
+            <span className="flex items-center gap-1 font-mono">
+              <Clock size={11} className="text-slate-400 shrink-0" />
+              {blackClock || '—'}
+            </span>
+            <span>-</span>
+            <span className="flex items-center gap-1 font-mono">
+              <Trophy size={11} className="text-amber-500 shrink-0" />
+              {blackElo || '—'}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+
     return (
       <div className="flex flex-col h-full bg-white dark:bg-slate-900 select-none overflow-hidden">
         {/* Top Header: Analysis Toggle & Controls */}
@@ -2217,127 +2267,84 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           </div>
         )}
 
-        {/* Chessboard Section with Top Player Bar and Vertical Eval Bar */}
-        <div className="p-2 bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center gap-2 shrink-0">
-          {/* Top Player Info Bar */}
-          <div
-            style={{ width: `${effectiveBoardSize + 30}px` }}
-            className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-lg flex items-center justify-between text-xs select-none shadow-xs"
-          >
-            {/* White Player (Left) */}
-            <div className="flex flex-col items-start min-w-0 pr-2">
-              <span
-                className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[95px] sm:max-w-[220px]"
-                title={whiteName}
-              >
-                {whiteName}
-              </span>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                <span className="flex items-center gap-1 font-mono">
-                  <Trophy size={11} className="text-amber-500 shrink-0" />
-                  {whiteElo || '—'}
-                </span>
-                <span>-</span>
-                <span className="flex items-center gap-1 font-mono">
-                  <Clock size={11} className="text-slate-400 shrink-0" />
-                  {whiteClock || '—'}
-                </span>
-              </div>
-            </div>
-
-            {/* Black Player (Right) */}
-            <div className="flex flex-col items-end min-w-0 pl-2">
-              <span
-                className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[95px] sm:max-w-[220px] text-right"
-                title={blackName}
-              >
-                {blackName}
-              </span>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 justify-end">
-                <span className="flex items-center gap-1 font-mono">
-                  <Clock size={11} className="text-slate-400 shrink-0" />
-                  {blackClock || '—'}
-                </span>
-                <span>-</span>
-                <span className="flex items-center gap-1 font-mono">
-                  <Trophy size={11} className="text-amber-500 shrink-0" />
-                  {blackElo || '—'}
-                </span>
-              </div>
-            </div>
-          </div>
-
+        {/* Chessboard Section with Top Player Bar and Evaluation Bar */}
+        <div className="p-2 bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center shrink-0">
           {/* Dual Evaluation Bar & Chessboard Layout:
-              - Mobile Docked Split View: Vertical evaluation bar alongside the right of the board.
-              - Desktop Sidebar View: Original horizontal evaluation bar below the board. */}
+              - Mobile Docked Split View: Vertical evaluation bar alongside the right of [Player Header + Chessboard], spanning their combined height.
+              - Desktop Sidebar View: Player Header on top of Chessboard with Horizontal evaluation bar below. */}
           {isMobileDocked ? (
-            /* Mobile Docked View: Row container for Chessboard and Vertical Eval Bar */
-            <div className="flex items-center justify-center gap-2 shrink-0">
-              {/* Chessground Board */}
-              <div
-                style={{
-                  width: `${effectiveBoardSize}px`,
-                  height: `${effectiveBoardSize}px`,
-                  ['--board-coord-size' as string]: `${coordSize}px`,
-                }}
-                onPointerDownCapture={() => {
-                  clearBoardBounds();
-                  dismissHighlight();
-                }}
-                onMouseDownCapture={clearBoardBounds}
-                onTouchStartCapture={() => {
-                  clearBoardBounds();
-                  dismissHighlight();
-                }}
-                onMouseEnter={clearBoardBounds}
-                className={`chessground-board-wrap relative board-theme-${boardTheme} ${
-                  pieceTheme !== 'cburnett' ? `piece-theme-${pieceTheme}` : ''
-                }`}
-              >
-                <div ref={boardElRef} className="w-full h-full" />
+            /* Mobile Docked View: Row container with [Player Header + Chessboard] on Left and Vertical Eval Bar on Right */
+            <div className="flex items-stretch justify-center gap-2 shrink-0">
+              {/* Left Column: Player Header + Chessboard */}
+              <div className="flex flex-col items-center gap-1.5 shrink-0">
+                {playerInfoBar}
 
-                {/* High-contrast Square Highlight Overlay */}
-                {highlightedSquareCoord && (
-                  <div
-                    style={{
-                      left: `${highlightedSquareCoord.col * 12.5}%`,
-                      top: `${highlightedSquareCoord.row * 12.5}%`,
-                      width: '12.5%',
-                      height: '12.5%',
-                    }}
-                    className="chess-square-highlight absolute pointer-events-none"
-                  >
-                    <span className="absolute top-0.5 right-0.5 px-1 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[9px] font-mono tracking-tight shadow-sm select-none leading-none border border-amber-300">
-                      {highlightedSquareCoord.square}
-                    </span>
-                  </div>
-                )}
+                {/* Chessground Board */}
+                <div
+                  style={{
+                    width: `${effectiveBoardSize}px`,
+                    height: `${effectiveBoardSize}px`,
+                    ['--board-coord-size' as string]: `${coordSize}px`,
+                  }}
+                  onPointerDownCapture={() => {
+                    clearBoardBounds();
+                    dismissHighlight();
+                  }}
+                  onMouseDownCapture={clearBoardBounds}
+                  onTouchStartCapture={() => {
+                    clearBoardBounds();
+                    dismissHighlight();
+                  }}
+                  onMouseEnter={clearBoardBounds}
+                  className={`chessground-board-wrap relative board-theme-${boardTheme} ${
+                    pieceTheme !== 'cburnett' ? `piece-theme-${pieceTheme}` : ''
+                  }`}
+                >
+                  <div ref={boardElRef} className="w-full h-full" />
 
-                {/* Floating Move Classification Badge on Landing Square (only for moves that stand out) */}
-                {activeBadge && (
-                  <div
-                    style={{
-                      left: `${activeBadge.col * 12.5 + 12.5}%`,
-                      top: `${activeBadge.row * 12.5}%`,
-                      width: `${badgeDiameter}px`,
-                      height: `${badgeDiameter}px`,
-                      transform: 'translate(-80%, -20%)',
-                    }}
-                    className={`absolute z-10 rounded-full flex items-center justify-center text-white shadow-md pointer-events-none select-none ${activeBadge.bgClass}`}
-                    title={`${activeBadge.label}: ${currentPlyData.san}`}
-                  >
-                    <MoveBadgeGlyph
-                      type={activeBadge.type}
-                      style={{ width: `${glyphSize}px`, height: `${glyphSize}px` }}
-                    />
-                  </div>
-                )}
+                  {/* High-contrast Square Highlight Overlay */}
+                  {highlightedSquareCoord && (
+                    <div
+                      style={{
+                        left: `${highlightedSquareCoord.col * 12.5}%`,
+                        top: `${highlightedSquareCoord.row * 12.5}%`,
+                        width: '12.5%',
+                        height: '12.5%',
+                      }}
+                      className="chess-square-highlight absolute pointer-events-none"
+                    >
+                      <span className="absolute top-0.5 right-0.5 px-1 py-0.5 rounded bg-amber-500 text-slate-950 font-bold text-[9px] font-mono tracking-tight shadow-sm select-none leading-none border border-amber-300">
+                        {highlightedSquareCoord.square}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Floating Move Classification Badge on Landing Square (only for moves that stand out) */}
+                  {activeBadge && (
+                    <div
+                      style={{
+                        left: `${activeBadge.col * 12.5 + 12.5}%`,
+                        top: `${activeBadge.row * 12.5}%`,
+                        width: `${badgeDiameter}px`,
+                        height: `${badgeDiameter}px`,
+                        transform: 'translate(-80%, -20%)',
+                      }}
+                      className={`absolute z-10 rounded-full flex items-center justify-center text-white shadow-md pointer-events-none select-none ${activeBadge.bgClass}`}
+                      title={`${activeBadge.label}: ${currentPlyData.san}`}
+                    >
+                      <MoveBadgeGlyph
+                        type={activeBadge.type}
+                        style={{ width: `${glyphSize}px`, height: `${glyphSize}px` }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Vertical Evaluation Bar alongside right of Board */}
+              {/* Vertical Evaluation Bar alongside right of Board (height spans both Header and Board) */}
               <div
-                style={{ width: '22px', height: `${effectiveBoardSize}px` }}
-                className="rounded-md overflow-hidden border border-slate-300 dark:border-slate-700 relative flex flex-col select-none shadow-xs cursor-default bg-slate-900 dark:bg-slate-950 shrink-0"
+                style={{ width: '30px' }}
+                className="self-stretch rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 relative flex flex-col select-none shadow-xs cursor-default bg-slate-900 dark:bg-slate-950 shrink-0"
                 title={`Evaluation: ${evalBarData.text} (${evalBarData.source})`}
               >
                 {orientation === 'white' ? (
@@ -2348,7 +2355,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                       className="w-full bg-slate-900 dark:bg-slate-950 transition-all duration-300 ease-out flex flex-col items-center justify-start shrink-0 overflow-hidden"
                     >
                       {!evalBarData.advantage.isWhite && !evalBarData.advantage.isEqual && (
-                        <span className="pt-1 text-center font-mono font-bold text-[10px] text-white tracking-tighter select-none leading-none">
+                        <span className="pt-1.5 px-0.5 text-center font-mono font-bold text-[11px] text-white tracking-tight select-none leading-none">
                           {evalBarData.advantage.shortScore}
                         </span>
                       )}
@@ -2364,7 +2371,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                       } transition-all duration-300 ease-out flex flex-col items-center justify-end shrink-0 overflow-hidden`}
                     >
                       {(evalBarData.advantage.isWhite || evalBarData.advantage.isEqual) && (
-                        <span className="pb-1 text-center font-mono font-bold text-[10px] text-slate-900 tracking-tighter select-none leading-none">
+                        <span className="pb-1.5 px-0.5 text-center font-mono font-bold text-[11px] text-slate-900 tracking-tight select-none leading-none">
                           {evalBarData.advantage.shortScore}
                         </span>
                       )}
@@ -2383,7 +2390,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                       } transition-all duration-300 ease-out flex flex-col items-center justify-start shrink-0 overflow-hidden`}
                     >
                       {(evalBarData.advantage.isWhite || evalBarData.advantage.isEqual) && (
-                        <span className="pt-1 text-center font-mono font-bold text-[10px] text-slate-900 tracking-tighter select-none leading-none">
+                        <span className="pt-1.5 px-0.5 text-center font-mono font-bold text-[11px] text-slate-900 tracking-tight select-none leading-none">
                           {evalBarData.advantage.shortScore}
                         </span>
                       )}
@@ -2395,7 +2402,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                       className="w-full bg-slate-900 dark:bg-slate-950 transition-all duration-300 ease-out flex flex-col items-center justify-end shrink-0 overflow-hidden"
                     >
                       {!evalBarData.advantage.isWhite && !evalBarData.advantage.isEqual && (
-                        <span className="pb-1 text-center font-mono font-bold text-[10px] text-white tracking-tighter select-none leading-none">
+                        <span className="pb-1.5 px-0.5 text-center font-mono font-bold text-[11px] text-white tracking-tight select-none leading-none">
                           {evalBarData.advantage.shortScore}
                         </span>
                       )}
@@ -2406,7 +2413,8 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             </div>
           ) : (
             /* Desktop Sidebar View: Chessground Board with Horizontal Eval Bar below */
-            <div className="flex flex-col items-center shrink-0">
+            <div className="flex flex-col items-center gap-1.5 shrink-0">
+              {playerInfoBar}
               {/* Chessground Board */}
               <div
                 style={{
