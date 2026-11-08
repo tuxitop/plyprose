@@ -345,7 +345,7 @@ export function GamesPage({ onViewReport, onSettings }: GamesPageProps) {
   };
 
   return (
-    <div className="flex flex-col gap-4 p-6 max-w-7xl mx-auto w-full">
+    <div className="flex flex-col gap-4 p-4 sm:p-6 max-w-7xl mx-auto w-full pb-safe">
       {isDirectMode() && !isGitHubDirectConfigured() && (
         <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>

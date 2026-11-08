@@ -12,7 +12,7 @@ export function TopNav({ theme, onToggleTheme, onSettings }: TopNavProps) {
   const direct = isDirectMode();
 
   return (
-    <header className="h-12 bg-slate-900 dark:bg-slate-950 text-white flex items-center px-5 gap-3 shrink-0 border-b border-slate-800">
+    <header className="h-12 box-content bg-slate-900 dark:bg-slate-950 text-white flex items-center px-4 sm:px-5 gap-3 shrink-0 border-b border-slate-800 pt-safe">
       <span className="text-lg leading-none" aria-hidden="true">
         ♟
       </span>

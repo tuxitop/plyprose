@@ -33,6 +33,8 @@ import { findPlyByFen, classifyReportMove, decorateReportHtml } from '../lib/che
 import type { Theme } from '../hooks/useTheme';
 import type { AnalysisRecord } from '../types';
 
+export type MobileViewMode = 'split' | 'report' | 'board';
+
 interface AnalysisPageProps {
   analysisId: number | string;
   theme: Theme;
@@ -49,6 +51,23 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
 
   // Interactive Chessboard sidebar state (default: open)
   const [isBoardOpen, setIsBoardOpen] = useState(true);
+  const [mobileView, setMobileView] = useState<MobileViewMode>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      const saved = localStorage.getItem('chess_mobile_view');
+      if (saved === 'split' || saved === 'report' || saved === 'board') return saved;
+      return 'split';
+    }
+    return 'split';
+  });
+
+  const handleSetMobileView = (mode: MobileViewMode) => {
+    setMobileView(mode);
+    localStorage.setItem('chess_mobile_view', mode);
+    if (mode === 'board' || mode === 'split') {
+      setIsBoardOpen(true);
+    }
+  };
+
   const [currentPly, setCurrentPly] = useState<number>(0);
   const boardRef = useRef<InteractiveBoardHandle | null>(null);
   const [initialVariation, setInitialVariation] = useState<{
@@ -229,6 +248,13 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
       .catch(e => alert(`Could not start re-analysis: ${e.message}`));
   };
 
+  const openBoardOnMobile = useCallback(() => {
+    setIsBoardOpen(true);
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      setMobileView(prev => (prev === 'report' ? 'split' : prev));
+    }
+  }, []);
+
   // Handle clicking on moves or board figures in the report HTML
   const handleReportClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -249,7 +275,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
             }
             setCurrentPly(ply);
           }
-          setIsBoardOpen(true);
+          openBoardOnMobile();
           return;
         }
       }
@@ -259,7 +285,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
       if (sqPill) {
         const sq = sqPill.getAttribute('data-square');
         if (sq) {
-          setIsBoardOpen(true);
+          openBoardOnMobile();
           boardRef.current?.highlightSquare?.(sq);
         }
         return;
@@ -283,7 +309,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                   setInitialVariation({ branchPly, moves });
                 }
                 setCurrentPly(branchPly);
-                setIsBoardOpen(true);
+                openBoardOnMobile();
                 return;
               }
             } catch {
@@ -301,7 +327,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                 setInitialVariation(null);
               }
               setCurrentPly(ply);
-              setIsBoardOpen(true);
+              openBoardOnMobile();
               return;
             }
           }
@@ -313,7 +339,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
       if (codeOrCell) {
         const text = (codeOrCell.textContent || '').trim();
         if (/^[a-h][1-8]$/i.test(text)) {
-          setIsBoardOpen(true);
+          openBoardOnMobile();
           boardRef.current?.highlightSquare?.(text);
           return;
         }
@@ -326,7 +352,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               setInitialVariation({ branchPly: navTarget.ply, moves: navTarget.variationMoves });
             }
             setCurrentPly(navTarget.ply);
-            setIsBoardOpen(true);
+            openBoardOnMobile();
             return;
           } else {
             if (boardRef.current) {
@@ -335,13 +361,13 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               setInitialVariation(null);
             }
             setCurrentPly(navTarget.ply);
-            setIsBoardOpen(true);
+            openBoardOnMobile();
             return;
           }
         }
       }
     },
-    [record],
+    [record, openBoardOnMobile],
   );
 
   const pgnText = record?.pgn_text;
@@ -580,99 +606,229 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               </button>
             </div>
           </div>
+
+          {/* Mobile View Switcher (Split / Report / Board) */}
+          <div className="flex sm:hidden items-center justify-center px-4 py-2 bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex items-center w-full max-w-xs p-0.5 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 select-none shadow-xs">
+              <button
+                type="button"
+                onClick={() => handleSetMobileView('split')}
+                className={`flex-1 py-1 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileView === 'split'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <span>📖</span>
+                <span>Split</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetMobileView('report')}
+                className={`flex-1 py-1 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileView === 'report'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <span>📜</span>
+                <span>Report</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetMobileView('board')}
+                className={`flex-1 py-1 px-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileView === 'board'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <span>♟️</span>
+                <span>Board</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Floating Restore Pill when header is hidden */}
         {!isHeaderVisible && (
-          <div className="absolute top-3 left-6 z-20 flex items-center gap-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border border-slate-200 dark:border-slate-800 shadow-md rounded-full px-3 py-1.5 text-xs transition-all">
-            <button
-              onClick={onBack}
-              className="flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Back to Games"
-            >
-              <ArrowLeft size={13} />
-              <span>Back</span>
-            </button>
-            <span className="text-slate-300 dark:text-slate-700">|</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200 text-[11px] max-w-[160px] sm:max-w-[240px] truncate">
-              {white} vs {black}
-            </span>
-            <span className="text-slate-300 dark:text-slate-700">|</span>
-            <button
-              onClick={() => setIsHeaderVisible(true)}
-              className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium hover:underline cursor-pointer"
-              title="Show match header and export actions"
-            >
-              <ChevronDown size={13} />
-              <span>Show Header</span>
-            </button>
-            <span className="text-slate-300 dark:text-slate-700">|</span>
-            <button
-              onClick={() => setIsBoardOpen(prev => !prev)}
-              className="flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
-              title={isBoardOpen ? 'Hide interactive board' : 'Show interactive board'}
-            >
-              {isBoardOpen ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
-              <span>{isBoardOpen ? 'Hide Board' : 'Show Board'}</span>
-            </button>
-          </div>
-        )}
-
-        {/* Report document body */}
-        <div
-          ref={reportContainerRef}
-          className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950"
-          onClick={handleReportClick}
-          onScroll={handleReportScroll}
-        >
-          <div className="max-w-[860px] mx-auto px-6 py-8">
-            {/* Interactive Moves Legend */}
-            <div className="flex flex-wrap items-center gap-3 sm:gap-5 text-xs text-slate-500 dark:text-slate-400 pb-2.5 mb-4 border-b border-slate-200 dark:border-slate-800 select-none">
-              <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wider">
-                Interactive Moves:
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-[11px] font-mono font-semibold">
-                  <span className="text-[9px] text-blue-500">▶</span> Played Move
-                </span>
-                <span className="text-[11px]">Recorded game move</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[11px] font-mono font-semibold">
-                  <span className="text-[10px] text-purple-500 font-bold">⑂</span> Variation
-                </span>
-                <span className="text-[11px]">Analysis & engine refutation</span>
+          <div className="absolute top-3 left-3 right-3 sm:right-auto sm:left-6 z-30 flex items-center justify-between sm:justify-start gap-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border border-slate-200 dark:border-slate-800 shadow-md rounded-full px-3 py-1.5 text-xs transition-all">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+                title="Back to Games"
+              >
+                <ArrowLeft size={13} />
+                <span className="hidden sm:inline">Back</span>
+              </button>
+              <span className="text-slate-300 dark:text-slate-700">|</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200 text-[11px] max-w-[120px] sm:max-w-[240px] truncate">
+                {white} vs {black}
               </span>
             </div>
 
-            <div
-              className="prose prose-slate dark:prose-invert prose-sm sm:prose-base max-w-none
-                prose-headings:font-semibold
-                prose-h1:text-2xl prose-h1:border-b prose-h1:border-slate-200 dark:prose-h1:border-slate-800 prose-h1:pb-3 prose-h1:mt-2
-                prose-h2:text-xl prose-h2:text-blue-800 dark:prose-h2:text-blue-400 prose-h2:mt-8 prose-h2:mb-3
-                prose-h3:text-lg prose-h3:text-slate-800 dark:prose-h3:text-slate-200 prose-h3:mt-6 prose-h3:mb-2
-                prose-p:leading-relaxed prose-p:my-3
-                prose-li:my-1
-                prose-code:before:content-none prose-code:after:content-none
-                prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:text-slate-900 dark:prose-code:text-slate-100 prose-code:border prose-code:border-slate-200 dark:prose-code:border-slate-700/60 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:font-semibold
-                prose-pre:bg-slate-900 dark:prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-pre:text-xs prose-pre:rounded-lg prose-pre:p-4
-                prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 dark:prose-blockquote:bg-blue-950/40 prose-blockquote:text-blue-900 dark:prose-blockquote:text-blue-200 prose-blockquote:not-italic prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:rounded-r
-                prose-table:w-full prose-table:text-xs prose-table:my-4 prose-table:border-collapse
-                prose-th:bg-slate-100 dark:prose-th:bg-slate-800 prose-th:p-2 prose-th:border prose-th:border-slate-200 dark:prose-th:border-slate-700 prose-th:text-left
-                prose-td:p-2 prose-td:border prose-td:border-slate-200 dark:prose-td:border-slate-700
-                prose-figure:my-6 prose-figure:flex prose-figure:flex-col prose-figure:items-center
-                prose-figcaption:text-center prose-figcaption:text-xs prose-figcaption:text-slate-500 dark:prose-figcaption:text-slate-400 prose-figcaption:mt-2 prose-figcaption:italic"
-              dangerouslySetInnerHTML={{ __html: decoratedReportHtml }}
-            />
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Mobile View Switcher in Floating Pill */}
+              <div className="flex sm:hidden items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => handleSetMobileView('split')}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer ${
+                    mobileView === 'split'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Split
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetMobileView('report')}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer ${
+                    mobileView === 'report'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Report
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetMobileView('board')}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer ${
+                    mobileView === 'board'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Board
+                </button>
+              </div>
+
+              <span className="text-slate-300 dark:text-slate-700">|</span>
+              <button
+                onClick={() => setIsHeaderVisible(true)}
+                className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium hover:underline cursor-pointer"
+                title="Show match header and export actions"
+              >
+                <ChevronDown size={13} />
+                <span className="hidden sm:inline">Show Header</span>
+              </button>
+              <span className="hidden sm:inline text-slate-300 dark:text-slate-700">|</span>
+              <button
+                onClick={() => setIsBoardOpen(prev => !prev)}
+                className="hidden sm:flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+                title={isBoardOpen ? 'Hide interactive board' : 'Show interactive board'}
+              >
+                {isBoardOpen ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
+                <span>{isBoardOpen ? 'Hide Board' : 'Show Board'}</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* On Mobile: Top Docked Board in Split Mode */}
+        {mobileView === 'split' && (
+          <div className="sm:hidden w-full shrink-0 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col z-20 overflow-hidden">
+            <ErrorBoundary fallbackTitle="Could not display chessboard">
+              <InteractiveBoard
+                ref={boardRef}
+                pgnText={record.pgn_text}
+                payloadJson={record.payload_json}
+                currentPly={currentPly}
+                onSelectPly={setCurrentPly}
+                onClose={() => handleSetMobileView('report')}
+                userSide={record.side || (record.white_player === 'tuxitop' ? 'white' : 'black')}
+                sidebarWidth={sidebarWidth}
+                initialVariation={initialVariation}
+                analysisId={analysisId}
+                onReportUpdated={handleReportUpdated}
+                onScrollToSection={handleScrollToSection}
+                isMobileDocked={true}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {/* On Mobile: Full Interactive Board in Board Mode */}
+        {mobileView === 'board' ? (
+          <div className="sm:hidden flex-1 h-full overflow-hidden bg-white dark:bg-slate-900">
+            <ErrorBoundary fallbackTitle="Could not display chessboard">
+              <InteractiveBoard
+                ref={boardRef}
+                pgnText={record.pgn_text}
+                payloadJson={record.payload_json}
+                currentPly={currentPly}
+                onSelectPly={setCurrentPly}
+                onClose={() => handleSetMobileView('report')}
+                userSide={record.side || (record.white_player === 'tuxitop' ? 'white' : 'black')}
+                sidebarWidth={sidebarWidth}
+                initialVariation={initialVariation}
+                analysisId={analysisId}
+                onReportUpdated={handleReportUpdated}
+                onScrollToSection={handleScrollToSection}
+                isMobileDocked={false}
+              />
+            </ErrorBoundary>
+          </div>
+        ) : (
+          /* Report document body */
+          <div
+            ref={reportContainerRef}
+            className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-safe"
+            onClick={handleReportClick}
+            onScroll={handleReportScroll}
+          >
+            <div className="max-w-[860px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+              {/* Interactive Moves Legend */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-5 text-xs text-slate-500 dark:text-slate-400 pb-2.5 mb-4 border-b border-slate-200 dark:border-slate-800 select-none">
+                <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wider">
+                  Interactive Moves:
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800/80 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-[11px] font-mono font-semibold">
+                    <span className="text-[9px] text-blue-500">▶</span> Played Move
+                  </span>
+                  <span className="text-[11px]">Recorded game move</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-purple-300 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[11px] font-mono font-semibold">
+                    <span className="text-[10px] text-purple-500 font-bold">⑂</span> Variation
+                  </span>
+                  <span className="text-[11px]">Analysis & engine refutation</span>
+                </span>
+              </div>
+
+              <div
+                className="prose prose-slate dark:prose-invert prose-sm sm:prose-base max-w-none
+                  prose-headings:font-semibold
+                  prose-h1:text-2xl prose-h1:border-b prose-h1:border-slate-200 dark:prose-h1:border-slate-800 prose-h1:pb-3 prose-h1:mt-2
+                  prose-h2:text-xl prose-h2:text-blue-800 dark:prose-h2:text-blue-400 prose-h2:mt-8 prose-h2:mb-3
+                  prose-h3:text-lg prose-h3:text-slate-800 dark:prose-h3:text-slate-200 prose-h3:mt-6 prose-h3:mb-2
+                  prose-p:leading-relaxed prose-p:my-3
+                  prose-li:my-1
+                  prose-code:before:content-none prose-code:after:content-none
+                  prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:text-slate-900 dark:prose-code:text-slate-100 prose-code:border prose-code:border-slate-200 dark:prose-code:border-slate-700/60 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:font-semibold
+                  prose-pre:bg-slate-900 dark:prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-pre:text-xs prose-pre:rounded-lg prose-pre:p-4
+                  prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 dark:prose-blockquote:bg-blue-950/40 prose-blockquote:text-blue-900 dark:prose-blockquote:text-blue-200 prose-blockquote:not-italic prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:rounded-r
+                  prose-table:w-full prose-table:text-xs prose-table:my-4 prose-table:border-collapse
+                  prose-th:bg-slate-100 dark:prose-th:bg-slate-800 prose-th:p-2 prose-th:border prose-th:border-slate-200 dark:prose-th:border-slate-700 prose-th:text-left
+                  prose-td:p-2 prose-td:border prose-td:border-slate-200 dark:prose-td:border-slate-700
+                  prose-figure:my-6 prose-figure:flex prose-figure:flex-col prose-figure:items-center
+                  prose-figcaption:text-center prose-figcaption:text-xs prose-figcaption:text-slate-500 dark:prose-figcaption:text-slate-400 prose-figcaption:mt-2 prose-figcaption:italic"
+                dangerouslySetInnerHTML={{ __html: decoratedReportHtml }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Interactive Board Sidebar - full viewport height! */}
+      {/* Desktop Interactive Board Sidebar (>= sm breakpoint) */}
       {isBoardOpen && (
         <aside
           style={{ width: `${sidebarWidth}px` }}
-          className="h-full w-full sm:w-[var(--sidebar-width)] max-w-full border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col shrink-0 overflow-hidden shadow-xl z-20 absolute inset-y-0 right-0 sm:relative transition-none"
+          className="hidden sm:flex h-full w-[var(--sidebar-width)] max-w-full border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex-col shrink-0 overflow-hidden shadow-xl z-20 relative transition-none"
         >
           {/* Draggable Vertical Splitter Handle on Left Border */}
           <div
@@ -700,6 +856,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               analysisId={analysisId}
               onReportUpdated={handleReportUpdated}
               onScrollToSection={handleScrollToSection}
+              isMobileDocked={false}
             />
           </ErrorBoundary>
         </aside>

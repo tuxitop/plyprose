@@ -1,5 +1,6 @@
 import { RotateCcw, X } from 'lucide-react';
 import { getTagCapsuleConfig } from '../lib/badges';
+import { isDirectMode } from '../lib/api';
 import type { CategoryFilter, Platform, ResultFilter, StatusFilter } from '../types';
 
 interface FilterBarProps {
@@ -28,8 +29,8 @@ function SelectButtonGroup<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-18 sm:w-20 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
+    <div className="flex items-center gap-2 sm:gap-3">
+      <span className="w-14 sm:w-20 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
         {label}
       </span>
       <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 shadow-inner overflow-x-auto max-w-full">
@@ -40,7 +41,7 @@ function SelectButtonGroup<T extends string>({
               key={o.value}
               type="button"
               onClick={() => onChange(o.value)}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer whitespace-nowrap ${
+              className={`min-h-[30px] px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer whitespace-nowrap flex items-center justify-center ${
                 isSelected
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-700/50'
@@ -92,16 +93,18 @@ export function FilterBar({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-3 pt-0.5">
         {/* Left Column: Lifecycle, Origin & Tags */}
         <div className="flex flex-col gap-3">
-          <SelectButtonGroup<StatusFilter>
-            label="Status"
-            value={status}
-            onChange={onStatus}
-            options={[
-              { value: 'all', label: 'All' },
-              { value: 'analyzed', label: 'Analyzed' },
-              { value: 'unanalyzed', label: 'Pending' },
-            ]}
-          />
+          {!isDirectMode() && (
+            <SelectButtonGroup<StatusFilter>
+              label="Status"
+              value={status}
+              onChange={onStatus}
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'analyzed', label: 'Analyzed' },
+                { value: 'unanalyzed', label: 'Pending' },
+              ]}
+            />
+          )}
 
           <SelectButtonGroup<Platform>
             label="Platform"
@@ -115,8 +118,8 @@ export function FilterBar({
             ]}
           />
 
-          <div className="flex items-center gap-3">
-            <span className="w-18 sm:w-20 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="w-14 sm:w-20 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0">
               Tag
             </span>
             <div className="flex items-center gap-1.5 max-w-full">
@@ -177,8 +180,8 @@ export function FilterBar({
           />
 
           {isFiltered && (
-            <div className="flex items-center gap-3">
-              <span className="w-18 sm:w-20 shrink-0" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <span className="w-14 sm:w-20 shrink-0" />
               <button
                 type="button"
                 onClick={handleReset}

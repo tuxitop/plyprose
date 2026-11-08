@@ -438,19 +438,22 @@ class IdentifyOpeningResponse(BaseModel):
   - Inlines relative SVG board diagrams (`./assets/diagram_N.svg` and `assets/diagram_N.svg`) as UTF-8 data URIs concurrently via `Promise.all` before parsing Markdown via `marked`.
   - Directly downloads pre-rendered `report.pdf` files from the study repository via `downloadGitHubDirectPdf()`.
 - **Progressive Web App (PWA) & Mobile UX:**
-  - Web App Manifest (`manifest.json`), SVG icons, `standalone` display mode, dark theme `#0f172a`, and mobile viewport optimization for home-screen installation on iOS and Android.
+  - Web App Manifest (`manifest.json`), touch PNG and SVG icons, `standalone` display mode, dark theme `#0f172a`, and mobile viewport optimization for home-screen installation on iOS and Android.
   - Service Worker (`sw.js`) caching core app shell and assets for offline PWA viewing.
   - GitHub Pages SPA routing fallback (`404.html`) preserving repository subpaths and deep navigation across page refreshes.
   - Streamlined Mobile Reader Settings: Automatically surfaces GitHub study repository configuration and connection testing, while suppressing desktop backend polling and collapsing non-applicable desktop engine settings.
   - Reader Move Q&A Fallback: Provides verified deterministic tactical engine explanations directly on mobile without remote LLM synthesis errors.
+  - Mobile Docked Split-View & View Switcher (`AnalysisPage.tsx`): Pinned compact chessboard (~36-40vh) with scrollable coaching narrative beneath, accompanied by an instant 3-way view switcher (`[ 📖 Split | 📜 Report | ♟ Board ]`) so readers can follow along interactively without full-screen modal takeovers.
+  - Responsive Mobile Games Card List (`GamesTable.tsx`): Touch-friendly card layout for small screens (< 640px) replacing wide 7-column desktop tables to eliminate horizontal scrolling.
+  - Touch Ergonomics & Safe Areas: Primary chessboard navigation buttons adhere to Apple HIG and Google Material standards (≥44×44px hitboxes), board splitter touch dragging (`onTouchStart`/`onTouchMove`), and iOS notch/gesture bar safe area utilities (`pb-safe`, `pt-safe`).
 
 ### Module I: Frontend UI Architecture & Interactive Components
 
 - **Tech Stack:** React 18+, TypeScript (`strict: true`), Vite, Tailwind CSS, Lucide React icons.
 - **Key Components:**
-  - `InteractiveBoard.tsx`: Main analysis interface integrating `@lichess-org/chessground` and browser-side **Stockfish 19 WASM**. Supports free-play exploration, live multi-PV arrows, move badges, and opening continuations.
+  - `InteractiveBoard.tsx`: Main analysis interface integrating `@lichess-org/chessground` and browser-side **Stockfish 19 WASM**. Supports free-play exploration, live multi-PV arrows, move badges, opening continuations, docked mobile split mode, and touch drag-resizing.
   - `EvaluationChart.tsx`: Centipawn trajectory chart across every ply with click-to-navigate integration.
-  - `GamesTable.tsx`: Searchable, filterable game library table with tag capsules, platform badges, batch selection, and SSE analysis progress modals.
+  - `GamesTable.tsx`: Searchable, filterable game library table with responsive dual-view (desktop 7-column table with horizontal scroll, and touch-optimized card layout on mobile), tag capsules, platform badges, batch selection, and SSE analysis progress modals.
   - `MoveBadgeGlyph.tsx` & `badges.ts`: Visual move classification badges (Brilliant, Best Move, Inaccuracy, Mistake, Blunder, Missed Win, Checkmate).
   - `PlatformImportModal.tsx` & `ImportModal.tsx`: Platform batch synchronization and raw PGN ingestion.
   - `SyncModal.tsx`: GitHub study repository push and pull controls.

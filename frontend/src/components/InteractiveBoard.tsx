@@ -204,6 +204,7 @@ export interface InteractiveBoardProps {
   analysisId?: number | string;
   onReportUpdated?: (reportHtml: string, reportMd: string) => void;
   onScrollToSection?: (sectionName: string) => void;
+  isMobileDocked?: boolean;
 }
 
 export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBoardProps>(
@@ -220,6 +221,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       analysisId,
       onReportUpdated,
       onScrollToSection,
+      isMobileDocked = false,
     }: InteractiveBoardProps,
     ref,
   ) {
@@ -246,9 +248,13 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       return 300;
     });
 
-    // Constrain board size to current sidebar container width (accounting for vertical eval bar)
-    const maxBoardWidth = Math.max(180, sidebarWidth - 56);
-    const effectiveBoardSize = Math.max(180, Math.min(boardSize, maxBoardWidth));
+    // Constrain board size to current container / viewport width
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 420;
+    const effectiveContainerWidth = Math.min(sidebarWidth, viewportWidth);
+    const maxBoardWidth = Math.max(180, effectiveContainerWidth - 32);
+    const effectiveBoardSize = isMobileDocked
+      ? Math.min(220, maxBoardWidth)
+      : Math.max(180, Math.min(boardSize, maxBoardWidth));
 
     // Orientation
     const [orientation, setOrientation] = useState<Color>(() => {
@@ -334,6 +340,37 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
+      },
+      [effectiveBoardSize, maxBoardWidth],
+    );
+
+    const handleBoardSplitterTouchStart = useCallback(
+      (e: React.TouchEvent) => {
+        if (!e.touches[0]) return;
+        isDraggingBoardSplitter.current = true;
+        dragStartY.current = e.touches[0].clientY;
+        initialDragSize.current = effectiveBoardSize;
+
+        const onTouchMove = (moveEvent: TouchEvent) => {
+          if (!isDraggingBoardSplitter.current || !moveEvent.touches[0]) return;
+          const deltaY = moveEvent.touches[0].clientY - dragStartY.current;
+          const maxAllowed = Math.max(220, maxBoardWidth);
+          const nextSize = Math.max(160, Math.min(initialDragSize.current + deltaY, maxAllowed));
+          setBoardSize(nextSize);
+        };
+
+        const onTouchEnd = () => {
+          isDraggingBoardSplitter.current = false;
+          window.removeEventListener('touchmove', onTouchMove);
+          window.removeEventListener('touchend', onTouchEnd);
+          setBoardSize(s => {
+            localStorage.setItem('chess_board_size', String(s));
+            return s;
+          });
+        };
+
+        window.addEventListener('touchmove', onTouchMove, { passive: true });
+        window.addEventListener('touchend', onTouchEnd);
       },
       [effectiveBoardSize, maxBoardWidth],
     );
@@ -1833,10 +1870,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
           <div className="flex items-center gap-1">
             {/* Quick Board Size Presets */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded p-0.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded p-0.5 text-xs sm:text-[10px] font-semibold text-slate-500 dark:text-slate-400">
               <button
                 onClick={() => handlePresetBoardSize(220)}
-                className={`px-1.5 py-0.5 rounded transition-colors ${
+                className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
                   effectiveBoardSize <= 240
                     ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
                     : 'hover:text-slate-900 dark:hover:text-slate-100'
@@ -1847,7 +1884,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               </button>
               <button
                 onClick={() => handlePresetBoardSize(300)}
-                className={`px-1.5 py-0.5 rounded transition-colors ${
+                className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
                   effectiveBoardSize > 240 && effectiveBoardSize < 360
                     ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
                     : 'hover:text-slate-900 dark:hover:text-slate-100'
@@ -1858,7 +1895,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               </button>
               <button
                 onClick={() => handlePresetBoardSize(380)}
-                className={`px-1.5 py-0.5 rounded transition-colors ${
+                className={`min-h-[28px] min-w-[28px] sm:min-h-0 sm:min-w-0 px-2 sm:px-1.5 py-1 sm:py-0.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
                   effectiveBoardSize >= 360
                     ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
                     : 'hover:text-slate-900 dark:hover:text-slate-100'
@@ -2314,24 +2351,24 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
 
         {/* Navigation Toolbar */}
         <div className="px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0">
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1 sm:gap-0.5">
             <button
               onClick={handleFirst}
               disabled={safePly === 0 && !isFreePlay}
               title="First Move (Up Arrow)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default"
+              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
             >
-              <ChevronsLeft size={15} />
+              <ChevronsLeft size={17} className="sm:w-[15px] sm:h-[15px]" />
             </button>
             <button
               onClick={handlePrevCritical}
               disabled={prevCriticalPly === null}
               title={prevCriticalTooltip}
               aria-label="Previous Critical Moment"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
+              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
             >
-              <ChevronLeft size={12} className="-mr-0.5" />
-              <span className="font-extrabold text-[11px] font-mono leading-none select-none">
+              <ChevronLeft size={14} className="-mr-0.5 sm:w-[12px] sm:h-[12px]" />
+              <span className="font-extrabold text-xs sm:text-[11px] font-mono leading-none select-none">
                 !
               </span>
             </button>
@@ -2339,52 +2376,56 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
               onClick={handlePrev}
               disabled={safePly === 0 && !isFreePlay}
               title="Previous Move (Left Arrow)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default"
+              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
             >
-              <ChevronLeft size={15} />
+              <ChevronLeft size={17} className="sm:w-[15px] sm:h-[15px]" />
             </button>
             <button
               onClick={() => setIsAutoplaying(p => !p)}
               title={isAutoplaying ? 'Pause Autoplay (Space)' : 'Autoplay Game (Space)'}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${
+              className={`min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded transition-colors cursor-pointer flex items-center justify-center ${
                 isAutoplaying
                   ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
               }`}
             >
-              {isAutoplaying ? <Pause size={15} /> : <Play size={15} />}
+              {isAutoplaying ? (
+                <Pause size={17} className="sm:w-[15px] sm:h-[15px]" />
+              ) : (
+                <Play size={17} className="sm:w-[15px] sm:h-[15px]" />
+              )}
             </button>
             <button
               onClick={handleNext}
               disabled={safePly >= plies.length - 1 && !isFreePlay}
               title="Next Move (Right Arrow)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default"
+              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
             >
-              <ChevronRight size={15} />
+              <ChevronRight size={17} className="sm:w-[15px] sm:h-[15px]" />
             </button>
             <button
               onClick={handleNextCritical}
               disabled={nextCriticalPly === null}
               title={nextCriticalTooltip}
               aria-label="Next Critical Moment"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
+              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors inline-flex items-center justify-center cursor-pointer disabled:cursor-default"
             >
-              <span className="font-extrabold text-[11px] font-mono leading-none select-none">
+              <span className="font-extrabold text-xs sm:text-[11px] font-mono leading-none select-none">
                 !
               </span>
-              <ChevronRight size={12} className="-ml-0.5" />
+              <ChevronRight size={14} className="-ml-0.5 sm:w-[12px] sm:h-[12px]" />
             </button>
             <button
               onClick={handleLast}
               disabled={safePly >= plies.length - 1 && !isFreePlay}
               title="Last Move (Down Arrow)"
-              className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default"
+              className="min-h-[42px] min-w-[42px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 rounded-lg sm:rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300 transition-colors cursor-pointer disabled:cursor-default flex items-center justify-center"
             >
-              <ChevronsRight size={15} />
+              <ChevronsRight size={17} className="sm:w-[15px] sm:h-[15px]" />
             </button>
 
-            {/* Quick Zoom In / Out to fine-tune board size */}
-            <div className="flex items-center gap-0.5 border-l border-slate-200 dark:border-slate-800 pl-1 ml-1 text-slate-500">
+            {/* Quick Zoom In / Out on desktop to fine-tune board size */}
+            <div className="hidden sm:flex items-center gap-0.5 border-l border-slate-200 dark:border-slate-800 pl-1 ml-1 text-slate-500">
               <button
                 onClick={() => handlePresetBoardSize(Math.max(180, effectiveBoardSize - 35))}
                 title="Make chessboard smaller (expand move list)"
@@ -2483,502 +2524,558 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           />
         )}
 
-        {/* Draggable Vertical Splitter Bar between Board Controls and Move List */}
-        <div
-          onMouseDown={handleBoardSplitterStart}
-          onDoubleClick={() => handlePresetBoardSize(300)}
-          className="h-2.5 w-full cursor-row-resize bg-slate-100 dark:bg-slate-800 hover:bg-blue-500/20 active:bg-blue-500/40 border-y border-slate-200 dark:border-slate-800 transition-colors flex items-center justify-center group select-none shrink-0"
-          title="Drag up or down to resize chessboard and gain more move list space (Double-click to reset)"
-        >
-          <div className="w-10 h-0.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-blue-500 group-active:bg-blue-600 transition-colors" />
-        </div>
+        {/* Draggable Vertical Splitter Bar between Board Controls and Move List (hidden in mobile docked split mode) */}
+        {!isMobileDocked && (
+          <>
+            <div
+              onMouseDown={handleBoardSplitterStart}
+              onTouchStart={handleBoardSplitterTouchStart}
+              onDoubleClick={() => handlePresetBoardSize(300)}
+              className="h-2.5 w-full cursor-row-resize bg-slate-100 dark:bg-slate-800 hover:bg-blue-500/20 active:bg-blue-500/40 border-y border-slate-200 dark:border-slate-800 transition-colors flex items-center justify-center group select-none shrink-0"
+              title="Drag up or down to resize chessboard and gain more move list space (Double-click to reset)"
+            >
+              <div className="w-10 h-0.5 rounded-full bg-slate-300 dark:bg-slate-600 group-hover:bg-blue-500 group-active:bg-blue-600 transition-colors" />
+            </div>
 
-        {activeSidebarTab === 'moves' ? (
-          /* Move Timeline List (Header removed to maximize vertical space) */
-          <div
-            className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-slate-900"
-            ref={moveListRef}
-          >
-            <div className="p-1.5 text-xs">
-              <table className="w-full text-xs">
-                <tbody>
-                  {/* Branch variation at starting position (before move 1) */}
-                  {isFreePlay && branchPly === 0 && variationPlies.length > 0 && (
-                    <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-200 dark:border-slate-800">
-                      <td colSpan={3} className="py-1 px-1.5">
-                        <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700">
-                          <span className="text-slate-400 dark:text-slate-500 font-sans">(</span>
-                          {variationPlies.map((vm, vIdx) => {
-                            const isActive = currentVarIndex === vIdx;
-                            return (
-                              <button
-                                key={vIdx}
-                                onClick={e => {
-                                  e.currentTarget.blur();
-                                  handleGoToVariationPly(vIdx);
-                                }}
-                                className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
-                                  isActive
-                                    ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
-                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                }`}
-                              >
-                                {vm.color === 'w'
-                                  ? `${vm.moveNumber}. `
-                                  : vIdx === 0
-                                    ? `${vm.moveNumber}... `
-                                    : ''}
-                                {vm.san}
-                              </button>
-                            );
-                          })}
-                          <span className="text-slate-400 dark:text-slate-500 font-sans">)</span>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-
-                  {movePairs.map(pair => {
-                    const whiteActive = pair.white && safePly === pair.white.ply && !isFreePlay;
-                    const blackActive = pair.black && safePly === pair.black.ply && !isFreePlay;
-
-                    const whiteBadge = pair.white
-                      ? getClassificationBadge(pair.white.criticalMoment?.classification)
-                      : null;
-                    const blackBadge = pair.black
-                      ? getClassificationBadge(pair.black.criticalMoment?.classification)
-                      : null;
-
-                    const whiteEval = pair.white
-                      ? formatPlyEval(gamePlyEvals[pair.white.ply])
-                      : null;
-                    const blackEval = pair.black
-                      ? formatPlyEval(gamePlyEvals[pair.black.ply])
-                      : null;
-
-                    const whiteEngineVar = pair.white
-                      ? engineVariationsByPly.get(pair.white.ply)
-                      : undefined;
-                    const blackEngineVar = pair.black
-                      ? engineVariationsByPly.get(pair.black.ply)
-                      : undefined;
-
-                    const pairVariations: Array<{
-                      id: string;
-                      branchPly: number;
-                      moves: VariationPly[];
-                    }> = [];
-
-                    // White engine suggestion preloaded
-                    if (whiteEngineVar && whiteEngineVar.length > 0) {
-                      pairVariations.push({
-                        id: `w-engine-${pair.moveNumber}`,
-                        branchPly: pair.white!.ply - 1,
-                        moves: whiteEngineVar,
-                      });
-                    }
-
-                    // White user exploration
-                    if (
-                      pair.white &&
-                      isFreePlay &&
-                      branchPly === pair.white.ply - 1 &&
-                      variationPlies.length > 0
-                    ) {
-                      const isDup =
-                        whiteEngineVar &&
-                        whiteEngineVar.length === variationPlies.length &&
-                        whiteEngineVar.every((m, idx) => m.san === variationPlies[idx].san);
-                      if (!isDup) {
-                        pairVariations.push({
-                          id: `w-user-${pair.moveNumber}`,
-                          branchPly: pair.white.ply - 1,
-                          moves: variationPlies,
-                        });
-                      }
-                    }
-
-                    // Black engine suggestion preloaded
-                    if (blackEngineVar && blackEngineVar.length > 0) {
-                      pairVariations.push({
-                        id: `b-engine-${pair.moveNumber}`,
-                        branchPly: pair.black!.ply - 1,
-                        moves: blackEngineVar,
-                      });
-                    }
-
-                    // Black user exploration
-                    if (
-                      pair.black &&
-                      isFreePlay &&
-                      branchPly === pair.black.ply - 1 &&
-                      variationPlies.length > 0
-                    ) {
-                      const isDup =
-                        blackEngineVar &&
-                        blackEngineVar.length === variationPlies.length &&
-                        blackEngineVar.every((m, idx) => m.san === variationPlies[idx].san);
-                      if (!isDup) {
-                        pairVariations.push({
-                          id: `b-user-${pair.moveNumber}`,
-                          branchPly: pair.black.ply - 1,
-                          moves: variationPlies,
-                        });
-                      }
-                    }
-
-                    return (
-                      <Fragment key={pair.moveNumber}>
-                        <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="w-8 py-1 px-1.5 font-mono text-slate-400 text-right select-none font-medium">
-                            {pair.moveNumber}.
-                          </td>
-
-                          {/* White move */}
-                          <td className="w-[45%] py-0.5 px-0.5">
-                            {pair.white && (
-                              <button
-                                data-ply={pair.white.ply}
-                                onClick={e => {
-                                  e.currentTarget.blur();
-                                  handleGoToPly(pair.white!.ply);
-                                }}
-                                className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                  whiteActive
-                                    ? 'bg-blue-600 text-white font-bold shadow-xs'
-                                    : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <span
-                                    className={`truncate ${
-                                      whiteActive
-                                        ? 'text-white font-bold'
-                                        : whiteBadge
-                                          ? getClassificationTextColor(whiteBadge.type)
-                                          : 'text-slate-800 dark:text-slate-200'
+            {activeSidebarTab === 'moves' ? (
+              /* Move Timeline List (Header removed to maximize vertical space) */
+              <div
+                className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-slate-900"
+                ref={moveListRef}
+              >
+                <div className="p-1.5 text-xs">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {/* Branch variation at starting position (before move 1) */}
+                      {isFreePlay && branchPly === 0 && variationPlies.length > 0 && (
+                        <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-200 dark:border-slate-800">
+                          <td colSpan={3} className="py-1 px-1.5">
+                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-mono leading-relaxed ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700">
+                              <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                (
+                              </span>
+                              {variationPlies.map((vm, vIdx) => {
+                                const isActive = currentVarIndex === vIdx;
+                                return (
+                                  <button
+                                    key={vIdx}
+                                    onClick={e => {
+                                      e.currentTarget.blur();
+                                      handleGoToVariationPly(vIdx);
+                                    }}
+                                    className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
+                                      isActive
+                                        ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
+                                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                                     }`}
                                   >
-                                    {pair.white.san}
-                                  </span>
-                                  {whiteBadge && (
-                                    <span
-                                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${whiteBadge.bgClass}`}
-                                      title={whiteBadge.label}
-                                    >
-                                      <MoveBadgeGlyph type={whiteBadge.type} className="w-3 h-3" />
-                                    </span>
-                                  )}
-                                </div>
-                                {showMoveListEvals && whiteEval && (
-                                  <span
-                                    className={`text-[9.5px] font-mono shrink-0 select-none ${
-                                      whiteActive
-                                        ? 'text-white/80'
-                                        : 'text-slate-400 dark:text-slate-500'
-                                    }`}
-                                  >
-                                    {whiteEval}
-                                  </span>
-                                )}
-                              </button>
-                            )}
-                          </td>
-
-                          {/* Black move */}
-                          <td className="w-[45%] py-0.5 px-0.5">
-                            {pair.black && (
-                              <button
-                                data-ply={pair.black.ply}
-                                onClick={e => {
-                                  e.currentTarget.blur();
-                                  handleGoToPly(pair.black!.ply);
-                                }}
-                                className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                                  blackActive
-                                    ? 'bg-blue-600 text-white font-bold shadow-xs'
-                                    : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <span
-                                    className={`truncate ${
-                                      blackActive
-                                        ? 'text-white font-bold'
-                                        : blackBadge
-                                          ? getClassificationTextColor(blackBadge.type)
-                                          : 'text-slate-800 dark:text-slate-200'
-                                    }`}
-                                  >
-                                    {pair.black.san}
-                                  </span>
-                                  {blackBadge && (
-                                    <span
-                                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${blackBadge.bgClass}`}
-                                      title={blackBadge.label}
-                                    >
-                                      <MoveBadgeGlyph type={blackBadge.type} className="w-3 h-3" />
-                                    </span>
-                                  )}
-                                </div>
-                                {showMoveListEvals && blackEval && (
-                                  <span
-                                    className={`text-[9.5px] font-mono shrink-0 select-none ${
-                                      blackActive
-                                        ? 'text-white/80'
-                                        : 'text-slate-400 dark:text-slate-500'
-                                    }`}
-                                  >
-                                    {blackEval}
-                                  </span>
-                                )}
-                              </button>
-                            )}
+                                    {vm.color === 'w'
+                                      ? `${vm.moveNumber}. `
+                                      : vIdx === 0
+                                        ? `${vm.moveNumber}... `
+                                        : ''}
+                                    {vm.san}
+                                  </button>
+                                );
+                              })}
+                              <span className="text-slate-400 dark:text-slate-500 font-sans">
+                                )
+                              </span>
+                            </div>
                           </td>
                         </tr>
+                      )}
 
-                        {/* Indented Variations underneath move pair */}
-                        {pairVariations.length > 0 && (
-                          <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800/40">
-                            <td colSpan={3} className="py-1 px-1.5">
-                              <div className="ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700 flex flex-col gap-1 text-[11px] font-mono leading-relaxed">
-                                {pairVariations.map(variation => (
-                                  <div
-                                    key={variation.id}
-                                    className="flex flex-wrap items-center gap-1"
+                      {movePairs.map(pair => {
+                        const whiteActive = pair.white && safePly === pair.white.ply && !isFreePlay;
+                        const blackActive = pair.black && safePly === pair.black.ply && !isFreePlay;
+
+                        const whiteBadge = pair.white
+                          ? getClassificationBadge(pair.white.criticalMoment?.classification)
+                          : null;
+                        const blackBadge = pair.black
+                          ? getClassificationBadge(pair.black.criticalMoment?.classification)
+                          : null;
+
+                        const whiteEval = pair.white
+                          ? formatPlyEval(gamePlyEvals[pair.white.ply])
+                          : null;
+                        const blackEval = pair.black
+                          ? formatPlyEval(gamePlyEvals[pair.black.ply])
+                          : null;
+
+                        const whiteEngineVar = pair.white
+                          ? engineVariationsByPly.get(pair.white.ply)
+                          : undefined;
+                        const blackEngineVar = pair.black
+                          ? engineVariationsByPly.get(pair.black.ply)
+                          : undefined;
+
+                        const pairVariations: Array<{
+                          id: string;
+                          branchPly: number;
+                          moves: VariationPly[];
+                        }> = [];
+
+                        // White engine suggestion preloaded
+                        if (whiteEngineVar && whiteEngineVar.length > 0) {
+                          pairVariations.push({
+                            id: `w-engine-${pair.moveNumber}`,
+                            branchPly: pair.white!.ply - 1,
+                            moves: whiteEngineVar,
+                          });
+                        }
+
+                        // White user exploration
+                        if (
+                          pair.white &&
+                          isFreePlay &&
+                          branchPly === pair.white.ply - 1 &&
+                          variationPlies.length > 0
+                        ) {
+                          const isDup =
+                            whiteEngineVar &&
+                            whiteEngineVar.length === variationPlies.length &&
+                            whiteEngineVar.every((m, idx) => m.san === variationPlies[idx].san);
+                          if (!isDup) {
+                            pairVariations.push({
+                              id: `w-user-${pair.moveNumber}`,
+                              branchPly: pair.white.ply - 1,
+                              moves: variationPlies,
+                            });
+                          }
+                        }
+
+                        // Black engine suggestion preloaded
+                        if (blackEngineVar && blackEngineVar.length > 0) {
+                          pairVariations.push({
+                            id: `b-engine-${pair.moveNumber}`,
+                            branchPly: pair.black!.ply - 1,
+                            moves: blackEngineVar,
+                          });
+                        }
+
+                        // Black user exploration
+                        if (
+                          pair.black &&
+                          isFreePlay &&
+                          branchPly === pair.black.ply - 1 &&
+                          variationPlies.length > 0
+                        ) {
+                          const isDup =
+                            blackEngineVar &&
+                            blackEngineVar.length === variationPlies.length &&
+                            blackEngineVar.every((m, idx) => m.san === variationPlies[idx].san);
+                          if (!isDup) {
+                            pairVariations.push({
+                              id: `b-user-${pair.moveNumber}`,
+                              branchPly: pair.black.ply - 1,
+                              moves: variationPlies,
+                            });
+                          }
+                        }
+
+                        return (
+                          <Fragment key={pair.moveNumber}>
+                            <tr className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                              <td className="w-8 py-1 px-1.5 font-mono text-slate-400 text-right select-none font-medium">
+                                {pair.moveNumber}.
+                              </td>
+
+                              {/* White move */}
+                              <td className="w-[45%] py-0.5 px-0.5">
+                                {pair.white && (
+                                  <button
+                                    data-ply={pair.white.ply}
+                                    onClick={e => {
+                                      e.currentTarget.blur();
+                                      handleGoToPly(pair.white!.ply);
+                                    }}
+                                    className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                      whiteActive
+                                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                                        : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                                    }`}
                                   >
-                                    {variation.moves.map((vm, vIdx) => {
-                                      const isMoveActive =
-                                        isFreePlay &&
-                                        branchPly === variation.branchPly &&
-                                        activeFen === vm.fen;
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span
+                                        className={`truncate ${
+                                          whiteActive
+                                            ? 'text-white font-bold'
+                                            : whiteBadge
+                                              ? getClassificationTextColor(whiteBadge.type)
+                                              : 'text-slate-800 dark:text-slate-200'
+                                        }`}
+                                      >
+                                        {pair.white.san}
+                                      </span>
+                                      {whiteBadge && (
+                                        <span
+                                          className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${whiteBadge.bgClass}`}
+                                          title={whiteBadge.label}
+                                        >
+                                          <MoveBadgeGlyph
+                                            type={whiteBadge.type}
+                                            className="w-3 h-3"
+                                          />
+                                        </span>
+                                      )}
+                                    </div>
+                                    {showMoveListEvals && whiteEval && (
+                                      <span
+                                        className={`text-[9.5px] font-mono shrink-0 select-none ${
+                                          whiteActive
+                                            ? 'text-white/80'
+                                            : 'text-slate-400 dark:text-slate-500'
+                                        }`}
+                                      >
+                                        {whiteEval}
+                                      </span>
+                                    )}
+                                  </button>
+                                )}
+                              </td>
 
-                                      const subVars = subVariations.filter(
-                                        sv => sv.parentFen === vm.fen || sv.branchPlyIndex === vIdx,
-                                      );
+                              {/* Black move */}
+                              <td className="w-[45%] py-0.5 px-0.5">
+                                {pair.black && (
+                                  <button
+                                    data-ply={pair.black.ply}
+                                    onClick={e => {
+                                      e.currentTarget.blur();
+                                      handleGoToPly(pair.black!.ply);
+                                    }}
+                                    className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
+                                      blackActive
+                                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                                        : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span
+                                        className={`truncate ${
+                                          blackActive
+                                            ? 'text-white font-bold'
+                                            : blackBadge
+                                              ? getClassificationTextColor(blackBadge.type)
+                                              : 'text-slate-800 dark:text-slate-200'
+                                        }`}
+                                      >
+                                        {pair.black.san}
+                                      </span>
+                                      {blackBadge && (
+                                        <span
+                                          className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${blackBadge.bgClass}`}
+                                          title={blackBadge.label}
+                                        >
+                                          <MoveBadgeGlyph
+                                            type={blackBadge.type}
+                                            className="w-3 h-3"
+                                          />
+                                        </span>
+                                      )}
+                                    </div>
+                                    {showMoveListEvals && blackEval && (
+                                      <span
+                                        className={`text-[9.5px] font-mono shrink-0 select-none ${
+                                          blackActive
+                                            ? 'text-white/80'
+                                            : 'text-slate-400 dark:text-slate-500'
+                                        }`}
+                                      >
+                                        {blackEval}
+                                      </span>
+                                    )}
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
 
-                                      return (
-                                        <Fragment key={vIdx}>
-                                          <button
-                                            onClick={e => {
-                                              e.currentTarget.blur();
-                                              handleSelectVariationMove(
-                                                variation.branchPly,
-                                                variation.moves,
-                                                vIdx,
-                                              );
-                                            }}
-                                            className={`px-1 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
-                                              isMoveActive
-                                                ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
-                                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                            }`}
-                                            title={`Go to ${vm.san}`}
-                                          >
-                                            {vm.color === 'w'
-                                              ? `${vm.moveNumber}. `
-                                              : vIdx === 0
-                                                ? `${vm.moveNumber}... `
-                                                : ''}
-                                            {vm.san}
-                                          </button>
+                            {/* Indented Variations underneath move pair */}
+                            {pairVariations.length > 0 && (
+                              <tr className="bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800/40">
+                                <td colSpan={3} className="py-1 px-1.5">
+                                  <div className="ml-8 pl-2.5 border-l-2 border-slate-300 dark:border-slate-700 flex flex-col gap-1 text-[11px] font-mono leading-relaxed">
+                                    {pairVariations.map(variation => (
+                                      <div
+                                        key={variation.id}
+                                        className="flex flex-wrap items-center gap-1"
+                                      >
+                                        {variation.moves.map((vm, vIdx) => {
+                                          const isMoveActive =
+                                            isFreePlay &&
+                                            branchPly === variation.branchPly &&
+                                            activeFen === vm.fen;
 
-                                          {/* Render nested sub-variations in parentheses */}
-                                          {subVars.map((sv, sIdx) => (
-                                            <span
-                                              key={sIdx}
-                                              className="text-slate-500 dark:text-slate-400 font-sans inline-flex items-center gap-0.5 text-[10.5px]"
-                                            >
-                                              <span>(</span>
-                                              {sv.moves.map((svm, svIdx) => {
-                                                const isSubActive =
-                                                  isFreePlay && activeFen === svm.fen;
-                                                return (
-                                                  <button
-                                                    key={svIdx}
-                                                    onClick={e => {
-                                                      e.currentTarget.blur();
-                                                      handleSelectVariationMove(
-                                                        variation.branchPly,
-                                                        sv.moves,
-                                                        svIdx,
-                                                      );
-                                                    }}
-                                                    className={`px-1 py-0.2 rounded transition-colors cursor-pointer font-mono ${
-                                                      isSubActive
-                                                        ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold'
-                                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                                    }`}
-                                                  >
-                                                    {svm.color === 'w'
-                                                      ? `${svm.moveNumber}. `
-                                                      : svIdx === 0
-                                                        ? `${svm.moveNumber}... `
-                                                        : ''}
-                                                    {svm.san}
-                                                  </button>
-                                                );
-                                              })}
-                                              <span>)</span>
-                                            </span>
-                                          ))}
-                                        </Fragment>
-                                      );
-                                    })}
+                                          const subVars = subVariations.filter(
+                                            sv =>
+                                              sv.parentFen === vm.fen || sv.branchPlyIndex === vIdx,
+                                          );
+
+                                          return (
+                                            <Fragment key={vIdx}>
+                                              <button
+                                                onClick={e => {
+                                                  e.currentTarget.blur();
+                                                  handleSelectVariationMove(
+                                                    variation.branchPly,
+                                                    variation.moves,
+                                                    vIdx,
+                                                  );
+                                                }}
+                                                className={`px-1 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
+                                                  isMoveActive
+                                                    ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
+                                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                                }`}
+                                                title={`Go to ${vm.san}`}
+                                              >
+                                                {vm.color === 'w'
+                                                  ? `${vm.moveNumber}. `
+                                                  : vIdx === 0
+                                                    ? `${vm.moveNumber}... `
+                                                    : ''}
+                                                {vm.san}
+                                              </button>
+
+                                              {/* Render nested sub-variations in parentheses */}
+                                              {subVars.map((sv, sIdx) => (
+                                                <span
+                                                  key={sIdx}
+                                                  className="text-slate-500 dark:text-slate-400 font-sans inline-flex items-center gap-0.5 text-[10.5px]"
+                                                >
+                                                  <span>(</span>
+                                                  {sv.moves.map((svm, svIdx) => {
+                                                    const isSubActive =
+                                                      isFreePlay && activeFen === svm.fen;
+                                                    return (
+                                                      <button
+                                                        key={svIdx}
+                                                        onClick={e => {
+                                                          e.currentTarget.blur();
+                                                          handleSelectVariationMove(
+                                                            variation.branchPly,
+                                                            sv.moves,
+                                                            svIdx,
+                                                          );
+                                                        }}
+                                                        className={`px-1 py-0.2 rounded transition-colors cursor-pointer font-mono ${
+                                                          isSubActive
+                                                            ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold'
+                                                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                                        }`}
+                                                      >
+                                                        {svm.color === 'w'
+                                                          ? `${svm.moveNumber}. `
+                                                          : svIdx === 0
+                                                            ? `${svm.moveNumber}... `
+                                                            : ''}
+                                                        {svm.san}
+                                                      </button>
+                                                    );
+                                                  })}
+                                                  <span>)</span>
+                                                </span>
+                                              ))}
+                                            </Fragment>
+                                          );
+                                        })}
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-slate-900 flex flex-col text-xs">
-            {/* Context Header */}
-            {/* Context Header */}
-            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 shrink-0">
-              {/* Line 1: Analyzing move & return to moves button */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <span className="text-slate-500 font-normal">Analyzing:</span>
-                  <span className="font-mono bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800 font-bold">
-                    {safePly > 0
-                      ? `${currentPlyData.moveNumber}.${currentPlyData.color === 'b' ? '..' : ''} ${currentPlyData.san}`
-                      : 'Starting Position'}
-                  </span>
-                  {safePly > 0 && (
-                    <span className="text-slate-400 text-[11px]">
-                      ({currentPlyData.color === 'w' ? 'White' : 'Black'})
-                    </span>
-                  )}
-                </span>
-                <div className="flex items-center gap-1.5">
-                  {currentPlyData.criticalMoment && (
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${activeBadge?.bgClass ?? 'bg-amber-600'}`}
-                    >
-                      {currentPlyData.criticalMoment.classification}
-                    </span>
-                  )}
-                  <button
-                    onClick={() => setActiveSidebarTab('moves')}
-                    title="Switch back to move list"
-                    className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                  >
-                    <List size={13} />
-                  </button>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-
-              {/* Line 2: Spent & Clock on left, Tags on right */}
-              <div className="mt-1.5 flex items-center justify-between gap-2 flex-wrap">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-mono">
-                  <span>
-                    ⏱️ Spent:{' '}
-                    {currentPlyData.timeSpentSeconds !== undefined &&
-                    currentPlyData.timeSpentSeconds !== null
-                      ? `${currentPlyData.timeSpentSeconds}s`
-                      : '—'}
-                  </span>
-                  {currentPlyData.clockSecondsRemaining !== undefined &&
-                    currentPlyData.clockSecondsRemaining !== null && (
-                      <span className="text-slate-400 dark:text-slate-500">
-                        · Clock: {formatSecondsToClock(currentPlyData.clockSecondsRemaining)}
+            ) : (
+              <div className="flex-1 overflow-y-auto min-h-0 bg-white dark:bg-slate-900 flex flex-col text-xs">
+                {/* Context Header */}
+                {/* Context Header */}
+                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 shrink-0">
+                  {/* Line 1: Analyzing move & return to moves button */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <span className="text-slate-500 font-normal">Analyzing:</span>
+                      <span className="font-mono bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800 font-bold">
+                        {safePly > 0
+                          ? `${currentPlyData.moveNumber}.${currentPlyData.color === 'b' ? '..' : ''} ${currentPlyData.san}`
+                          : 'Starting Position'}
                       </span>
+                      {safePly > 0 && (
+                        <span className="text-slate-400 text-[11px]">
+                          ({currentPlyData.color === 'w' ? 'White' : 'Black'})
+                        </span>
+                      )}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {currentPlyData.criticalMoment && (
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${activeBadge?.bgClass ?? 'bg-amber-600'}`}
+                        >
+                          {currentPlyData.criticalMoment.classification}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setActiveSidebarTab('moves')}
+                        title="Switch back to move list"
+                        className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      >
+                        <List size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Line 2: Spent & Clock on left, Tags on right */}
+                  <div className="mt-1.5 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-mono">
+                      <span>
+                        ⏱️ Spent:{' '}
+                        {currentPlyData.timeSpentSeconds !== undefined &&
+                        currentPlyData.timeSpentSeconds !== null
+                          ? `${currentPlyData.timeSpentSeconds}s`
+                          : '—'}
+                      </span>
+                      {currentPlyData.clockSecondsRemaining !== undefined &&
+                        currentPlyData.clockSecondsRemaining !== null && (
+                          <span className="text-slate-400 dark:text-slate-500">
+                            · Clock: {formatSecondsToClock(currentPlyData.clockSecondsRemaining)}
+                          </span>
+                        )}
+                    </div>
+                    {currentPlyData.criticalMoment?.tags &&
+                      currentPlyData.criticalMoment.tags.length > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap justify-end">
+                          {sortTagsNegativeFirst(currentPlyData.criticalMoment.tags).map(t => (
+                            <TagCapsule key={t} tag={t} size="sm" />
+                          ))}
+                        </div>
+                      )}
+                  </div>
+
+                  {/* Line 3: Engine alternative beneath Line 2 */}
+                  {currentPlyData.criticalMoment?.best_move_san &&
+                    currentPlyData.criticalMoment.best_move_san !== currentPlyData.san &&
+                    !currentPlyData.san.includes('#') &&
+                    !currentPlyData.criticalMoment.classification
+                      ?.toLowerCase()
+                      .includes('checkmate') &&
+                    [
+                      'blunder',
+                      'mistake',
+                      'inaccuracy',
+                      'missed win',
+                      'missed tactic',
+                      'miss',
+                    ].some(cls =>
+                      currentPlyData.criticalMoment?.classification?.toLowerCase().includes(cls),
+                    ) && (
+                      <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                        <span>Engine alternative:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              currentPlyData.criticalMoment?.pv_san &&
+                              currentPlyData.criticalMoment.pv_san.length > 0
+                            ) {
+                              startVariation(safePly - 1, currentPlyData.criticalMoment.pv_san);
+                            }
+                          }}
+                          title="Click to load engine alternative line on board"
+                          className="font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
+                        >
+                          {currentPlyData.criticalMoment.best_move_san}
+                        </button>
+                      </div>
                     )}
                 </div>
-                {currentPlyData.criticalMoment?.tags &&
-                  currentPlyData.criticalMoment.tags.length > 0 && (
-                    <div className="flex items-center gap-1 flex-wrap justify-end">
-                      {sortTagsNegativeFirst(currentPlyData.criticalMoment.tags).map(t => (
-                        <TagCapsule key={t} tag={t} size="sm" />
-                      ))}
-                    </div>
-                  )}
-              </div>
 
-              {/* Line 3: Engine alternative beneath Line 2 */}
-              {currentPlyData.criticalMoment?.best_move_san &&
-                currentPlyData.criticalMoment.best_move_san !== currentPlyData.san &&
-                !currentPlyData.san.includes('#') &&
-                !currentPlyData.criticalMoment.classification
-                  ?.toLowerCase()
-                  .includes('checkmate') &&
-                ['blunder', 'mistake', 'inaccuracy', 'missed win', 'missed tactic', 'miss'].some(
-                  cls => currentPlyData.criticalMoment?.classification?.toLowerCase().includes(cls),
-                ) && (
-                  <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                    <span>Engine alternative:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (
-                          currentPlyData.criticalMoment?.pv_san &&
-                          currentPlyData.criticalMoment.pv_san.length > 0
-                        ) {
-                          startVariation(safePly - 1, currentPlyData.criticalMoment.pv_san);
-                        }
-                      }}
-                      title="Click to load engine alternative line on board"
-                      className="font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
-                    >
-                      {currentPlyData.criticalMoment.best_move_san}
-                    </button>
+                {/* Deterministic Tactical Explanation (Always visible before Ask Coach) */}
+                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1.5">
+                    <Sparkles size={12} />
+                    <span>Move Breakdown</span>
                   </div>
-                )}
-            </div>
+                  <div
+                    className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto"
+                    onClick={handleCoachAnswerClick}
+                    dangerouslySetInnerHTML={{ __html: moveExplanationHtml }}
+                  />
+                </div>
 
-            {/* Deterministic Tactical Explanation (Always visible before Ask Coach) */}
-            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1.5">
-                <Sparkles size={12} />
-                <span>Move Breakdown</span>
-              </div>
-              <div
-                className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto"
-                onClick={handleCoachAnswerClick}
-                dangerouslySetInnerHTML={{ __html: moveExplanationHtml }}
-              />
-            </div>
-
-            {/* Custom Question Input Form */}
-            <form
-              onSubmit={e => {
-                e.preventDefault();
-                void handleAskCoach();
-              }}
-              className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/30 flex flex-col gap-2 shrink-0"
-            >
-              <textarea
-                value={userQuestion}
-                onChange={e => setUserQuestion(e.target.value)}
-                placeholder={`Ask Coach anything about ${safePly > 0 ? `${currentPlyData.moveNumber}.${currentPlyData.san}` : 'this position'}...`}
-                rows={2}
-                className="w-full text-xs p-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                {/* Custom Question Input Form */}
+                <form
+                  onSubmit={e => {
                     e.preventDefault();
                     void handleAskCoach();
-                  }
-                }}
-              />
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-slate-400">Press Enter to ask</span>
-                <button
-                  type="submit"
-                  disabled={isAskingCoach || !userQuestion.trim()}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                  }}
+                  className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/30 flex flex-col gap-2 shrink-0"
                 >
-                  {isAskingCoach ? (
-                    <>
+                  <textarea
+                    value={userQuestion}
+                    onChange={e => setUserQuestion(e.target.value)}
+                    placeholder={`Ask Coach anything about ${safePly > 0 ? `${currentPlyData.moveNumber}.${currentPlyData.san}` : 'this position'}...`}
+                    rows={2}
+                    className="w-full text-xs p-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleAskCoach();
+                      }
+                    }}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400">Press Enter to ask</span>
+                    <button
+                      type="submit"
+                      disabled={isAskingCoach || !userQuestion.trim()}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      {isAskingCoach ? (
+                        <>
+                          <svg
+                            className="animate-spin h-3 w-3 text-white"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v8z"
+                            />
+                          </svg>
+                          <span>Analyzing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send size={12} />
+                          <span>Ask Coach</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Answer Display */}
+                <div className="p-3 flex-1">
+                  {isAskingCoach && (
+                    <div className="p-6 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
                       <svg
-                        className="animate-spin h-3 w-3 text-white"
+                        className="animate-spin h-5 w-5 text-blue-600"
                         viewBox="0 0 24 24"
                         fill="none"
                       >
@@ -2992,142 +3089,113 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                         />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                       </svg>
-                      <span>Analyzing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send size={12} />
-                      <span>Ask Coach</span>
-                    </>
+                      <span>Consulting coach and calculating tactical facts…</span>
+                    </div>
                   )}
-                </button>
-              </div>
-            </form>
 
-            {/* Answer Display */}
-            <div className="p-3 flex-1">
-              {isAskingCoach && (
-                <div className="p-6 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
-                  <svg
-                    className="animate-spin h-5 w-5 text-blue-600"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                  </svg>
-                  <span>Consulting coach and calculating tactical facts…</span>
-                </div>
-              )}
-
-              {coachError && (
-                <div className="p-3 rounded-md bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs">
-                  <p className="font-semibold mb-1">Could not get coaching answer</p>
-                  <p>{coachError}</p>
-                </div>
-              )}
-
-              {activeCoachAnswer && !isAskingCoach && (
-                <div className="flex flex-col gap-3">
-                  {/* Formal Question Title */}
-                  <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-md border border-slate-200 dark:border-slate-700">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
-                      Coaching Question
+                  {coachError && (
+                    <div className="p-3 rounded-md bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs">
+                      <p className="font-semibold mb-1">Could not get coaching answer</p>
+                      <p>{coachError}</p>
                     </div>
-                    <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs leading-snug">
-                      {activeCoachAnswer.formal_question}
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-1">
-                      {activeCoachAnswer.move_context}
-                    </div>
-                  </div>
+                  )}
 
-                  {/* Formatted Answer with Interactive Clickable Moves */}
-                  <div
-                    className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto"
-                    onClick={handleCoachAnswerClick}
-                    dangerouslySetInnerHTML={{ __html: coachAnswerHtml }}
-                  />
+                  {activeCoachAnswer && !isAskingCoach && (
+                    <div className="flex flex-col gap-3">
+                      {/* Formal Question Title */}
+                      <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-md border border-slate-200 dark:border-slate-700">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
+                          Coaching Question
+                        </div>
+                        <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs leading-snug">
+                          {activeCoachAnswer.formal_question}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-1">
+                          {activeCoachAnswer.move_context}
+                        </div>
+                      </div>
 
-                  {/* Add to Review Action */}
-                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
-                    {appendedSuccess ? (
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
-                          <Check size={14} />
-                          <span>Added to Game Review!</span>
-                        </span>
-                        {onScrollToSection && (
+                      {/* Formatted Answer with Interactive Clickable Moves */}
+                      <div
+                        className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed overflow-x-auto"
+                        onClick={handleCoachAnswerClick}
+                        dangerouslySetInnerHTML={{ __html: coachAnswerHtml }}
+                      />
+
+                      {/* Add to Review Action */}
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                        {appendedSuccess ? (
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+                              <Check size={14} />
+                              <span>Added to Game Review!</span>
+                            </span>
+                            {onScrollToSection && (
+                              <button
+                                onClick={() => onScrollToSection('Follow-up Coaching & Deep Dives')}
+                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>View in Review</span>
+                                <ExternalLink size={11} />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
                           <button
-                            onClick={() => onScrollToSection('Follow-up Coaching & Deep Dives')}
-                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                            onClick={handleAppendQA}
+                            disabled={isAppendingQA}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium transition-colors cursor-pointer shadow-xs"
+                            title="Append this Q&A into the official game review document"
                           >
-                            <span>View in Review</span>
-                            <ExternalLink size={11} />
+                            {isAppendingQA ? (
+                              <>
+                                <svg
+                                  className="animate-spin h-3 w-3 text-white"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                >
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  />
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8v8z"
+                                  />
+                                </svg>
+                                <span>Updating Review...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Plus size={13} />
+                                <span>Add to Review</span>
+                              </>
+                            )}
                           </button>
                         )}
-                      </div>
-                    ) : (
-                      <button
-                        onClick={handleAppendQA}
-                        disabled={isAppendingQA}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium transition-colors cursor-pointer shadow-xs"
-                        title="Append this Q&A into the official game review document"
-                      >
-                        {isAppendingQA ? (
-                          <>
-                            <svg
-                              className="animate-spin h-3 w-3 text-white"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                            >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                              />
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8v8z"
-                              />
-                            </svg>
-                            <span>Updating Review...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Plus size={13} />
-                            <span>Add to Review</span>
-                          </>
-                        )}
-                      </button>
-                    )}
 
-                    <button
-                      onClick={() => {
-                        setCoachAnswer(null);
-                        setUserQuestion('');
-                        setAppendedSuccess(false);
-                      }}
-                      className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline cursor-pointer"
-                    >
-                      Ask another
-                    </button>
-                  </div>
+                        <button
+                          onClick={() => {
+                            setCoachAnswer(null);
+                            setUserQuestion('');
+                            setAppendedSuccess(false);
+                          }}
+                          className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline cursor-pointer"
+                        >
+                          Ask another
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     );
