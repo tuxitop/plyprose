@@ -87,6 +87,9 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
     if (mode === 'board' || mode === 'split') {
       setIsBoardOpen(true);
     }
+    if (mode === 'board') {
+      setIsHeaderVisible(true);
+    }
   };
 
   const [currentPly, setCurrentPly] = useState<number>(0);
@@ -185,20 +188,26 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
 
   const handleReportScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
+      // Auto-hide header only on desktop/tablet screens (>= 640px).
+      // On mobile, header visibility is explicitly controlled by the user's Hide/Show buttons
+      // to prevent erratic scroll jitter and unwanted pop-ups while reading.
+      if (typeof window !== 'undefined' && window.innerWidth < 640) {
+        return;
+      }
       const currentScrollTop = e.currentTarget.scrollTop;
       const delta = currentScrollTop - lastScrollTop.current;
 
       if (currentScrollTop <= 35) {
         setIsHeaderVisible(true);
-      } else if (delta > 35 && isHeaderVisible) {
+      } else if (delta > 20) {
         setIsHeaderVisible(false);
-      } else if (delta < -30 && !isHeaderVisible) {
+      } else if (delta < -20) {
         setIsHeaderVisible(true);
       }
 
       lastScrollTop.current = currentScrollTop;
     },
-    [isHeaderVisible],
+    [setIsHeaderVisible],
   );
 
   const [reanalyzeJobId, setReanalyzeJobId] = useState<string | null>(null);
@@ -292,8 +301,9 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
     setIsBoardOpen(true);
     if (typeof window !== 'undefined' && window.innerWidth < 640) {
       setMobileView(prev => (prev === 'report' ? 'split' : prev));
+      setIsHeaderVisible(true);
     }
-  }, []);
+  }, [setIsBoardOpen, setMobileView, setIsHeaderVisible]);
 
   // Handle clicking on moves or board figures in the report HTML
   const handleReportClick = useCallback(
@@ -407,7 +417,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
         }
       }
     },
-    [record, openBoardOnMobile],
+    [record, openBoardOnMobile, setCurrentPly, setInitialVariation],
   );
 
   const pgnText = record?.pgn_text;
@@ -967,50 +977,49 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
           </div>
         )}
 
-        {/* Floating Restore Pill on mobile when header is hidden */}
+        {/* Floating Restore Pill on mobile when header is hidden (fixed at bottom, never blocks board or top text) */}
         {!isHeaderVisible && (
-          <div className="sm:hidden absolute top-2.5 left-3 right-3 z-30 flex items-center justify-between bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-md rounded-full px-3 py-1.5 text-xs transition-all">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <button
-                onClick={onBack}
-                className="flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 py-0.5"
-                title="Back to Games"
-              >
-                <ArrowLeft size={14} />
-                <span className="font-medium text-xs">Back</span>
-              </button>
-              <span className="text-slate-300 dark:text-slate-700 shrink-0">|</span>
-              <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate">
-                {white} vs {black}
-              </span>
-            </div>
+          <div className="sm:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2.5 bg-slate-900/95 dark:bg-slate-800/95 text-white backdrop-blur-md border border-slate-700/80 shadow-2xl rounded-full px-4 py-2 text-xs transition-all animate-in fade-in slide-in-from-bottom-2 duration-150">
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 font-medium text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0 py-0.5"
+              title="Back to Games"
+              aria-label="Back to Games"
+            >
+              <ArrowLeft size={14} />
+              <span>Back</span>
+            </button>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => setIsHeaderVisible(true)}
-                className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-semibold hover:underline cursor-pointer py-0.5"
-                title="Show match header"
-              >
-                <ChevronDown size={14} />
-                <span>Show Header</span>
-              </button>
-              <span className="text-slate-300 dark:text-slate-700">|</span>
-              <button
-                onClick={() => {
-                  if (mobileView === 'report') {
-                    handleSetMobileView('split');
-                  } else {
-                    handleSetMobileView('report');
-                  }
-                }}
-                className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer text-xs py-0.5"
-                title={
-                  mobileView === 'report' ? 'Open board in split view' : 'Switch to report only'
+            <span className="text-slate-600 dark:text-slate-600 shrink-0 select-none">|</span>
+
+            <button
+              onClick={() => setIsHeaderVisible(true)}
+              className="inline-flex items-center gap-1 font-semibold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer shrink-0 py-0.5"
+              title="Show match header and controls"
+              aria-label="Show match header and controls"
+            >
+              <ChevronDown size={14} />
+              <span>Show Headers</span>
+            </button>
+
+            <span className="text-slate-600 dark:text-slate-600 shrink-0 select-none">|</span>
+
+            <button
+              onClick={() => {
+                if (mobileView === 'report') {
+                  handleSetMobileView('split');
+                } else {
+                  handleSetMobileView('report');
                 }
-              >
-                <span>{mobileView === 'report' ? '♟️ Board' : '📜 Report'}</span>
-              </button>
-            </div>
+              }}
+              className="inline-flex items-center gap-1 text-slate-300 hover:text-white transition-colors cursor-pointer text-xs shrink-0 py-0.5"
+              title={mobileView === 'report' ? 'Open board in split view' : 'Switch to report only'}
+              aria-label={
+                mobileView === 'report' ? 'Open board in split view' : 'Switch to report only'
+              }
+            >
+              <span>{mobileView === 'report' ? '♟️ Board' : '📜 Report'}</span>
+            </button>
           </div>
         )}
 
@@ -1066,7 +1075,9 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
           /* Report document body */
           <div
             ref={reportContainerRef}
-            className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-safe"
+            className={`flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 pb-safe ${
+              !isHeaderVisible ? 'pb-24 sm:pb-safe' : ''
+            }`}
             onClick={handleReportClick}
             onScroll={handleReportScroll}
           >
