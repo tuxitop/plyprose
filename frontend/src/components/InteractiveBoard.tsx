@@ -52,7 +52,7 @@ import {
 } from '../lib/api';
 import { saveAnnotatedPgnDirect } from '../lib/githubDirect';
 import { MoveContextMenu } from './MoveContextMenu';
-import { InlineCommentEditor } from './InlineCommentEditor';
+import { SeamlessNote } from './SeamlessNote';
 import {
   buildAnnotatedPgn,
   extractCommentsAndClocksFromPgn,
@@ -854,8 +854,15 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       | null
     >(null);
 
-    const [editingText, setEditingText] = useState<string>('');
-    const [isAiAnnotating, setIsAiAnnotating] = useState<boolean>(false);
+    const [annotatingTarget, setAnnotatingTarget] = useState<{
+      ply: number;
+      san: string;
+      isVariation: boolean;
+      varId?: string;
+      varIndex?: number;
+    } | null>(null);
+
+    const isAiAnnotating = Boolean(annotatingTarget);
     const [aiNoticeModal, setAiNoticeModal] = useState<{
       title: string;
       message: string;
@@ -1050,18 +1057,13 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       [],
     );
 
-    const handleStartEditMainlineNote = useCallback(
-      (ply: number) => {
-        setEditingTarget({ type: 'mainline', ply });
-        setEditingText(moveComments.get(ply) || '');
-      },
-      [moveComments],
-    );
+    const handleStartEditMainlineNote = useCallback((ply: number) => {
+      setEditingTarget({ type: 'mainline', ply });
+    }, []);
 
     const handleSaveMainlineNote = useCallback(
       (ply: number, text: string) => {
         setEditingTarget(null);
-        setEditingText('');
         setMoveComments(prev => {
           const next = new Map(prev);
           if (text.trim()) {
@@ -1088,20 +1090,13 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       [persistAnnotatedPgn, savedVariations],
     );
 
-    const handleStartEditVariationNote = useCallback(
-      (varId: string, varIndex: number) => {
-        const v = savedVariations.find(item => item.id === varId);
-        const existingComment = v?.moves[varIndex]?.comment || '';
-        setEditingTarget({ type: 'variation', varId, varIndex });
-        setEditingText(existingComment);
-      },
-      [savedVariations],
-    );
+    const handleStartEditVariationNote = useCallback((varId: string, varIndex: number) => {
+      setEditingTarget({ type: 'variation', varId, varIndex });
+    }, []);
 
     const handleSaveVariationNote = useCallback(
       (varId: string, varIndex: number, text: string) => {
         setEditingTarget(null);
-        setEditingText('');
         setSavedVariations(prev => {
           const next = prev.map(v => {
             if (v.id === varId) {
@@ -1142,11 +1137,6 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
       },
       [moveComments, persistAnnotatedPgn],
     );
-
-    const handleCancelNote = useCallback(() => {
-      setEditingTarget(null);
-      setEditingText('');
-    }, []);
 
     const handleDeleteVariation = useCallback(
       (varId: string) => {
@@ -1305,7 +1295,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           });
           return;
         }
-        setIsAiAnnotating(true);
+        setAnnotatingTarget({ ply, san, isVariation: isVar, varId, varIndex });
         try {
           const res = await annotateMove(analysisId, { ply, san });
           if (res && res.comment) {
@@ -1330,7 +1320,7 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
             actionLabel: 'Open Settings',
           });
         } finally {
-          setIsAiAnnotating(false);
+          setAnnotatingTarget(null);
         }
       },
       [analysisId, handleSaveMainlineNote, handleSaveVariationNote],
@@ -1339,27 +1329,22 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
     const isValidSquare = (s?: string): s is Key => Boolean(s && /^[a-h][1-8]$/.test(s));
 
     // Derive auto-shapes for the current position
-    // 1. If Stockfish Live Analysis is ON: show PV 1 (Dark Gray) and PV 2 (Light Gray)
+    // 1. If Stockfish Live Analysis is ON: show PV 1 (Blue) and subsequent PVs in graduated gray shades
     // 2. Otherwise if on a critical moment: show blunder (red) and best move (green)
     const currentAutoShapes = useMemo((): DrawShape[] => {
       if (isAnalyzing && engineLines.length > 0 && engineLines[0]?.fen === activeFen) {
         const shapes: DrawShape[] = [];
-        // Top engine move: Dark Gray arrow
-        if (isValidSquare(engineLines[0]?.from) && isValidSquare(engineLines[0]?.to)) {
-          shapes.push({
-            orig: engineLines[0].from,
-            dest: engineLines[0].to,
-            brush: 'darkGray',
-          });
-        }
-        // Second alternative move: Light Gray arrow
-        if (isValidSquare(engineLines[1]?.from) && isValidSquare(engineLines[1]?.to)) {
-          shapes.push({
-            orig: engineLines[1].from,
-            dest: engineLines[1].to,
-            brush: 'lightGray',
-          });
-        }
+        const engineBrushes = ['blue', 'darkGray', 'midGray', 'lightGray', 'extraLightGray'];
+        engineLines.forEach((line, idx) => {
+          if (isValidSquare(line.from) && isValidSquare(line.to)) {
+            const brush = engineBrushes[Math.min(idx, engineBrushes.length - 1)];
+            shapes.push({
+              orig: line.from,
+              dest: line.to,
+              brush,
+            });
+          }
+        });
         return shapes;
       }
 
@@ -1813,10 +1798,12 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           brushes: {
             green: { key: 'green', color: '#15803d', opacity: 0.85, lineWidth: 10 },
             red: { key: 'red', color: '#dc2626', opacity: 0.85, lineWidth: 10 },
-            blue: { key: 'blue', color: '#2563eb', opacity: 0.85, lineWidth: 10 },
+            blue: { key: 'blue', color: '#2563eb', opacity: 0.88, lineWidth: 10 },
             yellow: { key: 'yellow', color: '#eab308', opacity: 0.85, lineWidth: 10 },
-            darkGray: { key: 'darkGray', color: '#374151', opacity: 0.9, lineWidth: 10 },
-            lightGray: { key: 'lightGray', color: '#9ca3af', opacity: 0.78, lineWidth: 8 },
+            darkGray: { key: 'darkGray', color: '#374151', opacity: 0.85, lineWidth: 9 },
+            midGray: { key: 'midGray', color: '#6b7280', opacity: 0.78, lineWidth: 8 },
+            lightGray: { key: 'lightGray', color: '#9ca3af', opacity: 0.7, lineWidth: 7 },
+            extraLightGray: { key: 'extraLightGray', color: '#d1d5db', opacity: 0.6, lineWidth: 6 },
           },
           shapes: userShapes,
           autoShapes: currentAutoShapes,
@@ -3087,13 +3074,21 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                     <span
                       className={`w-2.5 h-2.5 rounded-full shrink-0 border ${
                         line.multipv === 1
-                          ? 'bg-slate-700 border-slate-800 dark:bg-slate-300 dark:border-slate-100'
-                          : 'bg-slate-400 border-slate-500 dark:bg-slate-500 dark:border-slate-400'
+                          ? 'bg-blue-600 border-blue-700 dark:bg-blue-500 dark:border-blue-400'
+                          : line.multipv === 2
+                            ? 'bg-slate-700 border-slate-800 dark:bg-slate-300 dark:border-slate-100'
+                            : line.multipv === 3
+                              ? 'bg-slate-500 border-slate-600 dark:bg-slate-400 dark:border-slate-300'
+                              : 'bg-slate-400 border-slate-500 dark:bg-slate-500 dark:border-slate-400'
                       }`}
                       title={
                         line.multipv === 1
-                          ? 'Best move (Dark Gray Arrow)'
-                          : 'Alternative (Light Gray Arrow)'
+                          ? 'Top engine move (Blue Arrow)'
+                          : line.multipv === 2
+                            ? '2nd engine move (Dark Gray Arrow)'
+                            : line.multipv === 3
+                              ? '3rd engine move (Medium Gray Arrow)'
+                              : `${line.multipv}th engine move (Light Gray Arrow)`
                       }
                     />
                     <span className="font-bold w-12 text-right text-slate-900 dark:text-slate-100">
@@ -3813,6 +3808,11 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                 {rootVar.moves.map((vm, vIdx) => {
                                   const isActive =
                                     isFreePlay && branchPly === 0 && currentVarIndex === vIdx;
+                                  const isVarMoveAnnotating =
+                                    annotatingTarget !== null &&
+                                    annotatingTarget.isVariation &&
+                                    annotatingTarget.varId === rootVar.id &&
+                                    annotatingTarget.varIndex === vIdx;
                                   return (
                                     <Fragment key={vIdx}>
                                       <button
@@ -3849,43 +3849,71 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                         onTouchMove={handleTouchMove}
                                         onTouchEnd={handleTouchEnd}
                                         onTouchCancel={handleTouchEnd}
-                                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
-                                          isActive
-                                            ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
-                                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 relative overflow-hidden inline-flex items-center gap-1 ${
+                                          isVarMoveAnnotating
+                                            ? 'ring-1.5 ring-purple-500 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold shadow-xs'
+                                            : isActive
+                                              ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
+                                              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                                         }`}
                                       >
-                                        {vm.color === 'w'
-                                          ? `${vm.moveNumber}. `
-                                          : vIdx === 0
-                                            ? `${vm.moveNumber}... `
-                                            : ''}
-                                        {vm.san}
+                                        {isVarMoveAnnotating && (
+                                          <span className="relative flex h-2 w-2 shrink-0">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+                                          </span>
+                                        )}
+                                        <span>
+                                          {vm.color === 'w'
+                                            ? `${vm.moveNumber}. `
+                                            : vIdx === 0
+                                              ? `${vm.moveNumber}... `
+                                              : ''}
+                                          {vm.san}
+                                        </span>
+                                        {isVarMoveAnnotating && (
+                                          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-200 dark:bg-purple-900/60 overflow-hidden">
+                                            <div className="animate-ai-progress h-full bg-purple-600 dark:bg-purple-400 rounded-full" />
+                                          </div>
+                                        )}
                                       </button>
-                                      {vm.comment && (
-                                        <span
-                                          onClick={() =>
-                                            handleStartEditVariationNote(rootVar.id, vIdx)
-                                          }
-                                          className="text-[11px] text-amber-800 dark:text-amber-300 font-normal px-1 py-0.5 rounded hover:bg-amber-100/60 dark:hover:bg-amber-950/40 cursor-pointer font-sans"
-                                          title="Click to edit note"
-                                        >
-                                          {`{ ${vm.comment} }`}
+                                      {isVarMoveAnnotating && (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/40 text-[10.5px] text-purple-700 dark:text-purple-300 font-sans font-medium">
+                                          <Sparkles
+                                            size={11}
+                                            className="animate-spin text-purple-500 shrink-0"
+                                          />
+                                          <span className="animate-pulse">AI analyzing...</span>
                                         </span>
                                       )}
-                                      {editingTarget?.type === 'variation' &&
-                                        editingTarget.varId === rootVar.id &&
-                                        editingTarget.varIndex === vIdx && (
-                                          <div className="w-full my-1">
-                                            <InlineCommentEditor
-                                              initialValue={editingText}
+                                      {!isVarMoveAnnotating &&
+                                        (vm.comment ||
+                                          (editingTarget?.type === 'variation' &&
+                                            editingTarget.varId === rootVar.id &&
+                                            editingTarget.varIndex === vIdx)) && (
+                                          <span className="inline-flex items-center text-[11px] text-amber-800 dark:text-amber-300 font-normal font-sans">
+                                            <span className="text-amber-800/60 dark:text-amber-300/60 select-none">
+                                              {'{ '}
+                                            </span>
+                                            <SeamlessNote
+                                              inline
+                                              text={vm.comment || ''}
+                                              isTargeted={
+                                                editingTarget?.type === 'variation' &&
+                                                editingTarget.varId === rootVar.id &&
+                                                editingTarget.varIndex === vIdx
+                                              }
                                               onSave={text =>
                                                 handleSaveVariationNote(rootVar.id, vIdx, text)
                                               }
-                                              onCancel={handleCancelNote}
-                                              label={`Variation Note • ${vm.san}`}
+                                              onCancel={() => setEditingTarget(null)}
+                                              placeholder="note..."
+                                              className="text-[11px] text-amber-800 dark:text-amber-300 font-normal font-sans px-0.5"
                                             />
-                                          </div>
+                                            <span className="text-amber-800/60 dark:text-amber-300/60 select-none">
+                                              {' }'}
+                                            </span>
+                                          </span>
                                         )}
                                     </Fragment>
                                   );
@@ -4027,8 +4055,21 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           }
                         }
 
+                        const isWhiteAnnotating =
+                          annotatingTarget !== null &&
+                          !annotatingTarget.isVariation &&
+                          Boolean(pair.white && annotatingTarget.ply === pair.white.ply);
+
+                        const isBlackAnnotating =
+                          annotatingTarget !== null &&
+                          !annotatingTarget.isVariation &&
+                          Boolean(pair.black && annotatingTarget.ply === pair.black.ply);
+
                         const hasWhiteInterruption = Boolean(
-                          whiteComment || isEditingWhite || whiteVariations.length > 0,
+                          whiteComment ||
+                          isEditingWhite ||
+                          whiteVariations.length > 0 ||
+                          isWhiteAnnotating,
                         );
 
                         // Helper to render move button
@@ -4038,108 +4079,155 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           badge: ReturnType<typeof getClassificationBadge>,
                           evalStr: string | null,
                           hasComment: boolean,
-                        ) => (
-                          <button
-                            data-ply={plyData.ply}
-                            onClick={e => {
-                              e.currentTarget.blur();
-                              if (isLongPressRef.current) {
-                                isLongPressRef.current = false;
-                                return;
+                        ) => {
+                          const isPlyAnnotating =
+                            annotatingTarget !== null &&
+                            !annotatingTarget.isVariation &&
+                            annotatingTarget.ply === plyData.ply;
+
+                          return (
+                            <button
+                              data-ply={plyData.ply}
+                              onClick={e => {
+                                e.currentTarget.blur();
+                                if (isLongPressRef.current) {
+                                  isLongPressRef.current = false;
+                                  return;
+                                }
+                                handleGoToPly(plyData.ply);
+                              }}
+                              onContextMenu={e =>
+                                handleContextMenu(
+                                  e,
+                                  plyData.ply,
+                                  plyData.san,
+                                  false,
+                                  undefined,
+                                  undefined,
+                                  hasComment,
+                                )
                               }
-                              handleGoToPly(plyData.ply);
-                            }}
-                            onContextMenu={e =>
-                              handleContextMenu(
-                                e,
-                                plyData.ply,
-                                plyData.san,
-                                false,
-                                undefined,
-                                undefined,
-                                hasComment,
-                              )
-                            }
-                            onTouchStart={e =>
-                              handleTouchStart(
-                                e,
-                                plyData.ply,
-                                plyData.san,
-                                false,
-                                undefined,
-                                undefined,
-                                hasComment,
-                              )
-                            }
-                            onTouchMove={handleTouchMove}
-                            onTouchEnd={handleTouchEnd}
-                            onTouchCancel={handleTouchEnd}
-                            className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none ${
-                              isActive
-                                ? 'bg-blue-600 text-white font-bold shadow-xs'
-                                : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span
-                                className={`truncate ${
-                                  isActive
-                                    ? 'text-white font-bold'
-                                    : badge
-                                      ? getClassificationTextColor(badge.type)
-                                      : 'text-slate-800 dark:text-slate-200'
-                                }`}
-                              >
-                                {plyData.san}
-                              </span>
-                              {badge && (
+                              onTouchStart={e =>
+                                handleTouchStart(
+                                  e,
+                                  plyData.ply,
+                                  plyData.san,
+                                  false,
+                                  undefined,
+                                  undefined,
+                                  hasComment,
+                                )
+                              }
+                              onTouchMove={handleTouchMove}
+                              onTouchEnd={handleTouchEnd}
+                              onTouchCancel={handleTouchEnd}
+                              className={`w-full text-left px-2 py-1 rounded font-mono transition-colors flex items-center justify-between gap-1 cursor-pointer focus:outline-none focus:ring-0 focus-visible:outline-none relative overflow-hidden ${
+                                isPlyAnnotating
+                                  ? 'ring-1.5 ring-purple-500 bg-purple-50/80 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 font-semibold shadow-xs'
+                                  : isActive
+                                    ? 'bg-blue-600 text-white font-bold shadow-xs'
+                                    : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {isPlyAnnotating && (
+                                  <span
+                                    className="relative flex h-2 w-2 shrink-0"
+                                    title="AI is analyzing this move..."
+                                  >
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+                                  </span>
+                                )}
                                 <span
-                                  className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${badge.bgClass}`}
-                                  title={badge.label}
+                                  className={`truncate ${
+                                    isPlyAnnotating
+                                      ? 'text-purple-700 dark:text-purple-300 font-bold'
+                                      : isActive
+                                        ? 'text-white font-bold'
+                                        : badge
+                                          ? getClassificationTextColor(badge.type)
+                                          : 'text-slate-800 dark:text-slate-200'
+                                  }`}
                                 >
-                                  <MoveBadgeGlyph type={badge.type} className="w-3 h-3" />
+                                  {plyData.san}
+                                </span>
+                                {badge && (
+                                  <span
+                                    className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${badge.bgClass}`}
+                                    title={badge.label}
+                                  >
+                                    <MoveBadgeGlyph type={badge.type} className="w-3 h-3" />
+                                  </span>
+                                )}
+                              </div>
+                              {showMoveListEvals && evalStr && (
+                                <span
+                                  className={`text-[9.5px] font-mono shrink-0 select-none ${
+                                    isPlyAnnotating
+                                      ? 'text-purple-600/80 dark:text-purple-400/80'
+                                      : isActive
+                                        ? 'text-white/80'
+                                        : 'text-slate-400 dark:text-slate-500'
+                                  }`}
+                                >
+                                  {evalStr}
                                 </span>
                               )}
-                            </div>
-                            {showMoveListEvals && evalStr && (
-                              <span
-                                className={`text-[9.5px] font-mono shrink-0 select-none ${
-                                  isActive ? 'text-white/80' : 'text-slate-400 dark:text-slate-500'
-                                }`}
-                              >
-                                {evalStr}
-                              </span>
-                            )}
-                          </button>
-                        );
+                              {isPlyAnnotating && (
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-200 dark:bg-purple-900/60 overflow-hidden">
+                                  <div className="animate-ai-progress h-full bg-purple-600 dark:bg-purple-400 rounded-full" />
+                                </div>
+                              )}
+                            </button>
+                          );
+                        };
 
                         // Helper to render readable, non-italic comment row without left border
                         const renderCommentRow = (
                           ply: number,
+                          san: string,
                           comment: string | undefined,
-                          isEditing: boolean,
-                          label: string,
+                          isTargeted: boolean,
+                          isPlyAnnotating: boolean,
                         ) => {
-                          if (!comment && !isEditing) return null;
+                          if (!comment && !isTargeted && !isPlyAnnotating) return null;
                           return (
-                            <tr className="border-b border-slate-100 dark:border-slate-800/40">
+                            <tr
+                              className={`border-b border-slate-100 dark:border-slate-800/40 ${
+                                isPlyAnnotating ? 'bg-purple-50/60 dark:bg-purple-950/30' : ''
+                              }`}
+                            >
                               <td className="w-9" />
                               <td colSpan={2} className="py-1 px-1.5">
-                                {isEditing ? (
-                                  <InlineCommentEditor
-                                    initialValue={editingText}
-                                    onSave={text => handleSaveMainlineNote(ply, text)}
-                                    onCancel={handleCancelNote}
-                                    label={label}
-                                  />
-                                ) : (
-                                  <div
-                                    onClick={() => handleStartEditMainlineNote(ply)}
-                                    className="text-[11.5px] text-amber-800 dark:text-amber-300 font-normal leading-relaxed pl-1 py-0.5 cursor-pointer hover:bg-amber-100/40 dark:hover:bg-amber-950/30 rounded transition-colors flex items-start justify-between gap-1 group font-sans break-words"
-                                    title="Click to edit note"
-                                  >
-                                    <span className="leading-relaxed break-words">{comment}</span>
+                                {isPlyAnnotating ? (
+                                  <div className="flex flex-col gap-1.5 pl-1 py-1">
+                                    <div className="flex items-center gap-2 text-[11px] text-purple-700 dark:text-purple-300 font-sans font-medium">
+                                      <span className="relative flex h-2 w-2 shrink-0">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+                                      </span>
+                                      <Sparkles
+                                        size={12}
+                                        className="animate-spin text-purple-500 shrink-0"
+                                      />
+                                      <span className="animate-pulse">
+                                        AI is thinking and annotating {san}...
+                                      </span>
+                                    </div>
+                                    <div className="relative w-full h-1 bg-purple-200/60 dark:bg-purple-900/50 rounded-full overflow-hidden">
+                                      <div className="animate-ai-progress h-full bg-purple-600 dark:bg-purple-400 rounded-full" />
+                                    </div>
                                   </div>
+                                ) : (
+                                  <SeamlessNote
+                                    text={comment || ''}
+                                    isTargeted={isTargeted}
+                                    onSave={text => handleSaveMainlineNote(ply, text)}
+                                    onCancel={() => setEditingTarget(null)}
+                                    placeholder="Write a note... (Enter to save)"
+                                    className="text-[11.5px] text-amber-800 dark:text-amber-300 font-normal leading-relaxed pl-1 py-0.5 font-sans break-words"
+                                  />
                                 )}
                               </td>
                             </tr>
@@ -4173,6 +4261,12 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                           isFreePlay &&
                                           branchPly === variation.branchPly &&
                                           activeFen === vm.fen;
+
+                                        const isVarMoveAnnotating =
+                                          annotatingTarget !== null &&
+                                          annotatingTarget.isVariation &&
+                                          annotatingTarget.varId === variation.id &&
+                                          annotatingTarget.varIndex === vIdx;
 
                                         const subVars = subVariations.filter(
                                           sv =>
@@ -4219,41 +4313,67 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                               onTouchMove={handleTouchMove}
                                               onTouchEnd={handleTouchEnd}
                                               onTouchCancel={handleTouchEnd}
-                                              className={`px-1 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 ${
-                                                isMoveActive
-                                                  ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
-                                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                              className={`px-1 py-0.5 rounded transition-colors cursor-pointer focus:outline-none focus:ring-0 relative overflow-hidden inline-flex items-center gap-1 ${
+                                                isVarMoveAnnotating
+                                                  ? 'ring-1.5 ring-purple-500 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold shadow-xs'
+                                                  : isMoveActive
+                                                    ? 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900 font-bold shadow-xs'
+                                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                                               }`}
                                               title={`Go to ${vm.san}`}
                                             >
-                                              {vm.color === 'w'
-                                                ? `${vm.moveNumber}. `
-                                                : vIdx === 0
-                                                  ? `${vm.moveNumber}... `
-                                                  : ''}
-                                              {vm.san}
+                                              {isVarMoveAnnotating && (
+                                                <span className="relative flex h-2 w-2 shrink-0">
+                                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
+                                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+                                                </span>
+                                              )}
+                                              <span>
+                                                {vm.color === 'w'
+                                                  ? `${vm.moveNumber}. `
+                                                  : vIdx === 0
+                                                    ? `${vm.moveNumber}... `
+                                                    : ''}
+                                                {vm.san}
+                                              </span>
+                                              {isVarMoveAnnotating && (
+                                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-200 dark:bg-purple-900/60 overflow-hidden">
+                                                  <div className="animate-ai-progress h-full bg-purple-600 dark:bg-purple-400 rounded-full" />
+                                                </div>
+                                              )}
                                             </button>
 
-                                            {/* Variation Move Comment (inline, readable, matching comment style) */}
-                                            {vm.comment && (
-                                              <span
-                                                onClick={() =>
-                                                  handleStartEditVariationNote(variation.id, vIdx)
-                                                }
-                                                className="text-[11px] text-amber-800 dark:text-amber-300 font-normal px-1 py-0.5 rounded hover:bg-amber-100/60 dark:hover:bg-amber-950/40 cursor-pointer font-sans"
-                                                title="Click to edit note"
-                                              >
-                                                {`{ ${vm.comment} }`}
+                                            {/* Variation Move AI Thinking indicator */}
+                                            {isVarMoveAnnotating && (
+                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/40 text-[10.5px] text-purple-700 dark:text-purple-300 font-sans font-medium">
+                                                <Sparkles
+                                                  size={11}
+                                                  className="animate-spin text-purple-500 shrink-0"
+                                                />
+                                                <span className="animate-pulse">
+                                                  AI analyzing...
+                                                </span>
                                               </span>
                                             )}
 
-                                            {/* Inline Editor for this variation move */}
-                                            {editingTarget?.type === 'variation' &&
-                                              editingTarget.varId === variation.id &&
-                                              editingTarget.varIndex === vIdx && (
-                                                <div className="w-full my-1">
-                                                  <InlineCommentEditor
-                                                    initialValue={editingText}
+                                            {/* Variation Move Note (seamless inline, in-place editable) */}
+                                            {!isVarMoveAnnotating &&
+                                              (vm.comment ||
+                                                (editingTarget?.type === 'variation' &&
+                                                  editingTarget.varId === variation.id &&
+                                                  editingTarget.varIndex === vIdx)) && (
+                                                <span className="inline-flex items-center text-[11px] text-amber-800 dark:text-amber-300 font-normal font-sans">
+                                                  <span className="text-amber-800/60 dark:text-amber-300/60 select-none">
+                                                    {'{ '}
+                                                  </span>
+                                                  <SeamlessNote
+                                                    inline
+                                                    text={vm.comment || ''}
+                                                    isTargeted={
+                                                      editingTarget?.type === 'variation' &&
+                                                      editingTarget.varId === variation.id &&
+                                                      editingTarget.varIndex === vIdx
+                                                    }
                                                     onSave={text =>
                                                       handleSaveVariationNote(
                                                         variation.id,
@@ -4261,10 +4381,14 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                                                         text,
                                                       )
                                                     }
-                                                    onCancel={handleCancelNote}
-                                                    label={`Variation Note • ${vm.san}`}
+                                                    onCancel={() => setEditingTarget(null)}
+                                                    placeholder="note..."
+                                                    className="text-[11px] text-amber-800 dark:text-amber-300 font-normal font-sans px-0.5"
                                                   />
-                                                </div>
+                                                  <span className="text-amber-800/60 dark:text-amber-300/60 select-none">
+                                                    {' }'}
+                                                  </span>
+                                                </span>
                                               )}
 
                                             {/* Render nested sub-variations in parentheses */}
@@ -4353,9 +4477,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               {pair.white &&
                                 renderCommentRow(
                                   pair.white.ply,
+                                  pair.white.san,
                                   whiteComment,
                                   isEditingWhite,
-                                  `Move ${pair.moveNumber}. ${pair.white.san}`,
+                                  isWhiteAnnotating,
                                 )}
 
                               {/* 3. White variations */}
@@ -4383,9 +4508,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               {/* 5. Black comment row */}
                               {renderCommentRow(
                                 pair.black.ply,
+                                pair.black.san,
                                 blackComment,
                                 isEditingBlack,
-                                `Move ${pair.moveNumber}... ${pair.black.san}`,
+                                isBlackAnnotating,
                               )}
 
                               {/* 6. Black variations */}
@@ -4431,9 +4557,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                               pair.white &&
                               renderCommentRow(
                                 pair.white.ply,
+                                pair.white.san,
                                 whiteComment,
                                 isEditingWhite,
-                                `Move ${pair.moveNumber}. ${pair.white.san}`,
+                                isWhiteAnnotating,
                               )}
                             {!pair.black && renderVariationList(whiteVariations, pair.moveNumber)}
 
@@ -4441,9 +4568,10 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                             {pair.black &&
                               renderCommentRow(
                                 pair.black.ply,
+                                pair.black.san,
                                 blackComment,
                                 isEditingBlack,
-                                `Move ${pair.moveNumber}... ${pair.black.san}`,
+                                isBlackAnnotating,
                               )}
 
                             {/* Black variations */}
@@ -4474,6 +4602,18 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
                           ({currentPlyData.color === 'w' ? 'White' : 'Black'})
                         </span>
                       )}
+                      {annotatingTarget !== null &&
+                        !annotatingTarget.isVariation &&
+                        annotatingTarget.ply === safePly && (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/60 text-[10.5px] text-purple-700 dark:text-purple-300 font-sans font-medium">
+                            <span className="relative flex h-1.5 w-1.5 shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-purple-500" />
+                            </span>
+                            <Sparkles size={11} className="animate-spin text-purple-500 shrink-0" />
+                            <span className="animate-pulse">AI annotating...</span>
+                          </span>
+                        )}
                     </span>
                     <div className="flex items-center gap-1.5">
                       {currentPlyData.criticalMoment && (
