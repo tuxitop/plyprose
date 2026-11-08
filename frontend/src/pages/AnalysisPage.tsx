@@ -185,18 +185,14 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
 
   const handleReportScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      // Auto-hide header only on desktop/tablet screens (>= 640px)
-      if (typeof window !== 'undefined' && window.innerWidth < 640) {
-        return;
-      }
       const currentScrollTop = e.currentTarget.scrollTop;
       const delta = currentScrollTop - lastScrollTop.current;
 
       if (currentScrollTop <= 35) {
         setIsHeaderVisible(true);
-      } else if (delta > 20 && isHeaderVisible) {
+      } else if (delta > 35 && isHeaderVisible) {
         setIsHeaderVisible(false);
-      } else if (delta < -20 && !isHeaderVisible) {
+      } else if (delta < -30 && !isHeaderVisible) {
         setIsHeaderVisible(true);
       }
 
@@ -466,256 +462,293 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
       {/* Left Column: Report Document + Collapsible Header */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
         {/* Dedicated Mobile Header (< sm breakpoint, strictly in document flow, never overlaps) */}
-        <div className="flex sm:hidden flex-col bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0 z-30 shadow-xs">
-          {/* Top Bar: Back | Matchup & Result | Actions */}
-          <div className="flex items-center justify-between px-3 h-12 gap-2 border-b border-slate-100 dark:border-slate-800/60">
-            {/* Left: Back Button */}
-            <button
-              onClick={onBack}
-              className="flex items-center justify-center p-2 -ml-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg active:bg-slate-100 dark:active:bg-slate-800 transition-colors cursor-pointer"
-              title="Back to Games"
-              aria-label="Back to Games"
-            >
-              <ArrowLeft size={18} />
-            </button>
-
-            {/* Center: Matchup & Result Badge */}
-            <div className="flex items-center gap-1.5 min-w-0 flex-1 justify-center">
-              <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate max-w-[130px]">
-                {white} <span className="text-slate-400 font-normal">vs</span> {black}
-              </span>
-              <Badge variant={resultBadgeVariant(record.result, record.side, white, black)}>
-                {resultLabel(record.result, record.side, white, black)}
-              </Badge>
-            </div>
-
-            {/* Right: Info toggle + Quick Actions + Theme */}
-            <div className="flex items-center gap-1 shrink-0">
-              {/* Details Drawer Toggle */}
+        {isHeaderVisible && (
+          <div className="flex sm:hidden flex-col bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0 z-30 shadow-xs">
+            {/* Top Bar: Back | Matchup & Result | Actions */}
+            <div className="flex items-center justify-between px-3 h-12 gap-2 border-b border-slate-100 dark:border-slate-800/60">
+              {/* Left: Back Button */}
               <button
-                type="button"
-                onClick={() => setIsMobileDetailsOpen(prev => !prev)}
-                className={`p-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                  isMobileDetailsOpen
-                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-                title={isMobileDetailsOpen ? 'Hide match details' : 'Show match details & actions'}
-                aria-label="Toggle match details"
+                onClick={onBack}
+                className="flex items-center justify-center p-2 -ml-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg active:bg-slate-100 dark:active:bg-slate-800 transition-colors cursor-pointer"
+                title="Back to Games"
+                aria-label="Back to Games"
               >
-                <Info size={16} />
+                <ArrowLeft size={18} />
               </button>
 
-              {/* PDF Quick Download */}
-              <button
-                type="button"
-                onClick={handleDownloadPdf}
-                disabled={downloadingDirectPdf}
-                className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
-                title="Download PDF report"
-                aria-label="Download PDF report"
-              >
-                <Download
-                  size={16}
-                  className={downloadingDirectPdf ? 'animate-bounce text-blue-600' : ''}
-                />
-              </button>
-
-              {/* Theme Toggle */}
-              <button
-                onClick={onToggleTheme}
-                className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Toggle theme"
-                aria-label="Toggle theme"
-              >
-                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-              </button>
-            </div>
-          </div>
-
-          {/* Mobile Collapsible Details Drawer (Tags, Opening, TC, Date, Re-analyze, External Link) */}
-          {isMobileDetailsOpen && (
-            <div className="px-3 py-2.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-xs flex flex-col gap-2 transition-all">
-              {/* Opening & Time Control */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <Badge variant="slate">
-                  {tc.icon} {tc.label} {formatTC(record.time_control)}
+              {/* Center: Matchup & Result Badge */}
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 justify-center">
+                <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate max-w-[130px]">
+                  {white} <span className="text-slate-400 font-normal">vs</span> {black}
+                </span>
+                <Badge variant={resultBadgeVariant(record.result, record.side, white, black)}>
+                  {resultLabel(record.result, record.side, white, black)}
                 </Badge>
-                {record.opening_name && (
-                  <Badge variant="slate" className="truncate max-w-[240px]">
-                    {record.opening_name}
-                  </Badge>
-                )}
               </div>
 
-              {/* Tags */}
-              {record.tags && record.tags.length > 0 && (
+              {/* Right: Info toggle + Quick Actions + Theme + Hide Headers */}
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Details Drawer Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIsMobileDetailsOpen(prev => !prev)}
+                  className={`p-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                    isMobileDetailsOpen
+                      ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title={
+                    isMobileDetailsOpen ? 'Hide match details' : 'Show match details & actions'
+                  }
+                  aria-label="Toggle match details"
+                >
+                  <Info size={16} />
+                </button>
+
+                {/* PDF Quick Download */}
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={downloadingDirectPdf}
+                  className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Download PDF report"
+                  aria-label="Download PDF report"
+                >
+                  <Download
+                    size={16}
+                    className={downloadingDirectPdf ? 'animate-bounce text-blue-600' : ''}
+                  />
+                </button>
+
+                {/* Theme Toggle */}
+                <button
+                  onClick={onToggleTheme}
+                  className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Toggle theme"
+                  aria-label="Toggle theme"
+                >
+                  {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                </button>
+
+                {/* Hide Both Headers for Immersive Reading */}
+                <button
+                  type="button"
+                  onClick={() => setIsHeaderVisible(false)}
+                  className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Hide headers for distraction-free reading"
+                  aria-label="Hide headers"
+                >
+                  <ChevronUp size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Mobile Collapsible Details Drawer (Tags, Opening, TC, Date, Re-analyze, External Link) */}
+            {isMobileDetailsOpen && (
+              <div className="px-3 py-2.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-xs flex flex-col gap-2 transition-all">
+                {/* Opening & Time Control */}
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {sortTagsNegativeFirst(record.tags).map(tag => (
-                    <TagCapsule key={tag} tag={tag} />
-                  ))}
+                  <Badge variant="slate">
+                    {tc.icon} {tc.label} {formatTC(record.time_control)}
+                  </Badge>
+                  {record.opening_name && (
+                    <Badge variant="slate" className="truncate max-w-[240px]">
+                      {record.opening_name}
+                    </Badge>
+                  )}
                 </div>
-              )}
 
-              {/* Meta info: Date · moves · critical moments */}
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 flex-wrap">
-                <span>{date}</span>
-                <span>·</span>
-                <span>
-                  {record.moves_count ||
-                  (record.total_plies ? Math.ceil(record.total_plies / 2) : 0)
-                    ? `${record.moves_count || Math.ceil(record.total_plies / 2)} moves (${record.total_plies} plies)`
-                    : `${record.total_plies} plies`}
-                </span>
-                <span>·</span>
-                <span>
-                  {record.critical_moments_count} critical moment
-                  {record.critical_moments_count !== 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {/* Action buttons on mobile */}
-              <div className="flex items-center gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 flex-wrap">
-                {reanalyzeJobId && (
-                  <div className="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-300">
-                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                    </svg>
-                    <span>
-                      {reanalyzeMessage} {reanalyzeProgress}%
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleCancelReanalyze}
-                      className="px-2 py-0.5 text-xs font-medium text-rose-600 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-200 border border-rose-200 dark:border-rose-800 rounded bg-rose-50/50 dark:bg-rose-950/40 transition-colors cursor-pointer"
-                      title="Cancel re-analysis"
-                    >
-                      Cancel
-                    </button>
+                {/* Tags */}
+                {record.tags && record.tags.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {sortTagsNegativeFirst(record.tags).map(tag => (
+                      <TagCapsule key={tag} tag={tag} />
+                    ))}
                   </div>
                 )}
-                {!isDirectMode() && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    loading={Boolean(reanalyzeJobId)}
-                    icon={<RefreshCw size={12} />}
-                    onClick={() => handleReanalyze(true)}
-                    title="Re-run LLM coach narrative (default, fast)"
-                  >
-                    Re-analyze
-                  </Button>
-                )}
-                {record.game_url && (
-                  <a
-                    href={record.game_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <ExternalLink size={12} />
-                    <span>Open Game</span>
-                  </a>
-                )}
-                {!isDirectMode() && (
-                  <a
-                    href={exportZipUrl(analysisId)}
-                    download
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <Download size={12} />
-                    <span>.zip</span>
-                  </a>
-                )}
-              </div>
-            </div>
-          )}
 
-          {/* Mobile View Switcher (Split / Report / Board) & Engine Controls */}
-          <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100 dark:bg-slate-900/90 gap-2">
-            <div className="flex items-center w-full max-w-[210px] sm:max-w-sm p-0.5 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 select-none shadow-xs">
-              <button
-                type="button"
-                onClick={() => handleSetMobileView('split')}
-                className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                  mobileView === 'split'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                <span>📖</span>
-                <span>Split</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetMobileView('report')}
-                className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                  mobileView === 'report'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                <span>📜</span>
-                <span>Report</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetMobileView('board')}
-                className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                  mobileView === 'board'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                <span>♟️</span>
-                <span>Board</span>
-              </button>
-            </div>
-
-            {/* Quick Engine & Board controls on mobile (visible in split and board modes) */}
-            {mobileView !== 'report' && (
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleMobileToggleAnalysis}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                    isLiveAnalyzing
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-                      : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700'
-                  }`}
-                  title="Toggle in-browser Stockfish 19 live analysis"
-                >
-                  <Zap
-                    size={12}
-                    className={isLiveAnalyzing ? 'animate-pulse text-amber-300' : 'text-slate-400'}
-                  />
-                  <span>SF 19</span>
-                  <span className="text-[10px] font-normal opacity-90">
-                    {isLiveAnalyzing ? 'ON' : 'OFF'}
+                {/* Meta info: Date · moves · critical moments */}
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 flex-wrap">
+                  <span>{date}</span>
+                  <span>·</span>
+                  <span>
+                    {record.moves_count ||
+                    (record.total_plies ? Math.ceil(record.total_plies / 2) : 0)
+                      ? `${record.moves_count || Math.ceil(record.total_plies / 2)} moves (${record.total_plies} plies)`
+                      : `${record.total_plies} plies`}
                   </span>
-                </button>
+                  <span>·</span>
+                  <span>
+                    {record.critical_moments_count} critical moment
+                    {record.critical_moments_count !== 1 ? 's' : ''}
+                  </span>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={handleMobileToggleSettings}
-                  title="Board & Engine settings"
-                  className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 bg-slate-200/80 dark:bg-slate-800/80 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                  aria-label="Board and engine settings"
-                >
-                  <SettingsIcon size={14} />
-                </button>
+                {/* Action buttons on mobile */}
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 flex-wrap">
+                  {reanalyzeJobId && (
+                    <div className="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-300">
+                      <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                      <span>
+                        {reanalyzeMessage} {reanalyzeProgress}%
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCancelReanalyze}
+                        className="px-2 py-0.5 text-xs font-medium text-rose-600 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-200 border border-rose-200 dark:border-rose-800 rounded bg-rose-50/50 dark:bg-rose-950/40 transition-colors cursor-pointer"
+                        title="Cancel re-analysis"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  {!isDirectMode() && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={Boolean(reanalyzeJobId)}
+                      icon={<RefreshCw size={12} />}
+                      onClick={() => handleReanalyze(true)}
+                      title="Re-run LLM coach narrative (default, fast)"
+                    >
+                      Re-analyze
+                    </Button>
+                  )}
+                  {record.game_url && (
+                    <a
+                      href={record.game_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <ExternalLink size={12} />
+                      <span>Open Game</span>
+                    </a>
+                  )}
+                  {!isDirectMode() && (
+                    <a
+                      href={exportZipUrl(analysisId)}
+                      download
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <Download size={12} />
+                      <span>.zip</span>
+                    </a>
+                  )}
+                </div>
               </div>
             )}
+
+            {/* Mobile View Switcher (Split / Report / Board) & Engine Controls */}
+            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100 dark:bg-slate-900/90 gap-2">
+              <div className="flex items-center w-full max-w-[210px] sm:max-w-sm p-0.5 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 select-none shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => handleSetMobileView('split')}
+                  className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    mobileView === 'split'
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <span>📖</span>
+                  <span>Split</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetMobileView('report')}
+                  className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    mobileView === 'report'
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <span>📜</span>
+                  <span>Report</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetMobileView('board')}
+                  className={`flex-1 py-1 px-1.5 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    mobileView === 'board'
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <span>♟️</span>
+                  <span>Board</span>
+                </button>
+              </div>
+
+              {/* Quick Engine & Board controls on mobile (visible in split and board modes) */}
+              {mobileView !== 'report' ? (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleMobileToggleAnalysis}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                      isLiveAnalyzing
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                        : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700'
+                    }`}
+                    title="Toggle in-browser Stockfish 19 live analysis"
+                  >
+                    <Zap
+                      size={12}
+                      className={
+                        isLiveAnalyzing ? 'animate-pulse text-amber-300' : 'text-slate-400'
+                      }
+                    />
+                    <span>SF 19</span>
+                    <span className="text-[10px] font-normal opacity-90">
+                      {isLiveAnalyzing ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleMobileToggleSettings}
+                    title="Board & Engine settings"
+                    className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 bg-slate-200/80 dark:bg-slate-800/80 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                    aria-label="Board and engine settings"
+                  >
+                    <SettingsIcon size={14} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsHeaderVisible(false)}
+                    title="Hide headers for distraction-free reading"
+                    className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 bg-slate-200/80 dark:bg-slate-800/80 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                    aria-label="Hide headers"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsHeaderVisible(false)}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 bg-slate-200/80 dark:bg-slate-800/80 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer shrink-0"
+                  title="Hide headers for distraction-free reading"
+                >
+                  <ChevronUp size={13} />
+                  <span>Hide</span>
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Desktop Collapsible Header (>= sm breakpoint) */}
         <div
@@ -894,7 +927,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
           </div>
         </div>
 
-        {/* Floating Restore Pill when header is hidden on desktop (hidden on mobile) */}
+        {/* Floating Restore Pill when header is hidden on desktop */}
         {!isHeaderVisible && (
           <div className="hidden sm:flex absolute top-3 left-6 z-30 items-center justify-start gap-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border border-slate-200 dark:border-slate-800 shadow-md rounded-full px-3 py-1.5 text-xs transition-all">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -929,6 +962,53 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
               >
                 {isBoardOpen ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
                 <span>{isBoardOpen ? 'Hide Board' : 'Show Board'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Floating Restore Pill on mobile when header is hidden */}
+        {!isHeaderVisible && (
+          <div className="sm:hidden absolute top-2.5 left-3 right-3 z-30 flex items-center justify-between bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-md rounded-full px-3 py-1.5 text-xs transition-all">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 py-0.5"
+                title="Back to Games"
+              >
+                <ArrowLeft size={14} />
+                <span className="font-medium text-xs">Back</span>
+              </button>
+              <span className="text-slate-300 dark:text-slate-700 shrink-0">|</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate">
+                {white} vs {black}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setIsHeaderVisible(true)}
+                className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-semibold hover:underline cursor-pointer py-0.5"
+                title="Show match header"
+              >
+                <ChevronDown size={14} />
+                <span>Show Header</span>
+              </button>
+              <span className="text-slate-300 dark:text-slate-700">|</span>
+              <button
+                onClick={() => {
+                  if (mobileView === 'report') {
+                    handleSetMobileView('split');
+                  } else {
+                    handleSetMobileView('report');
+                  }
+                }}
+                className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer text-xs py-0.5"
+                title={
+                  mobileView === 'report' ? 'Open board in split view' : 'Switch to report only'
+                }
+              >
+                <span>{mobileView === 'report' ? '♟️ Board' : '📜 Report'}</span>
               </button>
             </div>
           </div>
