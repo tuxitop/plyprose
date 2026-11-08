@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from api.games_db import get_pending_games, save_pending_game
 from api.main import app
 from src.models import GameAnalysisPayload
-from src.storage import get_all_analyses, init_db, save_analysis
+from src.storage import get_all_analyses, get_analysis_by_id, init_db, save_analysis
 
 
 def test_api_games_sorted_by_played_time(tmp_path, monkeypatch):
@@ -1071,3 +1071,45 @@ def test_api_update_pgn_and_annotate_move(tmp_path, monkeypatch):
     assert ann_data["ply"] == 1
     assert ann_data["san"] == "e4"
     assert "stakes immediate claim to the center" in ann_data["comment"]
+
+
+def test_api_get_analysis_auto_weaves_report_annotations(tmp_path, monkeypatch):
+    test_db = str(tmp_path / "test_api_weave.db")
+    monkeypatch.setattr("src.storage.DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr("api.games_db.DEFAULT_DB_PATH", test_db)
+    init_db(test_db)
+
+    payload = GameAnalysisPayload(
+        white_player="Magnus",
+        black_player="Hikaru",
+        user_color="White",
+        result="1-0",
+        time_control="300",
+        pgn_moves_summary="1. e4 e5",
+        total_plies=2,
+        critical_moments=[],
+    )
+    raw_pgn = '[Event "Test"]\n[White "Magnus"]\n[Black "Hikaru"]\n[Result "1-0"]\n\n1. e4 e5 1-0'
+    report_md = """
+# Title
+### Instructive Move Annotations
+- `1. e4`: Direct central occupation and rapid piece liberation.
+"""
+    aid = save_analysis(
+        pgn_text=raw_pgn,
+        payload=payload,
+        report_md=report_md,
+        model_name="test-model",
+        db_path=test_db,
+    )
+
+    client = TestClient(app)
+    res = client.get(f"/api/analysis/{aid}")
+    assert res.status_code == 200
+    data = res.json()
+    assert "✨ Direct central occupation and rapid piece liberation." in data["pgn_text"]
+
+    # Verify persisted in database
+    rec_after = get_analysis_by_id(aid, db_path=test_db)
+    assert rec_after is not None
+    assert "✨ Direct central occupation and rapid piece liberation." in rec_after["pgn_text"]

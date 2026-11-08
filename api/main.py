@@ -109,7 +109,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.14.1")
+app = FastAPI(title="PlyProse API", version="1.14.2")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -1822,6 +1822,7 @@ async def _run_analysis_job(
                 payload=payload,
                 report_md=report,
                 model_name=active_model,
+                pgn_text=pgn,
             )
             analysis_id = existing_id
         else:
@@ -2021,6 +2022,19 @@ def api_get_analysis(analysis_id: str) -> dict:
     total_plies = rec.get("total_plies", 0)
     rec["total_plies"] = total_plies
     rec["moves_count"] = (total_plies + 1) // 2 if total_plies else 0
+    report_md = rec.get("report_md", "")
+    pgn_text = rec.get("pgn_text", "")
+    if report_md and pgn_text:
+        upfront_ann = extract_upfront_annotations_from_report(report_md)
+        if upfront_ann and "✨" not in pgn_text:
+            injected_pgn = inject_annotations_into_pgn(pgn_text, upfront_ann)
+            if injected_pgn != pgn_text:
+                rec["pgn_text"] = injected_pgn
+                try:
+                    update_analysis_pgn(rec["id"], injected_pgn)
+                except Exception:
+                    pass
+
     rec["game_url"] = extract_game_url(
         rec.get("pgn_text", ""),
         rec.get("platform", ""),

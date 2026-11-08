@@ -17,7 +17,7 @@ from src.coach_agent import (
     probe_gemini_connection,
 )
 from src.inspector import verify_variation_tool
-from src.models import GameAnalysisPayload
+from src.models import CriticalMoment, GameAnalysisPayload
 
 
 @pytest.fixture
@@ -357,7 +357,53 @@ def test_build_move_annotation_prompt():
     assert "Move Played: 1. e4 (White)" in prompt
     assert "Explain the concrete CHESS REASONS and ideas" in prompt
     assert "DO NOT state raw engine numbers" in prompt
-    assert "concise but complete" in prompt
+    assert "Instructive depth and completeness" in prompt
+
+
+def test_build_move_annotation_prompt_missed_better_tactic(sample_payload):
+    pgn = '[Event "Test"]\n\n1. e4 e5 2. Nf3 Nc6 *'
+    context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1)
+
+    # Attach critical moment where played move e4 missed best move Bxd3
+    facts = context["facts_before"]
+    cm = CriticalMoment(
+        ply=1,
+        move_number=1,
+        color="White",
+        move_played_san="e4",
+        classification="Good Move",
+        best_move_san="Bxd3",
+        pv_san=["Bxd3", "Qxd3", "e4"],
+        refutation_san=["Nd4", "exd3"],
+        facts_before_move=facts,
+        facts_after_played_move=facts,
+        facts_after_best_move=facts,
+        facts_at_end_of_pv=facts,
+    )
+    context["critical_moment"] = cm
+
+    prompt = build_move_annotation_prompt(context)
+    assert "Engine Best Move: Bxd3 (NOTE: The played move e4 was NOT the best choice" in prompt
+    assert "CRITICAL TACTICAL COMPARISON (Played e4 vs Best Move Bxd3)" in prompt
+    assert "Do not merely praise the move if a superior move was available!" in prompt
+    assert "why Bxd3 was the stronger tactic" in prompt
+
+
+def test_extract_upfront_annotations_multi_line():
+    report_md = """
+### Instructive Move Annotations
+- `11... e4`: Exploits the paralysis of the c3 knight with an unstoppable pawn fork against d3 and f3.
+  However, Black overlooked the superior tactical intermediate move `11... Bxd3!` first.
+  Trading bishops first simplifies cleanly and prevents any counterplay.
+- `13... Ne4`: Piles maximum pressure onto the pinned c3 knight.
+"""
+    ann = extract_upfront_annotations_from_report(report_md)
+    assert "11... e4" in ann
+    assert "Exploits the paralysis of the c3 knight" in ann["11... e4"]
+    assert "However, Black overlooked the superior tactical intermediate move" in ann["11... e4"]
+    assert "Trading bishops first simplifies cleanly" in ann["11... e4"]
+    assert "13... Ne4" in ann
+    assert ann["13... Ne4"] == "Piles maximum pressure onto the pinned c3 knight."
 
 
 def test_annotate_single_move_gemini_success():

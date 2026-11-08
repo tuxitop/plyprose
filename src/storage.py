@@ -662,11 +662,12 @@ def update_analysis_payload(
     payload: GameAnalysisPayload,
     report_md: str | None = None,
     model_name: str | None = None,
+    pgn_text: str | None = None,
     db_path: str | None = None,
 ) -> bool:
     """
     Updates the GameAnalysisPayload (including ply_evals, critical_moments, tags)
-    and optionally report_md and model_name for an existing analysis record.
+    and optionally report_md, model_name, and pgn_text for an existing analysis record.
 
     Returns:
         True if the record was updated, False if no record matched analysis_id.
@@ -679,49 +680,99 @@ def update_analysis_payload(
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         if report_md is not None and model_name is not None:
-            cursor.execute(
-                """
-                UPDATE game_analyses
-                SET payload_json = ?,
-                    opening_name = ?,
-                    total_plies = ?,
-                    critical_moments_count = ?,
-                    tags = ?,
-                    report_md = ?,
-                    model_name = ?
-                WHERE id = ?;
-                """,
-                (
-                    payload_json,
-                    payload.opening_name,
-                    payload.total_plies,
-                    len(payload.critical_moments),
-                    tags_json,
-                    report_md.strip(),
-                    model_name.strip(),
-                    analysis_id,
-                ),
-            )
+            if pgn_text is not None:
+                cursor.execute(
+                    """
+                    UPDATE game_analyses
+                    SET payload_json = ?,
+                        opening_name = ?,
+                        total_plies = ?,
+                        critical_moments_count = ?,
+                        tags = ?,
+                        report_md = ?,
+                        model_name = ?,
+                        pgn_text = ?
+                    WHERE id = ?;
+                    """,
+                    (
+                        payload_json,
+                        payload.opening_name,
+                        payload.total_plies,
+                        len(payload.critical_moments),
+                        tags_json,
+                        report_md.strip(),
+                        model_name.strip(),
+                        pgn_text.strip(),
+                        analysis_id,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE game_analyses
+                    SET payload_json = ?,
+                        opening_name = ?,
+                        total_plies = ?,
+                        critical_moments_count = ?,
+                        tags = ?,
+                        report_md = ?,
+                        model_name = ?
+                    WHERE id = ?;
+                    """,
+                    (
+                        payload_json,
+                        payload.opening_name,
+                        payload.total_plies,
+                        len(payload.critical_moments),
+                        tags_json,
+                        report_md.strip(),
+                        model_name.strip(),
+                        analysis_id,
+                    ),
+                )
         else:
-            cursor.execute(
-                """
-                UPDATE game_analyses
-                SET payload_json = ?,
-                    opening_name = ?,
-                    total_plies = ?,
-                    critical_moments_count = ?,
-                    tags = ?
-                WHERE id = ?;
-                """,
-                (
-                    payload_json,
-                    payload.opening_name,
-                    payload.total_plies,
-                    len(payload.critical_moments),
-                    tags_json,
-                    analysis_id,
-                ),
-            )
+            if pgn_text is not None:
+                cursor.execute(
+                    """
+                    UPDATE game_analyses
+                    SET payload_json = ?,
+                        opening_name = ?,
+                        total_plies = ?,
+                        critical_moments_count = ?,
+                        tags = ?,
+                        pgn_text = ?
+                    WHERE id = ?;
+                    """,
+                    (
+                        payload_json,
+                        payload.opening_name,
+                        payload.total_plies,
+                        len(payload.critical_moments),
+                        tags_json,
+                        pgn_text.strip(),
+                        analysis_id,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE game_analyses
+                    SET payload_json = ?,
+                        opening_name = ?,
+                        total_plies = ?,
+                        critical_moments_count = ?,
+                        tags = ?
+                    WHERE id = ?;
+                    """,
+                    (
+                        payload_json,
+                        payload.opening_name,
+                        payload.total_plies,
+                        len(payload.critical_moments),
+                        tags_json,
+                        analysis_id,
+                    ),
+                )
         conn.commit()
         return cursor.rowcount > 0
 

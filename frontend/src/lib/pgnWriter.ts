@@ -347,3 +347,98 @@ export function buildAnnotatedPgn(
 
   return `${typeof headers === 'string' ? headers : ''}\n\n${moveText.trim()} ${resultStr}`.trim();
 }
+
+/**
+ * Extracts move-specific upfront annotations from coaching report Markdown.
+ * Supports multi-line bullets / paragraphs.
+ */
+export function extractAnnotationsFromReportMarkdown(reportMd: string): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!reportMd) return map;
+
+  const bulletRe = /^[ \t]*-[ \t]*`([0-9]+\.{1,3}\s*[A-Za-z0-9+#=-]+)`:[ \t]*(.*)$/;
+  const lines = reportMd.split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const m = lines[i].match(bulletRe);
+    if (m) {
+      const moveKey = m[1].trim();
+      const parts: string[] = m[2].trim() ? [m[2].trim()] : [];
+      i++;
+      while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (bulletRe.test(line) || trimmed.startsWith('#')) break;
+        if (!trimmed) {
+          const nxt = lines.slice(i + 1).find(l => l.trim());
+          if (
+            nxt &&
+            (bulletRe.test(nxt) || nxt.trim().startsWith('#') || nxt.trim().startsWith(':::'))
+          ) {
+            break;
+          }
+          i++;
+          continue;
+        }
+        parts.push(trimmed);
+        i++;
+      }
+      const fullComment = parts
+        .join(' ')
+        .replace(/^["'*]+|["'*]+$/g, '')
+        .trim();
+      if (moveKey && fullComment) {
+        const normKey = moveKey.replace(/([0-9]+(?:\.{1,3}))\s*/, '$1 ');
+        map.set(normKey, fullComment);
+        map.set(moveKey, fullComment);
+      }
+    } else {
+      i++;
+    }
+  }
+
+  return map;
+}
+
+/**
+ * Weaves upfront report annotations into PGN string if they are not already present.
+ */
+export function weaveReportAnnotationsIntoPgn(pgnText: string, reportMd?: string): string {
+  if (!pgnText || !reportMd || pgnText.includes('✨')) return pgnText;
+  const annMap = extractAnnotationsFromReportMarkdown(reportMd);
+  if (annMap.size === 0) return pgnText;
+
+  const c = new Chess();
+  try {
+    c.loadPgn(pgnText);
+  } catch {
+    return pgnText;
+  }
+  const history = c.history({ verbose: true });
+  if (!history.length) return pgnText;
+
+  const { comments } = extractCommentsAndClocksFromPgn(pgnText);
+  const variations = extractVariationsFromPgn(pgnText);
+
+  let added = false;
+  history.forEach((m, idx) => {
+    const ply = idx + 1;
+    const moveNum = Math.floor(idx / 2) + 1;
+    const isBlack = m.color === 'b';
+    const keySpaced = isBlack ? `${moveNum}... ${m.san}` : `${moveNum}. ${m.san}`;
+    const keyTight = isBlack ? `${moveNum}...${m.san}` : `${moveNum}.${m.san}`;
+    const comment = annMap.get(keySpaced) || annMap.get(keyTight);
+    if (comment) {
+      const cleanComment = comment.startsWith('✨') ? comment : `✨ ${comment}`;
+      const existing = comments.get(ply) || '';
+      if (!existing.includes(cleanComment)) {
+        comments.set(ply, existing ? `${existing} ${cleanComment}` : cleanComment);
+        added = true;
+      }
+    }
+  });
+
+  if (!added) return pgnText;
+  return buildAnnotatedPgn(pgnText, comments, variations);
+}

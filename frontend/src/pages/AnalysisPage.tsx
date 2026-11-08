@@ -33,6 +33,7 @@ import { classifyTimeControl, formatTC, formatGameTimeLocal } from '../lib/timeC
 import { InteractiveBoard, type InteractiveBoardHandle } from '../components/InteractiveBoard';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { findPlyByFen, classifyReportMove, decorateReportHtml } from '../lib/chessNav';
+import { weaveReportAnnotationsIntoPgn } from '../lib/pgnWriter';
 import type { Theme } from '../hooks/useTheme';
 import type { AnalysisRecord } from '../types';
 
@@ -241,7 +242,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
       Promise.all([getAnalysis(analysisId), getReportHtml(analysisId)])
         .then(([rec, html]) => {
           if (!ignore) {
-            setRecord(rec);
+            const wovenPgn = weaveReportAnnotationsIntoPgn(rec.pgn_text, rec.report_md);
+            setRecord({ ...rec, pgn_text: wovenPgn });
             setReportHtml(html.report_html);
           }
         })
@@ -299,7 +301,8 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
             setReanalyzeProgress(0);
             Promise.all([getAnalysis(analysis_id), getReportHtml(analysis_id)]).then(
               ([rec, html]) => {
-                setRecord(rec);
+                const wovenPgn = weaveReportAnnotationsIntoPgn(rec.pgn_text, rec.report_md);
+                setRecord({ ...rec, pgn_text: wovenPgn });
                 setReportHtml(html.report_html);
               },
             );

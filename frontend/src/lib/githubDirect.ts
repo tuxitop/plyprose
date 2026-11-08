@@ -6,6 +6,7 @@
 import { Chess } from 'chess.js';
 import { marked } from 'marked';
 import { getUserOutcome } from './badges.ts';
+import { weaveReportAnnotationsIntoPgn } from './pgnWriter.ts';
 import type { AnalysisRecord, GameRecord, GamesResponse, Settings } from '../types';
 
 const STORAGE_SETTINGS_KEY = 'plyprose_direct_settings';
@@ -781,7 +782,7 @@ export async function getGitHubDirectAnalysis(
     moves_count: movesCount,
     critical_moments_count: criticalMomentsCount,
     model_name: 'github-direct',
-    pgn_text: pgnText,
+    pgn_text: weaveReportAnnotationsIntoPgn(pgnText, reportMd),
     report_md: reportMd,
     payload_json: payloadRaw || undefined,
     platform: platform,

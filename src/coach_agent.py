@@ -304,23 +304,44 @@ def extract_upfront_annotations_from_report(report_md: str) -> dict[str, str]:
     Looks for bullets like:
       - `12. a3`: Prophylactic move preventing Black's ...Nb4 jump.
       - `14... Rxe5`: Premature sacrifice; better was 14... Be6.
+    Supports multi-line, full paragraph annotations for each move bullet.
     """
     annotations: dict[str, str] = {}
     if not report_md:
         return annotations
 
-    pattern = re.compile(
-        r"^[ \t]*-[ \t]*`([0-9]+\.{1,3}\s*[A-Za-z0-9+#=\-]+)`:[ \t]*(.+)$",
-        re.MULTILINE,
-    )
-    for match in pattern.finditer(report_md):
-        move_key = match.group(1).strip()
-        comment = match.group(2).strip()
-        comment = comment.strip("\"*'")
-        if move_key and comment:
-            norm_key = re.sub(r"([0-9]+(?:\.{1,3}))\s*", r"\1 ", move_key)
-            annotations[norm_key] = comment
-            annotations[move_key] = comment
+    bullet_re = re.compile(r"^[ \t]*-[ \t]*`([0-9]+\.{1,3}\s*[A-Za-z0-9+#=\-]+)`:[ \t]*(.*)$")
+    lines = report_md.splitlines()
+    i = 0
+    while i < len(lines):
+        m = bullet_re.match(lines[i])
+        if m:
+            move_key = m.group(1).strip()
+            comment_parts = [m.group(2).strip()] if m.group(2).strip() else []
+            i += 1
+            while i < len(lines):
+                line = lines[i]
+                stripped = line.strip()
+                if bullet_re.match(line) or stripped.startswith("#"):
+                    break
+                if not stripped:
+                    nxt = next(
+                        (lines[k].strip() for k in range(i + 1, len(lines)) if lines[k].strip()),
+                        "",
+                    )
+                    if nxt.startswith(("- `", "#", ":::")):
+                        break
+                    i += 1
+                    continue
+                comment_parts.append(stripped)
+                i += 1
+            full_comment = " ".join(comment_parts).strip(" \"*'")
+            if move_key and full_comment:
+                norm_key = re.sub(r"([0-9]+(?:\.{1,3}))\s*", r"\1 ", move_key)
+                annotations[norm_key] = full_comment
+                annotations[move_key] = full_comment
+        else:
+            i += 1
 
     return annotations
 
@@ -839,12 +860,20 @@ def build_move_annotation_prompt(context: dict[str, Any]) -> str:
     facts_after: TacticalFacts = context["facts_after"]
 
     cm_details = ""
+    is_missed_best = False
     if cm:
+        is_missed_best = cm.best_move_san != played_san
+        best_note = (
+            f"- Engine Best Move: {cm.best_move_san} (NOTE: The played move {played_san} was NOT the best choice; "
+            f"it overlooked or delayed the superior choice {cm.best_move_san}!)"
+            if is_missed_best
+            else f"- Engine Best Move: {cm.best_move_san} (Played move matched top engine choice)"
+        )
         cm_details = (
             f"- Move Classification: {cm.classification}\n"
-            f"- Engine Best Move: {cm.best_move_san}\n"
-            f"- Recommended Continuation: {' '.join(cm.pv_san[:4]) if cm.pv_san else 'None'}\n"
-            f"- Opponent Threat / Refutation: {' '.join(cm.refutation_san[:4]) if cm.refutation_san else 'None'}\n"
+            f"{best_note}\n"
+            f"- Recommended Continuation: {' '.join(cm.pv_san[:5]) if cm.pv_san else 'None'}\n"
+            f"- Opponent Threat / Refutation: {' '.join(cm.refutation_san[:5]) if cm.refutation_san else 'None'}\n"
         )
         if cm.tags:
             cm_details += f"- Tactical/Positional Tags: {', '.join(cm.tags)}\n"
@@ -853,6 +882,23 @@ def build_move_annotation_prompt(context: dict[str, Any]) -> str:
         ", ".join(facts_before.hanging_pieces) if facts_before.hanging_pieces else "None"
     )
     hanging_after = ", ".join(facts_after.hanging_pieces) if facts_after.hanging_pieces else "None"
+
+    if cm and is_missed_best:
+        tactical_directive = (
+            f"4. CRITICAL TACTICAL COMPARISON (Played {played_san} vs Best Move {cm.best_move_san}):\n"
+            f"   - Explain the student's idea with {played_san} (e.g. what fork, pin, attack, or piece activation was intended).\n"
+            f"   - CRITICALLY: Do not merely praise the move if a superior move was available! Explicitly explain why {cm.best_move_san} was the stronger tactic or cleaner intermediate move (zwischenzug), what was missed or complicated by playing {played_san} instead, and why {cm.best_move_san} was preferred."
+        )
+    elif cm and cm.classification in ("Blunder", "Mistake", "Inaccuracy"):
+        tactical_directive = (
+            f"4. ERROR ANALYSIS: The move was flawed ({cm.classification}). Clearly explain what danger was overlooked, "
+            f"what tactical or positional threat the opponent can now exploit, and why the alternative was needed."
+        )
+    else:
+        tactical_directive = (
+            f"4. ACCURATE MOVE ANALYSIS: Explain concretely why {played_san} is strong, what threats or pressure it sets up, "
+            f"and what harmonious coordination it establishes."
+        )
 
     return (
         f"You are a master chess coach writing an educational move annotation for a student's game.\n\n"
@@ -866,11 +912,10 @@ def build_move_annotation_prompt(context: dict[str, Any]) -> str:
         f"- Check: {'Yes' if facts_after.is_check else 'No'}\n\n"
         f"### COACHING DIRECTIVES:\n"
         f"1. Explain the concrete CHESS REASONS and ideas: what was the strategic, positional, or tactical purpose of playing {played_san}? What does it threaten, defend, activate, or overlook?\n"
-        f"2. DO NOT state raw engine numbers or write phrases like 'shifting evaluation from X to Y' or 'You played X (Good Move)'. That is obvious and useless to the student.\n"
-        f"3. The explanation should be concise but complete. Provide a thorough, insightful explanation (2 to 4 rich sentences, or longer if needed to be complete).\n"
-        f"4. If the move is strong (Best, Great, Brilliant, Good): Explain why it works concretely, what threats it sets up, and what harmony it brings.\n"
-        f"5. If the move is flawed (Blunder, Mistake, Inaccuracy): Clearly explain what danger was overlooked, what the opponent's punishment is, and why the alternative was better.\n"
-        f"6. Write in natural, engaging coach prose. Do NOT use bullet points, bold section headers, or markdown asterisks. Output pure commentary sentences."
+        f"2. DO NOT state raw engine numbers or write phrases like 'shifting evaluation from X to Y' or 'You played X (Good Move)'. Teach chess concepts, piece coordination, and tactics instead of stating numbers.\n"
+        f"3. Instructive depth and completeness: The comment can be a full paragraph or a couple of sentences if needed to be thorough and complete. Do not omit crucial tactical truths, intermediate captures, or candidate moves for the sake of artificial brevity. Avoid fluff, but ensure no useful chess data is lost.\n"
+        f"{tactical_directive}\n"
+        f"5. Write in natural, engaging coach prose. Do NOT use bullet points, bold section headers, or markdown asterisks. Output pure commentary sentences."
     )
 
 

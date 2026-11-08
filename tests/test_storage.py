@@ -15,6 +15,7 @@ from src.storage import (
     init_db,
     save_analysis,
     update_analysis_github_sync,
+    update_analysis_payload,
     update_analysis_pgn,
     update_analysis_report,
 )
@@ -270,3 +271,31 @@ def test_game_hash_and_get_analysis_by_id_or_key(tmp_path, sample_payload: GameA
 
     # 5. Non-existent returns None
     assert get_analysis_by_id_or_key("nonexistent_key_123", db_path=db_file) is None
+
+
+def test_update_analysis_payload_with_pgn(tmp_path, sample_payload: GameAnalysisPayload):
+    db_file = str(tmp_path / "test_update_payload_pgn.db")
+    rec_id = save_analysis(
+        pgn_text="1. e4 e5 *",
+        payload=sample_payload,
+        report_md="# Initial Report",
+        model_name="initial-model",
+        db_path=db_file,
+    )
+
+    new_pgn = "1. e4 { [%clk 0:03:00] ✨ Central strike } e5 *"
+    ok = update_analysis_payload(
+        analysis_id=rec_id,
+        payload=sample_payload,
+        report_md="# Updated Report",
+        model_name="updated-model",
+        pgn_text=new_pgn,
+        db_path=db_file,
+    )
+    assert ok is True
+
+    rec = get_analysis_by_id(rec_id, db_path=db_file)
+    assert rec is not None
+    assert rec["report_md"] == "# Updated Report"
+    assert rec["model_name"] == "updated-model"
+    assert rec["pgn_text"] == new_pgn

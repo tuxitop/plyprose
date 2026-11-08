@@ -283,7 +283,9 @@ class IdentifyOpeningResponse(BaseModel):
 - **Move-Level Interactive Coaching Q&A & Annotations:**
   - `extract_move_qa_context(pgn_text: str, payload: GameAnalysisPayload | None, ply: int | None, move_number: int | None, color: str | None) -> dict[str, Any]`
   - `ask_move_question_gemini(context: dict[str, Any], user_question: str, model_name: str = "gemini-2.5-pro", api_key: str | None = None, client: object | None = None) -> AskMoveResponse`
-  - `annotate_single_move_gemini(context: dict[str, Any], model_name: str = "gemini-2.5-flash", api_key: str | None = None, client: genai.Client | None = None) -> str`: Generates complete, instructive single-move coaching annotations explaining strategic purpose, piece activity, or tactical threats in natural prose without stating obvious raw evaluation numbers. Fails explicitly with `ValueError` when unconfigured without silent deterministic fallback.
+  - `annotate_single_move_gemini(context: dict[str, Any], model_name: str = "gemini-2.5-flash", api_key: str | None = None, client: genai.Client | None = None) -> str`: Generates complete, instructive single-move coaching annotations explaining strategic purpose, piece activity, tactical threats, and explicitly comparing played moves against superior engine alternatives (e.g. missed intermediate moves or tactics) in natural prose without stating obvious raw evaluation numbers. Fails explicitly with `ValueError` when unconfigured without silent deterministic fallback.
+  - `extract_upfront_annotations_from_report(report_md: str) -> dict[str, str]`: Extracts single or multi-line move annotations from Section 4 of the coaching report.
+  - `inject_annotations_into_pgn(pgn_str: str, annotations: dict[str, str]) -> str`: Wove upfront move annotations directly into PGN strings with standard `✨ ` markers, preserving clock annotations.
   - Reconstructs exact board state, tactical facts, engine evaluation, and candidate variations for the selected move. Answers user questions with verified advice and outputs structured Markdown.
 - **Connection Testing & Resilient Fallback:**
   - `probe_gemini_connection(api_key: str | None = None) -> tuple[bool, str]`
@@ -443,6 +445,7 @@ class IdentifyOpeningResponse(BaseModel):
   - Reconstructs complete `AnalysisRecord` instances prioritizing `payload.json` and PGN header metadata over folder slug strings, with robust regex handling for player names containing hyphens or spaces.
   - Inlines relative SVG board diagrams (`./assets/diagram_N.svg` and `assets/diagram_N.svg`) as UTF-8 data URIs concurrently via `Promise.all` before parsing Markdown via `marked`.
   - Directly downloads pre-rendered `report.pdf` files from the study repository via `downloadGitHubDirectPdf()`.
+  - Client-Side Annotation Weaving (`frontend/src/lib/pgnWriter.ts`): `weaveReportAnnotationsIntoPgn(pgnText, reportMd)` extracts move annotations from report markdown and weaves them into the PGN string, ensuring move comments and badge glyphs display in the movelist on GitHub Pages or standalone mode even when loading older raw PGN files.
 - **Progressive Web App (PWA) & Mobile UX:**
   - Web App Manifest (`manifest.json`), touch PNG and SVG icons, `standalone` display mode, dark theme `#0f172a`, and mobile viewport optimization for home-screen installation on iOS and Android.
   - Service Worker (`sw.js`) caching core app shell and assets for offline PWA viewing.
