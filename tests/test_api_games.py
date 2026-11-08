@@ -1023,7 +1023,44 @@ def test_api_update_pgn_and_annotate_move(tmp_path, monkeypatch):
     res_bad = client.post(f"/api/analysis/{aid}/pgn", json={"pgn": "invalid chess moves 99. z9"})
     assert res_bad.status_code == 400
 
-    # 2. Annotate Move
+    # 2. Annotate Move without API key configured returns 400
+    monkeypatch.setattr(
+        "api.main.get_settings",
+        lambda: {"llm_provider": "gemini", "gemini_api_key": ""},
+    )
+    res_no_key = client.post(
+        f"/api/analysis/{aid}/annotate-move",
+        json={"ply": 1, "san": "e4"},
+    )
+    assert res_no_key.status_code == 400
+    assert "Gemini API key is not configured" in res_no_key.json()["detail"]
+
+    monkeypatch.setattr(
+        "api.main.get_settings",
+        lambda: {
+            "llm_provider": "openai-compat",
+            "openai_base_url": "https://api.openai.com/v1",
+            "openai_api_key": "",
+        },
+    )
+    res_no_openai = client.post(
+        f"/api/analysis/{aid}/annotate-move",
+        json={"ply": 1, "san": "e4"},
+    )
+    assert res_no_openai.status_code == 400
+    assert "OpenAI API key is not configured" in res_no_openai.json()["detail"]
+
+    # 3. Annotate Move with AI provider succeeds
+    monkeypatch.setattr(
+        "api.main.annotate_single_move",
+        lambda **kwargs: (
+            "✨ 1. e4 stakes immediate claim to the center and opens diagonals for piece development."
+        ),
+    )
+    monkeypatch.setattr(
+        "api.main.get_settings",
+        lambda: {"llm_provider": "gemini", "gemini_api_key": "dummy-key"},
+    )
     res_ann = client.post(
         f"/api/analysis/{aid}/annotate-move",
         json={"ply": 1, "san": "e4"},
@@ -1033,4 +1070,4 @@ def test_api_update_pgn_and_annotate_move(tmp_path, monkeypatch):
     assert ann_data["ok"] is True
     assert ann_data["ply"] == 1
     assert ann_data["san"] == "e4"
-    assert ann_data["comment"].startswith("✨")
+    assert "stakes immediate claim to the center" in ann_data["comment"]

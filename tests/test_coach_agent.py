@@ -5,7 +5,10 @@ import pytest
 from google.genai import types
 
 from src.coach_agent import (
+    annotate_single_move_gemini,
     build_coach_user_prompt,
+    build_move_annotation_prompt,
+    extract_move_qa_context,
     extract_upfront_annotations_from_report,
     generate_narrative_report,
     get_coach_config,
@@ -344,3 +347,64 @@ def test_extract_and_inject_annotations():
     assert "[%clk 0:03:00] ✨ Claims central space" in annotated_pgn
     assert "✨ Develops knight with tempo" in annotated_pgn
     assert "✨ Italian Game active bishop setup" in annotated_pgn
+
+
+def test_build_move_annotation_prompt():
+    pgn = '[Event "Test"]\n\n1. e4 e5 2. Nf3 Nc6 *'
+    context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1)
+    prompt = build_move_annotation_prompt(context)
+
+    assert "Move Played: 1. e4 (White)" in prompt
+    assert "Explain the concrete CHESS REASONS and ideas" in prompt
+    assert "DO NOT state raw engine numbers" in prompt
+    assert "concise but complete" in prompt
+
+
+def test_annotate_single_move_gemini_success():
+    pgn = '[Event "Test"]\n\n1. e4 e5 *'
+    context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1)
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = (
+        "1. e4 stakes an immediate claim in the center while liberating paths for both the king's bishop "
+        "and queen. It directly contests the d5-square and accelerates rapid kingside development."
+    )
+    mock_client.models.generate_content.return_value = mock_resp
+
+    comment = annotate_single_move_gemini(
+        context=context,
+        model_name="gemini-2.5-flash",
+        client=mock_client,
+    )
+    assert "stakes an immediate claim in the center" in comment
+    assert not comment.startswith("✨")  # llm dispatcher adds the sparkle
+
+
+def test_annotate_single_move_gemini_no_api_key(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    pgn = '[Event "Test"]\n\n1. e4 e5 *'
+    context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1)
+
+    with pytest.raises(ValueError, match="Gemini API key is not configured"):
+        annotate_single_move_gemini(
+            context=context,
+            api_key="",
+            client=None,
+        )
+
+
+def test_annotate_single_move_gemini_empty_response():
+    pgn = '[Event "Test"]\n\n1. e4 e5 *'
+    context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1)
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = ""
+    mock_client.models.generate_content.return_value = mock_resp
+
+    with pytest.raises(ValueError, match="Gemini returned an empty response"):
+        annotate_single_move_gemini(
+            context=context,
+            client=mock_client,
+        )

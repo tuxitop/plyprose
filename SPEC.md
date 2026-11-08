@@ -280,9 +280,10 @@ class IdentifyOpeningResponse(BaseModel):
   - Injects player rating profile (Blitz / Rapid Elo) into the system prompt to adapt coaching tone and conceptual depth.
   - Configures `GenerateContentConfig(tools=[verify_variation_tool, inspect_square], temperature=0.2)` using `google-genai`.
   - Instructs the model to rely strictly on the provided `GameAnalysisPayload` JSON and call tools whenever discussing variations outside the payload.
-- **Move-Level Interactive Coaching Q&A:**
+- **Move-Level Interactive Coaching Q&A & Annotations:**
   - `extract_move_qa_context(pgn_text: str, payload: GameAnalysisPayload | None, ply: int | None, move_number: int | None, color: str | None) -> dict[str, Any]`
   - `ask_move_question_gemini(context: dict[str, Any], user_question: str, model_name: str = "gemini-2.5-pro", api_key: str | None = None, client: object | None = None) -> AskMoveResponse`
+  - `annotate_single_move_gemini(context: dict[str, Any], model_name: str = "gemini-2.5-flash", api_key: str | None = None, client: genai.Client | None = None) -> str`: Generates complete, instructive single-move coaching annotations explaining strategic purpose, piece activity, or tactical threats in natural prose without stating obvious raw evaluation numbers. Fails explicitly with `ValueError` when unconfigured without silent deterministic fallback.
   - Reconstructs exact board state, tactical facts, engine evaluation, and candidate variations for the selected move. Answers user questions with verified advice and outputs structured Markdown.
 - **Connection Testing & Resilient Fallback:**
   - `probe_gemini_connection(api_key: str | None = None) -> tuple[bool, str]`
@@ -298,11 +299,14 @@ class IdentifyOpeningResponse(BaseModel):
   - Graceful tool rejection fallback: If an endpoint does not support tools (HTTP 400), automatically retries without tools while keeping the full deterministic JSON payload in context.
 - **`ask_move_question_openai(...) -> AskMoveResponse` (`openai_agent.py`)**
   - Implements move-level Q&A for OpenAI-compatible models.
+- **`annotate_single_move_openai(...) -> str` (`openai_agent.py`)**
+  - Generates instructive single-move coaching annotations for OpenAI-compatible models without silent deterministic fallback.
 - **`probe_openai_compat_connection` & `list_openai_compat_models` (`openai_agent.py`)**
   - Connection validation and dynamic model enumeration.
 - **Provider Dispatcher (`src/llm.py`)**
   - `generate_narrative_report(payload, provider="gemini", model_name="gemini-2.5-pro", ...)` routes requests to Gemini or OpenAI-compatible backends.
   - `ask_move_question(...)` routes move Q&A to the configured provider.
+  - `annotate_single_move(...)` routes move annotation generation to Gemini or OpenAI-compatible backends, prepending the `✨ ` annotation marker.
   - `model_label(provider: str, model_name: str) -> str` standardizes provenance strings (e.g. `gemini:gemini-2.5-pro`, `openai-compat:gpt-4o-mini`).
 
 ### Module D3: `src/tags.py` (Standardized Coaching Taxonomy & Ground-Truth Tagging)

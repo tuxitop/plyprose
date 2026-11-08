@@ -1288,6 +1288,13 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           }
         } catch (err) {
           console.error('Failed to annotate move with AI:', err);
+          const errorMsg =
+            err instanceof Error
+              ? err.message
+              : typeof err === 'object' && err !== null && 'detail' in err
+                ? String((err as { detail: unknown }).detail)
+                : 'AI annotation is currently unavailable. Please check your AI API key in Settings.';
+          alert(`AI Annotation Unavailable:\n\n${errorMsg}`);
         } finally {
           setIsAiAnnotating(false);
         }

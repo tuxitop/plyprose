@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.coach_agent import (
+    annotate_single_move_gemini,
     ask_move_question_gemini,
     extract_move_qa_context,
     generate_deterministic_summary,
@@ -8,6 +9,7 @@ from src.coach_agent import (
 )
 from src.models import AskMoveResponse, GameAnalysisPayload
 from src.openai_agent import (
+    annotate_single_move_openai,
     ask_move_question_openai,
     generate_narrative_report as _generate_openai_compat_report,
 )
@@ -114,10 +116,53 @@ def ask_move_question(
     )
 
 
+def annotate_single_move(
+    pgn_text: str,
+    payload: GameAnalysisPayload | None,
+    ply: int,
+    san: str,
+    provider: str = PROVIDER_GEMINI,
+    model_name: str = "gemini-2.5-flash",
+    api_key: str | None = None,
+    base_url: str | None = None,
+    client: object | None = None,
+) -> str:
+    """Provider dispatcher for generating an insightful AI move annotation.
+
+    Raises an exception if the AI provider or API key is not available.
+    """
+    context = extract_move_qa_context(
+        pgn_text=pgn_text,
+        payload=payload,
+        ply=ply,
+    )
+
+    if provider == PROVIDER_OPENAI_COMPAT:
+        raw_annotation = annotate_single_move_openai(
+            context=context,
+            base_url=base_url,
+            model_name=model_name,
+            api_key=api_key,
+            client=client,  # type: ignore[arg-type]
+        )
+    else:
+        raw_annotation = annotate_single_move_gemini(
+            context=context,
+            model_name=model_name,
+            api_key=api_key,
+            client=client,  # type: ignore[arg-type]
+        )
+
+    if not raw_annotation.startswith("✨"):
+        raw_annotation = f"✨ {raw_annotation}"
+    return raw_annotation
+
+
 __all__ = [
     "AVAILABLE_PROVIDERS",
     "PROVIDER_GEMINI",
     "PROVIDER_OPENAI_COMPAT",
+    "annotate_single_move",
     "ask_move_question",
     "generate_deterministic_summary",
     "generate_narrative_report",

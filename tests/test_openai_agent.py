@@ -5,16 +5,19 @@ from unittest.mock import MagicMock
 import chess
 import pytest
 
+from src.coach_agent import extract_move_qa_context
 from src.llm import (
     AVAILABLE_PROVIDERS,
     PROVIDER_GEMINI,
     PROVIDER_OPENAI_COMPAT,
+    annotate_single_move as dispatch_annotate_single_move,
     generate_narrative_report as dispatch_generate_narrative_report,
     model_label,
 )
 from src.models import GameAnalysisPayload
 from src.openai_agent import (
     OPENAI_COMPAT_TOOLS,
+    annotate_single_move_openai,
     generate_narrative_report,
     list_openai_compat_models,
     probe_openai_compat_connection,
@@ -361,3 +364,57 @@ def test_dispatcher_routes_gemini(sample_payload: GameAnalysisPayload):
 
     assert report == "# Routed via Gemini dispatcher"
     mock_client.chats.create.assert_called_once()
+
+
+def test_annotate_single_move_openai_success():
+    pgn = '[Event "Test"]\n\n1. e4 e5 *'
+    context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1)
+
+    mock_client = MagicMock()
+    mock_choice = SimpleNamespace(
+        message=SimpleNamespace(
+            content="1. e4 seizes central territory and opens pathways for White's bishop and queen."
+        )
+    )
+    mock_client.chat.completions.create.return_value = SimpleNamespace(choices=[mock_choice])
+
+    comment = annotate_single_move_openai(
+        context=context,
+        client=mock_client,
+    )
+    assert "seizes central territory" in comment
+
+
+def test_annotate_single_move_openai_empty_response():
+    pgn = '[Event "Test"]\n\n1. e4 e5 *'
+    context = extract_move_qa_context(pgn_text=pgn, payload=None, ply=1)
+
+    mock_client = MagicMock()
+    mock_choice = SimpleNamespace(message=SimpleNamespace(content=""))
+    mock_client.chat.completions.create.return_value = SimpleNamespace(choices=[mock_choice])
+
+    with pytest.raises(ValueError, match="OpenAI-compatible model returned an empty response"):
+        annotate_single_move_openai(
+            context=context,
+            client=mock_client,
+        )
+
+
+def test_dispatch_annotate_single_move_openai():
+    pgn = '[Event "Test"]\n\n1. e4 e5 *'
+    mock_client = MagicMock()
+    mock_choice = SimpleNamespace(
+        message=SimpleNamespace(content="1. e4 establishes strong central influence immediately.")
+    )
+    mock_client.chat.completions.create.return_value = SimpleNamespace(choices=[mock_choice])
+
+    res = dispatch_annotate_single_move(
+        pgn_text=pgn,
+        payload=None,
+        ply=1,
+        san="e4",
+        provider=PROVIDER_OPENAI_COMPAT,
+        client=mock_client,
+    )
+    assert res.startswith("✨ ")
+    assert "establishes strong central influence immediately." in res

@@ -829,11 +829,94 @@ def ask_move_question_gemini(
     return generate_deterministic_move_answer(context, user_question)
 
 
+def build_move_annotation_prompt(context: dict[str, Any]) -> str:
+    move_num = context["move_number"]
+    color = context["color"]
+    played_san = context["move_played_san"]
+    dot_str = "." if color == "White" else "..."
+    cm: CriticalMoment | None = context.get("critical_moment")
+    facts_before: TacticalFacts = context["facts_before"]
+    facts_after: TacticalFacts = context["facts_after"]
+
+    cm_details = ""
+    if cm:
+        cm_details = (
+            f"- Move Classification: {cm.classification}\n"
+            f"- Engine Best Move: {cm.best_move_san}\n"
+            f"- Recommended Continuation: {' '.join(cm.pv_san[:4]) if cm.pv_san else 'None'}\n"
+            f"- Opponent Threat / Refutation: {' '.join(cm.refutation_san[:4]) if cm.refutation_san else 'None'}\n"
+        )
+        if cm.tags:
+            cm_details += f"- Tactical/Positional Tags: {', '.join(cm.tags)}\n"
+
+    hanging_before = (
+        ", ".join(facts_before.hanging_pieces) if facts_before.hanging_pieces else "None"
+    )
+    hanging_after = ", ".join(facts_after.hanging_pieces) if facts_after.hanging_pieces else "None"
+
+    return (
+        f"You are a master chess coach writing an educational move annotation for a student's game.\n\n"
+        f"### POSITION & MOVE FACTS:\n"
+        f"- Move Played: {move_num}{dot_str} {played_san} ({color})\n"
+        f"- Position Before: {context['fen_before']}\n"
+        f"- Position After: {context['fen_after']}\n"
+        f"{cm_details}"
+        f"- Hanging Pieces Before: {hanging_before}\n"
+        f"- Hanging Pieces After: {hanging_after}\n"
+        f"- Check: {'Yes' if facts_after.is_check else 'No'}\n\n"
+        f"### COACHING DIRECTIVES:\n"
+        f"1. Explain the concrete CHESS REASONS and ideas: what was the strategic, positional, or tactical purpose of playing {played_san}? What does it threaten, defend, activate, or overlook?\n"
+        f"2. DO NOT state raw engine numbers or write phrases like 'shifting evaluation from X to Y' or 'You played X (Good Move)'. That is obvious and useless to the student.\n"
+        f"3. The explanation should be concise but complete. Provide a thorough, insightful explanation (2 to 4 rich sentences, or longer if needed to be complete).\n"
+        f"4. If the move is strong (Best, Great, Brilliant, Good): Explain why it works concretely, what threats it sets up, and what harmony it brings.\n"
+        f"5. If the move is flawed (Blunder, Mistake, Inaccuracy): Clearly explain what danger was overlooked, what the opponent's punishment is, and why the alternative was better.\n"
+        f"6. Write in natural, engaging coach prose. Do NOT use bullet points, bold section headers, or markdown asterisks. Output pure commentary sentences."
+    )
+
+
+def annotate_single_move_gemini(
+    context: dict[str, Any],
+    model_name: str = "gemini-2.5-flash",
+    api_key: str | None = None,
+    client: genai.Client | None = None,
+) -> str:
+    """Generates an insightful AI chess move annotation using Gemini.
+
+    Raises an error if the model or API key is not available.
+    """
+    key = api_key or os.environ.get("GEMINI_API_KEY")
+    if client is None:
+        if not key:
+            raise ValueError(
+                "Gemini API key is not configured. Please enter your API key in Settings to use AI annotations."
+            )
+        client = genai.Client(api_key=key)
+
+    prompt = build_move_annotation_prompt(context)
+    config = get_coach_config()
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=config,
+    )
+    raw_text = getattr(response, "text", None) or ""
+    cleaned = raw_text.strip()
+    if not cleaned:
+        raise ValueError("Gemini returned an empty response. Please try again.")
+
+    cleaned = re.sub(r"^(?:###|\*\*|#|Note:)\s*", "", cleaned)
+    cleaned = cleaned.strip(" \"*'")
+    cleaned = re.sub(r"\s*\n+\s*", " ", cleaned).strip()
+    return cleaned
+
+
 __all__ = [
     "DEFAULT_GEMINI_MODELS",
     "PRIORITY_GEMINI_MODELS",
+    "annotate_single_move_gemini",
     "ask_move_question_gemini",
     "build_coach_user_prompt",
+    "build_move_annotation_prompt",
     "build_move_qa_prompt",
     "extract_move_qa_context",
     "extract_upfront_annotations_from_report",

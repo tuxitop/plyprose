@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ from openai import OpenAI
 from src.coach_agent import (
     _parse_qa_json_block,
     build_coach_user_prompt,
+    build_move_annotation_prompt,
     build_move_qa_prompt,
     generate_deterministic_move_answer,
     generate_deterministic_summary,
@@ -552,12 +554,49 @@ def ask_move_question_openai(
     return generate_deterministic_move_answer(context, user_question)
 
 
+def annotate_single_move_openai(
+    context: dict[str, Any],
+    base_url: str | None = None,
+    model_name: str = DEFAULT_OPENAI_COMPAT_MODEL,
+    api_key: str | None = None,
+    client: OpenAI | None = None,
+) -> str:
+    """Generates an insightful AI chess move annotation using an OpenAI-compatible endpoint.
+
+    Raises an error if the model or endpoint is unavailable.
+    """
+    prompt = build_move_annotation_prompt(context)
+    client = _build_client(base_url=base_url, api_key=api_key, client=client)
+    system_prompt = get_system_prompt()
+
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+
+    completion = client.chat.completions.create(
+        model=model_name,
+        messages=messages,  # type: ignore[arg-type]
+        temperature=0.3,
+    )
+    if not completion.choices or not completion.choices[0].message.content:
+        raise ValueError("OpenAI-compatible model returned an empty response. Please try again.")
+
+    raw_text = completion.choices[0].message.content or ""
+    cleaned = raw_text.strip()
+    cleaned = re.sub(r"^(?:###|\*\*|#|Note:)\s*", "", cleaned)
+    cleaned = cleaned.strip(" \"*'")
+    cleaned = re.sub(r"\s*\n+\s*", " ", cleaned).strip()
+    return cleaned
+
+
 __all__ = [
     "DEFAULT_OPENAI_COMPAT_BASE_URL",
     "DEFAULT_OPENAI_COMPAT_MODEL",
     "OPENAI_COMPAT_TOOLS",
     "PROVIDER_NAME",
     "TOOL_REGISTRY",
+    "annotate_single_move_openai",
     "ask_move_question_openai",
     "generate_narrative_report",
     "list_openai_compat_models",

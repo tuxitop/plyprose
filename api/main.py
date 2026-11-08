@@ -64,6 +64,7 @@ from src.github_sync import (
 )
 from src.llm import (
     PROVIDER_GEMINI,
+    annotate_single_move,
     ask_move_question,
     generate_deterministic_summary,
     generate_narrative_report,
@@ -108,7 +109,7 @@ from src.storage import (
 )
 from src.tags import reconcile_move_classifications, resolve_game_tags
 
-app = FastAPI(title="PlyProse API", version="1.14.0")
+app = FastAPI(title="PlyProse API", version="1.14.1")
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -2173,59 +2174,67 @@ def api_annotate_move(analysis_id: str, req: AnnotateMoveRequest) -> AnnotateMov
             pass
 
     settings = get_settings()
-    provider = settings.get("llm_provider", PROVIDER_GEMINI)
-    model_name = settings.get("llm_model", "gemini-2.5-pro")
+    provider = settings.get("llm_provider") or PROVIDER_GEMINI
 
-    gemini_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
-    openai_key = settings.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
-    openai_url = settings.get("openai_base_url")
-    api_key = gemini_key if provider == PROVIDER_GEMINI else openai_key
+    if provider == PROVIDER_GEMINI:
+        api_key = (
+            settings.get("gemini_api_key")
+            or settings.get("llm_api_key")
+            or os.environ.get("GEMINI_API_KEY")
+        )
+        model_name = settings.get("gemini_model") or settings.get("llm_model") or "gemini-2.5-flash"
+        base_url = None
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Gemini API key is not configured. Please enter your API key in Settings to use AI annotations.",
+            )
+    else:
+        api_key = (
+            settings.get("openai_api_key")
+            or settings.get("llm_api_key")
+            or os.environ.get("OPENAI_API_KEY")
+        )
+        base_url = (
+            settings.get("openai_base_url")
+            or settings.get("llm_base_url")
+            or "http://localhost:11434/v1"
+        )
+        model_name = settings.get("openai_model") or settings.get("llm_model") or "gpt-4o-mini"
+        is_local = "localhost" in (base_url or "") or "127.0.0.1" in (base_url or "")
+        if not api_key and not is_local:
+            raise HTTPException(
+                status_code=400,
+                detail="OpenAI API key is not configured. Please enter your API key in Settings to use AI annotations.",
+            )
 
     try:
-        move_num = (req.ply + 1) // 2 if req.ply > 0 else 1
-        color = "White" if req.ply % 2 != 0 else "Black"
-        prompt_q = (
-            f"Provide a concise, single-sentence master coaching annotation for {req.san} "
-            f"(move {move_num} for {color}). Explain the strategic purpose, tactical idea, or error concisely. "
-            "Output only the 1-sentence annotation without introductory text."
-        )
-
-        ans = ask_move_question(
+        annotation = annotate_single_move(
             pgn_text=pgn_text,
             payload=payload,
-            question=prompt_q,
             ply=req.ply,
-            move_number=move_num,
-            color=color,
+            san=req.san,
             provider=provider,
             model_name=model_name,
             api_key=api_key,
-            base_url=openai_url,
+            base_url=base_url,
         )
-
-        clean_comment = ans.answer_markdown.strip()
-        clean_comment = re.sub(r"^(?:###|\*\*|#)\s*", "", clean_comment)
-        clean_comment = clean_comment.strip(" \"*'")
-        if "\n" in clean_comment:
-            clean_comment = clean_comment.split("\n")[0].strip()
-        if not clean_comment.startswith("✨"):
-            clean_comment = f"✨ {clean_comment}"
-
         return AnnotateMoveResponse(
             ok=True,
             ply=req.ply,
             san=req.san,
-            comment=clean_comment,
+            comment=annotation,
         )
+    except HTTPException:
+        raise
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err)) from val_err
     except Exception as exc:
         logger.exception("Error in api_annotate_move: %s", exc)
-        fallback = f"✨ Tactical and positional consideration for {req.san}."
-        return AnnotateMoveResponse(
-            ok=True,
-            ply=req.ply,
-            san=req.san,
-            comment=fallback,
-        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI annotation error ({provider}): {exc}. Please verify your provider settings.",
+        ) from exc
 
 
 @app.post("/api/analysis/{analysis_id}/pgn", response_model=UpdatePgnResponse)
