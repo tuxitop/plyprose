@@ -52,7 +52,11 @@ export class StockfishService {
 
     return new Promise(resolve => {
       try {
-        this.worker = new Worker('/stockfish/stockfish-19-lite-single.js');
+        const base = (import.meta.env.BASE_URL || './').replace(/\/+$/, '');
+        const workerUrl = base
+          ? `${base}/stockfish/stockfish-19-lite-single.js`
+          : './stockfish/stockfish-19-lite-single.js';
+        this.worker = new Worker(workerUrl);
         this.worker.onmessage = (event: MessageEvent<string>) => {
           this.handleWorkerMessage(event.data, resolve);
         };

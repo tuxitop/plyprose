@@ -433,11 +433,16 @@ class IdentifyOpeningResponse(BaseModel):
 - **Zero-Server Standalone Mode:**
   - Operates on GitHub Pages (`*.github.io`) without requiring a running FastAPI backend.
   - Directly queries the GitHub REST API (`api.github.com`) using a Personal Access Token stored securely in the browser's `localStorage` (`plyprose_direct_settings`).
-  - Fetches repository tree and file blobs with in-memory SHA caching.
-  - Reconstructs `AnalysisRecord` instances from `game.pgn`, `report.md`, and `payload.json`.
-  - Inlines relative SVG board diagrams (`./assets/diagram_N.svg`) as UTF-8 data URIs before parsing Markdown via `marked`.
-- **Progressive Web App (PWA):**
+  - Fetches repository tree and file blobs with in-memory SHA caching (`_blobCache`, `_rawBlobCache`, `clearBlobCache()`).
+  - Reconstructs complete `AnalysisRecord` instances prioritizing `payload.json` and PGN header metadata over folder slug strings, with robust regex handling for player names containing hyphens or spaces.
+  - Inlines relative SVG board diagrams (`./assets/diagram_N.svg` and `assets/diagram_N.svg`) as UTF-8 data URIs concurrently via `Promise.all` before parsing Markdown via `marked`.
+  - Directly downloads pre-rendered `report.pdf` files from the study repository via `downloadGitHubDirectPdf()`.
+- **Progressive Web App (PWA) & Mobile UX:**
   - Web App Manifest (`manifest.json`), SVG icons, `standalone` display mode, dark theme `#0f172a`, and mobile viewport optimization for home-screen installation on iOS and Android.
+  - Service Worker (`sw.js`) caching core app shell and assets for offline PWA viewing.
+  - GitHub Pages SPA routing fallback (`404.html`) preserving repository subpaths and deep navigation across page refreshes.
+  - Streamlined Mobile Reader Settings: Automatically surfaces GitHub study repository configuration and connection testing, while suppressing desktop backend polling and collapsing non-applicable desktop engine settings.
+  - Reader Move Q&A Fallback: Provides verified deterministic tactical engine explanations directly on mobile without remote LLM synthesis errors.
 
 ### Module I: Frontend UI Architecture & Interactive Components
 

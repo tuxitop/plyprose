@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>PlyProse — Redirecting</title>
+    <script>
+      // Single Page Apps for GitHub Pages SPA redirect
+      var l = window.location;
+      var isGithubIo = l.hostname.endsWith('github.io');
+      var path = l.pathname.replace(/^\/|\/$/g, '').split('/');
+      var repo = (isGithubIo && path.length > 0) ? path[0] : '';
+      var route = (isGithubIo && path.length > 0) ? path.slice(1).join('/') : path.join('/');
+      var target = l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        (repo ? '/' + repo : '') +
+        '/?p=/' + encodeURIComponent(route) +
+        (l.search ? '&' + l.search.slice(1) : '') +
+        l.hash;
+      window.location.replace(target);
+    </script>
+  </head>
+  <body>
+  </body>
+</html>

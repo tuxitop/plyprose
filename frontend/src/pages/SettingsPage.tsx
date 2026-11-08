@@ -17,6 +17,7 @@ import { Input, Textarea } from '../components/Input';
 import {
   getDetectedRatings,
   getSettings,
+  isDirectMode,
   listModels,
   pullFromGitHub,
   syncAllToGitHub,
@@ -25,6 +26,7 @@ import {
   updateSettings,
   verifyUsername,
 } from '../lib/api';
+import { clearBlobCache } from '../lib/githubDirect';
 import type { DetectedRatingsResponse, Settings } from '../types';
 
 interface SettingsPageProps {
@@ -68,6 +70,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [syncAllResult, setSyncAllResult] = useState<StatusPill>({ ok: null, message: '' });
   const [pullingGh, setPullingGh] = useState(false);
   const [pullResult, setPullResult] = useState<StatusPill>({ ok: null, message: '' });
+  const [showDesktopSettings, setShowDesktopSettings] = useState(false);
 
   const providers = ['openai-compat', 'gemini'];
 
@@ -88,9 +91,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     getSettings().then(s => {
       if (!ignore) setSettings(s);
     });
-    void Promise.resolve().then(() => {
-      if (!ignore) loadDetectedRatings();
-    });
+    if (!isDirectMode()) {
+      void Promise.resolve().then(() => {
+        if (!ignore) loadDetectedRatings();
+      });
+    }
     return () => {
       ignore = true;
     };
@@ -102,7 +107,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const hasSettings = Boolean(settings);
 
   useEffect(() => {
-    if (hasSettings) {
+    if (hasSettings && !isDirectMode()) {
       listModels(provider, baseUrl, apiKey)
         .then(r => setModels(r.models))
         .catch(() => setModels([]));
@@ -322,32 +327,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   const hasSuggestions = detectedRatingCards.length > 0;
 
-  return (
-    <div className="max-w-3xl mx-auto w-full p-6 flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 flex items-center gap-1 text-sm transition-colors cursor-pointer"
-          >
-            <ArrowLeft size={14} />
-            Back to Games
-          </button>
-          <span className="text-slate-300 dark:text-slate-700">|</span>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Settings</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {saved && (
-            <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-              <CheckCircle size={12} /> Saved
-            </span>
-          )}
-          <Button variant="primary" loading={saving} onClick={handleSave}>
-            Save All Changes
-          </Button>
-        </div>
-      </div>
+  const isDirect = isDirectMode();
 
+  const desktopSections = (
+    <>
       {/* Player Profile & Ratings */}
       <section className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
         <div className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 px-5 py-3 flex items-center justify-between">
@@ -1039,155 +1022,156 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           </div>
         </div>
       </section>
+    </>
+  );
 
-      {/* GitHub Repository Sync */}
-      <section className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
-        <div className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Github size={18} className="text-slate-700 dark:text-slate-300" />
-            <div>
-              <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                GitHub Repository Sync
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Sync AI-analyzed games as Markdown, SVG diagrams, PDF, and PGN into your repository.
-              </p>
-            </div>
+  const githubSection = (
+    <section className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
+      <div className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 px-5 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <Github size={18} className="text-slate-700 dark:text-slate-300" />
+          <div>
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              GitHub Repository Sync
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Sync AI-analyzed games as Markdown, SVG diagrams, PDF, and PGN into your repository.
+            </p>
           </div>
-          <label
-            htmlFor="github-sync-enabled"
-            className="flex items-center gap-2 cursor-pointer select-none"
-          >
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-              Enable Sync
-            </span>
-            <input
-              id="github-sync-enabled"
-              type="checkbox"
-              checked={!!settings.github_enabled}
-              onChange={e => update({ github_enabled: e.target.checked })}
-              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-700 dark:bg-slate-800 cursor-pointer"
-            />
-          </label>
+        </div>
+        <label
+          htmlFor="github-sync-enabled"
+          className="flex items-center gap-2 cursor-pointer select-none"
+        >
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            Enable Sync
+          </span>
+          <input
+            id="github-sync-enabled"
+            type="checkbox"
+            checked={!!settings.github_enabled}
+            onChange={e => update({ github_enabled: e.target.checked })}
+            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-700 dark:bg-slate-800 cursor-pointer"
+          />
+        </label>
+      </div>
+
+      <div className="p-5 flex flex-col gap-4">
+        <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 flex flex-col gap-1.5">
+          <div className="font-medium text-slate-800 dark:text-slate-200">
+            Standard Folder Hierarchy:
+          </div>
+          <code className="font-mono text-[11px] bg-white dark:bg-slate-900 px-2 py-1 rounded border border-slate-200 dark:border-slate-800 text-blue-600 dark:text-blue-400 break-all">
+            [PLATFORM]/[SPEED]/[YEAR]-[MONTH]/[DAY]-[TIME]-[WHITE]-[BLACK]-[RESULT]/
+          </code>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            Example:{' '}
+            <code className="font-mono text-slate-700 dark:text-slate-300">
+              chess.com/blitz/2026-10/25-0930-tuxitop-keswic-white/
+            </code>
+          </p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Contains <strong className="text-slate-700 dark:text-slate-300">report.md</strong> (with
+            inline diagrams rendered natively on GitHub),{' '}
+            <strong className="text-slate-700 dark:text-slate-300">report.pdf</strong>,{' '}
+            <strong className="text-slate-700 dark:text-slate-300">game.pgn</strong>, and{' '}
+            <strong className="text-slate-700 dark:text-slate-300">assets/*.svg</strong>. Only games
+            analyzed by AI are pushed. Deleting an analyzed game also removes it from GitHub.
+          </p>
         </div>
 
-        <div className="p-5 flex flex-col gap-4">
-          <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 flex flex-col gap-1.5">
-            <div className="font-medium text-slate-800 dark:text-slate-200">
-              Standard Folder Hierarchy:
-            </div>
-            <code className="font-mono text-[11px] bg-white dark:bg-slate-900 px-2 py-1 rounded border border-slate-200 dark:border-slate-800 text-blue-600 dark:text-blue-400 break-all">
-              [PLATFORM]/[SPEED]/[YEAR]-[MONTH]/[DAY]-[TIME]-[WHITE]-[BLACK]-[RESULT]/
-            </code>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Example:{' '}
-              <code className="font-mono text-slate-700 dark:text-slate-300">
-                chess.com/blitz/2026-10/25-0930-tuxitop-keswic-white/
-              </code>
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Contains <strong className="text-slate-700 dark:text-slate-300">report.md</strong>{' '}
-              (with inline diagrams rendered natively on GitHub),{' '}
-              <strong className="text-slate-700 dark:text-slate-300">report.pdf</strong>,{' '}
-              <strong className="text-slate-700 dark:text-slate-300">game.pgn</strong>, and{' '}
-              <strong className="text-slate-700 dark:text-slate-300">assets/*.svg</strong>. Only
-              games analyzed by AI are pushed. Deleting an analyzed game also removes it from
-              GitHub.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="sm:col-span-2">
-              <Input
-                label="GitHub Repository"
-                value={settings.github_repo ?? ''}
-                onChange={e => update({ github_repo: e.target.value })}
-                placeholder="owner/repo (e.g. your-username/chess-notes)"
-                hint="Target GitHub repository in 'owner/repo' format."
-              />
-            </div>
-            <div>
-              <Input
-                label="Target Branch"
-                value={settings.github_branch ?? 'main'}
-                onChange={e => update({ github_branch: e.target.value })}
-                placeholder="main"
-                hint="Branch name (default: main)."
-              />
-            </div>
-          </div>
-
-          <Input
-            label="Personal Access Token (PAT)"
-            type={showGhToken ? 'text' : 'password'}
-            value={settings.github_token ?? ''}
-            onChange={e => update({ github_token: e.target.value })}
-            placeholder="ghp_… or github_pat_…"
-            hint="Requires 'Contents: Read and write' permission (or classic token with 'repo' scope)."
-            rightElement={
-              <button
-                type="button"
-                onClick={() => setShowGhToken(v => !v)}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-0.5 cursor-pointer"
-                aria-label={showGhToken ? 'Hide GitHub token' : 'Show GitHub token'}
-              >
-                {showGhToken ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            }
-          />
-
-          <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60">
-            <div>
-              <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                Auto-Pull on Launch & Focus
-              </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                Checks GitHub for new game analyses on launch or tab return (1 lightweight API
-                check).
-              </div>
-            </div>
-            <input
-              id="github-auto-pull-enabled"
-              type="checkbox"
-              checked={settings.github_auto_pull !== false}
-              onChange={e => update({ github_auto_pull: e.target.checked })}
-              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-700 dark:bg-slate-800 cursor-pointer"
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="sm:col-span-2">
+            <Input
+              label="GitHub Repository"
+              value={settings.github_repo ?? ''}
+              onChange={e => update({ github_repo: e.target.value })}
+              placeholder="owner/repo (e.g. your-username/chess-notes)"
+              hint="Target GitHub repository in 'owner/repo' format."
             />
           </div>
+          <div>
+            <Input
+              label="Target Branch"
+              value={settings.github_branch ?? 'main'}
+              onChange={e => update({ github_branch: e.target.value })}
+              placeholder="main"
+              hint="Branch name (default: main)."
+            />
+          </div>
+        </div>
 
-          <div className="flex items-center justify-between flex-wrap gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-3 flex-wrap">
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={testingGhConn}
-                onClick={handleTestGitHubConnection}
-              >
-                🧪 Test Connection
-              </Button>
-              {ghConnStatus.ok !== null && (
-                <span
-                  className={`text-xs flex items-center gap-1 ${ghConnStatus.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}
-                >
-                  {ghConnStatus.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                  {ghConnStatus.message}
-                </span>
-              )}
-              {ghConnStatus.ok === null && ghConnStatus.message && (
-                <span className="text-xs text-slate-400 dark:text-slate-500">
-                  {ghConnStatus.message}
-                </span>
-              )}
-              {settings.github_last_synced_sha && (
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Last synced commit:{' '}
-                  <code className="font-mono text-blue-600 dark:text-blue-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
-                    {settings.github_last_synced_sha.slice(0, 7)}
-                  </code>
-                </span>
-              )}
+        <Input
+          label="Personal Access Token (PAT)"
+          type={showGhToken ? 'text' : 'password'}
+          value={settings.github_token ?? ''}
+          onChange={e => update({ github_token: e.target.value })}
+          placeholder="ghp_… or github_pat_…"
+          hint="Requires 'Contents: Read and write' permission (or classic token with 'repo' scope)."
+          rightElement={
+            <button
+              type="button"
+              onClick={() => setShowGhToken(v => !v)}
+              className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+              aria-label={showGhToken ? 'Hide GitHub token' : 'Show GitHub token'}
+            >
+              {showGhToken ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          }
+        />
+
+        <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60">
+          <div>
+            <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
+              Auto-Pull on Launch & Focus
             </div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+              Checks GitHub for new game analyses on launch or tab return (1 lightweight API check).
+            </div>
+          </div>
+          <input
+            id="github-auto-pull-enabled"
+            type="checkbox"
+            checked={settings.github_auto_pull !== false}
+            onChange={e => update({ github_auto_pull: e.target.checked })}
+            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 dark:border-slate-700 dark:bg-slate-800 cursor-pointer"
+          />
+        </div>
 
+        <div className="flex items-center justify-between flex-wrap gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={testingGhConn}
+              onClick={handleTestGitHubConnection}
+            >
+              🧪 Test Connection
+            </Button>
+            {ghConnStatus.ok !== null && (
+              <span
+                className={`text-xs flex items-center gap-1 ${ghConnStatus.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}
+              >
+                {ghConnStatus.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
+                {ghConnStatus.message}
+              </span>
+            )}
+            {ghConnStatus.ok === null && ghConnStatus.message && (
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                {ghConnStatus.message}
+              </span>
+            )}
+            {settings.github_last_synced_sha && (
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Last synced commit:{' '}
+                <code className="font-mono text-blue-600 dark:text-blue-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
+                  {settings.github_last_synced_sha.slice(0, 7)}
+                </code>
+              </span>
+            )}
+          </div>
+
+          {!isDirectMode() ? (
             <div className="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-3 flex-wrap">
                 <Button
@@ -1238,9 +1222,99 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 )}
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex-wrap">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<RefreshCw size={12} />}
+                onClick={() => {
+                  clearBlobCache();
+                  setGhConnStatus({ ok: true, message: 'Cleared in-memory blob and tree cache.' });
+                }}
+                title="Clear local memory cache to fetch recent commits"
+              >
+                Clear Memory Cache
+              </Button>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Running in Direct Mode: reports and diagrams are read directly from GitHub.
+              </span>
+            </div>
+          )}
         </div>
-      </section>
+      </div>
+    </section>
+  );
+
+  return (
+    <div className="max-w-3xl mx-auto w-full p-6 flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 flex items-center gap-1 text-sm transition-colors cursor-pointer"
+          >
+            <ArrowLeft size={14} />
+            Back to Games
+          </button>
+          <span className="text-slate-300 dark:text-slate-700">|</span>
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Settings</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          {saved && (
+            <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+              <CheckCircle size={12} /> Saved
+            </span>
+          )}
+          <Button variant="primary" loading={saving} onClick={handleSave}>
+            Save All Changes
+          </Button>
+        </div>
+      </div>
+
+      {isDirect && (
+        <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex flex-col gap-2">
+          <div className="text-sm font-semibold text-blue-900 dark:text-blue-100 flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Github size={16} /> Mobile Reader Mode Active
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => setShowDesktopSettings(v => !v)}>
+              {showDesktopSettings ? 'Hide Desktop Settings' : 'Show Desktop Settings'}
+            </Button>
+          </div>
+          <p className="text-xs text-blue-700 dark:text-blue-300">
+            PlyProse is reading games directly from your private GitHub study repository. Only your
+            GitHub Personal Access Token and repository name below are required. Stockfish and LLM
+            settings apply when running the desktop backend.
+          </p>
+        </div>
+      )}
+
+      {isDirect ? (
+        <>
+          {githubSection}
+          <div className="border border-dashed border-slate-300 dark:border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3 bg-white/40 dark:bg-slate-900/40">
+            <div>
+              <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Desktop Backend Settings
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Stockfish engine binary, local LLM provider credentials, and platform scrapers apply
+                when running the desktop backend.
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setShowDesktopSettings(v => !v)}>
+              {showDesktopSettings ? 'Hide Desktop Settings' : 'Show Desktop Settings'}
+            </Button>
+          </div>
+          {showDesktopSettings && desktopSections}
+        </>
+      ) : (
+        <>
+          {desktopSections}
+          {githubSection}
+        </>
+      )}
 
       <div className="flex justify-end pb-6">
         <Button variant="primary" loading={saving} onClick={handleSave} size="lg">

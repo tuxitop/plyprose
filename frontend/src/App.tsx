@@ -8,9 +8,33 @@ import { useTheme } from './hooks/useTheme';
 
 type Route = { page: 'games' } | { page: 'settings' } | { page: 'analysis'; id: number | string };
 
+function getBasePath(): string {
+  const base = import.meta.env.BASE_URL || '/';
+  if (base === './' || base === '/') return '';
+  return base.replace(/\/+$/, '');
+}
+
 function parseRoute(path: string): Route {
-  if (path.startsWith('/analysis/')) {
-    const raw = path.replace('/analysis/', '').trim();
+  const base = getBasePath();
+  let cleanPath = path;
+  if (base && cleanPath.startsWith(base)) {
+    cleanPath = cleanPath.slice(base.length);
+  }
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = '/' + cleanPath;
+  }
+
+  // Handle SPA redirect from 404.html (e.g. ?p=/analysis/game-123)
+  if (typeof window !== 'undefined') {
+    const searchParams = new URLSearchParams(window.location.search);
+    const p = searchParams.get('p');
+    if (p) {
+      cleanPath = p.startsWith('/') ? p : '/' + p;
+    }
+  }
+
+  if (cleanPath.startsWith('/analysis/')) {
+    const raw = cleanPath.replace('/analysis/', '').trim();
     if (raw) {
       const decoded = decodeURIComponent(raw);
       const num = Number(decoded);
@@ -20,7 +44,7 @@ function parseRoute(path: string): Route {
       };
     }
   }
-  if (path === '/settings') return { page: 'settings' };
+  if (cleanPath === '/settings') return { page: 'settings' };
   return { page: 'games' };
 }
 
@@ -28,6 +52,15 @@ export default function App() {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
 
   useEffect(() => {
+    // If arriving from 404.html redirect (?p=...), clean up URL
+    const searchParams = new URLSearchParams(window.location.search);
+    const p = searchParams.get('p');
+    if (p) {
+      const base = getBasePath();
+      const cleanTarget = `${base}${p.startsWith('/') ? p : '/' + p}`;
+      window.history.replaceState({}, '', cleanTarget);
+    }
+
     const handlePopState = () => {
       setRoute(parseRoute(window.location.pathname));
     };
@@ -39,10 +72,12 @@ export default function App() {
 
   const navigate = (r: Route) => {
     setRoute(r);
-    let target = '/';
-    if (r.page === 'settings') target = '/settings';
-    else if (r.page === 'analysis') target = `/analysis/${encodeURIComponent(r.id)}`;
-    if (window.location.pathname !== target) {
+    const base = getBasePath();
+    let sub = '/';
+    if (r.page === 'settings') sub = '/settings';
+    else if (r.page === 'analysis') sub = `/analysis/${encodeURIComponent(r.id)}`;
+    const target = `${base}${sub}`;
+    if (window.location.pathname !== target || window.location.search) {
       window.history.pushState({}, '', target);
     }
   };

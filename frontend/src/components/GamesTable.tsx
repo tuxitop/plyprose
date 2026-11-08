@@ -26,6 +26,7 @@ interface GamesTableProps {
   syncingGameId?: number | string | null;
   onTagClick?: (tag: string) => void;
   onCancelJob?: (jobId: string) => void;
+  isDirectMode?: boolean;
 }
 
 function MiniEvalChart({ evals, movesCount }: { evals?: number[]; movesCount?: number }) {
@@ -109,6 +110,7 @@ export function GamesTable({
   syncingGameId,
   onTagClick,
   onCancelJob,
+  isDirectMode = false,
 }: GamesTableProps) {
   if (loading) {
     return (
@@ -408,17 +410,19 @@ export function GamesTable({
                         >
                           <FileText size={15} />
                         </a>
-                        <button
-                          type="button"
-                          disabled={isAnyAnalyzing}
-                          onClick={e => onAnalyze(g, !e.shiftKey)}
-                          title="Re-run LLM coach (Shift+Click for full Stockfish + LLM re-run)"
-                          aria-label="Re-run Analysis"
-                          className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
-                        >
-                          <RefreshCw size={14} />
-                        </button>
-                        {onSyncToGitHub && (
+                        {!isDirectMode && (
+                          <button
+                            type="button"
+                            disabled={isAnyAnalyzing}
+                            onClick={e => onAnalyze(g, !e.shiftKey)}
+                            title="Re-run LLM coach (Shift+Click for full Stockfish + LLM re-run)"
+                            aria-label="Re-run Analysis"
+                            className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+                          >
+                            <RefreshCw size={14} />
+                          </button>
+                        )}
+                        {!isDirectMode && onSyncToGitHub && (
                           <button
                             type="button"
                             disabled={isAnyAnalyzing || syncingGameId === g.id}
@@ -456,16 +460,18 @@ export function GamesTable({
                             <ExternalLink size={15} />
                           </a>
                         )}
-                        <button
-                          type="button"
-                          disabled={isAnyAnalyzing}
-                          onClick={() => onDelete(g)}
-                          title="Delete game record"
-                          aria-label="Delete game record"
-                          className="p-1.5 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/40 transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        {!isDirectMode && (
+                          <button
+                            type="button"
+                            disabled={isAnyAnalyzing}
+                            onClick={() => onDelete(g)}
+                            title="Delete game record"
+                            aria-label="Delete game record"
+                            className="p-1.5 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/40 transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </>
                     ) : (
                       <>

@@ -40,7 +40,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { MoveBadgeGlyph } from './MoveBadgeGlyph';
-import { askMoveQuestion, appendQAToReport } from '../lib/api';
+import { askMoveQuestion, appendQAToReport, isDirectMode } from '../lib/api';
 import {
   formatPlyEval,
   formatSecondsToClock,
@@ -1313,6 +1313,23 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
         const moveNumber = currentPlyData?.moveNumber ?? 1;
         const color = currentPlyData?.color === 'w' ? 'White' : 'Black';
 
+        if (isDirectMode()) {
+          setIsAskingCoach(false);
+          const explanation = moveExplanationMarkdown
+            ? `> 📱 **Mobile Reader Mode:** *Interactive LLM narrative questions require the PlyProse desktop backend server. Here is the verified deterministic engine facts for this move:*\n\n${moveExplanationMarkdown}`
+            : `> 📱 **Mobile Reader Mode:** *Interactive LLM narrative questions require the PlyProse desktop backend server.*`;
+          setCoachAnswer({
+            formal_question: q,
+            answer_markdown: explanation,
+            move_context: currentPlyData?.san || '',
+            ply,
+            move_number: moveNumber,
+            color,
+          });
+          setUserQuestion('');
+          return;
+        }
+
         try {
           const res = await askMoveQuestion(analysisId, {
             question: q,
@@ -1329,11 +1346,18 @@ export const InteractiveBoard = forwardRef<InteractiveBoardHandle, InteractiveBo
           setIsAskingCoach(false);
         }
       },
-      [analysisId, userQuestion, safePly, currentPlyData],
+      [analysisId, userQuestion, safePly, currentPlyData, moveExplanationMarkdown],
     );
 
     const handleAppendQA = useCallback(async () => {
       if (!analysisId || !activeCoachAnswer) return;
+
+      if (isDirectMode()) {
+        alert(
+          'Appending Q&A to the study repository report requires the PlyProse desktop backend server.',
+        );
+        return;
+      }
 
       setIsAppendingQA(true);
       try {

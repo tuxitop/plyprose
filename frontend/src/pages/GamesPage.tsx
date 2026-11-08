@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Upload, ChevronLeft, ChevronRight, Trash2, Github } from 'lucide-react';
+import {
+  Download,
+  Upload,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
+  Github,
+  RefreshCw,
+} from 'lucide-react';
 import { Button } from '../components/Button';
 import { FilterBar } from '../components/FilterBar';
 import { GamesTable } from '../components/GamesTable';
@@ -18,7 +26,7 @@ import {
   syncGameToGitHub,
   isDirectMode,
 } from '../lib/api';
-import { isGitHubDirectConfigured } from '../lib/githubDirect';
+import { clearBlobCache, fetchRemoteFolders, isGitHubDirectConfigured } from '../lib/githubDirect';
 import type { CategoryFilter, GameRecord, Platform, ResultFilter, StatusFilter } from '../types';
 
 interface GamesPageProps {
@@ -319,6 +327,23 @@ export function GamesPage({ onViewReport, onSettings }: GamesPageProps) {
     }
   };
 
+  const handleRefreshDirect = async () => {
+    setPullingGh(true);
+    setSyncMessage(null);
+    try {
+      clearBlobCache();
+      await fetchRemoteFolders(true);
+      await fetchGames();
+      setSyncMessage({ text: 'Refreshed games from GitHub repository.' });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to refresh from GitHub.';
+      setSyncMessage({ text: msg, isError: true });
+    } finally {
+      setPullingGh(false);
+      setTimeout(() => setSyncMessage(null), 4000);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4 p-6 max-w-7xl mx-auto w-full">
       {isDirectMode() && !isGitHubDirectConfigured() && (
@@ -343,25 +368,43 @@ export function GamesPage({ onViewReport, onSettings }: GamesPageProps) {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">My Games</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="secondary"
-            icon={<Github size={13} />}
-            loading={pullingGh}
-            onClick={handlePullFromGitHub}
-            title="Pull analyzed games from GitHub repository into this instance"
-          >
-            Pull from GitHub
-          </Button>
-          <Button
-            variant="secondary"
-            icon={<Download size={13} />}
-            onClick={() => setPlatformImportOpen(true)}
-          >
-            Import from Platform
-          </Button>
-          <Button variant="primary" icon={<Upload size={13} />} onClick={() => setImportOpen(true)}>
-            Import PGN
-          </Button>
+          {isDirectMode() ? (
+            <Button
+              variant="secondary"
+              icon={<RefreshCw size={13} />}
+              loading={pullingGh}
+              onClick={handleRefreshDirect}
+              title="Refresh games from GitHub study repository"
+            >
+              Refresh from GitHub
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                icon={<Github size={13} />}
+                loading={pullingGh}
+                onClick={handlePullFromGitHub}
+                title="Pull analyzed games from GitHub repository into this instance"
+              >
+                Pull from GitHub
+              </Button>
+              <Button
+                variant="secondary"
+                icon={<Download size={13} />}
+                onClick={() => setPlatformImportOpen(true)}
+              >
+                Import from Platform
+              </Button>
+              <Button
+                variant="primary"
+                icon={<Upload size={13} />}
+                onClick={() => setImportOpen(true)}
+              >
+                Import PGN
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -454,6 +497,7 @@ export function GamesPage({ onViewReport, onSettings }: GamesPageProps) {
         syncingGameId={syncingGameId}
         onTagClick={handleTagChange}
         onCancelJob={handleCancelJob}
+        isDirectMode={isDirectMode()}
       />
 
       {total > 0 && (

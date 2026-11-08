@@ -21,9 +21,11 @@ import {
   exportZipUrl,
   getAnalysis,
   getReportHtml,
+  isDirectMode,
   startAnalysis,
   streamJob,
 } from '../lib/api';
+import { downloadGitHubDirectPdf } from '../lib/githubDirect';
 import { classifyTimeControl, formatTC, formatGameTimeLocal } from '../lib/timeControl';
 import { InteractiveBoard, type InteractiveBoardHandle } from '../components/InteractiveBoard';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -43,6 +45,7 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
   const [reportHtml, setReportHtml] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingDirectPdf, setDownloadingDirectPdf] = useState(false);
 
   // Interactive Chessboard sidebar state (default: open)
   const [isBoardOpen, setIsBoardOpen] = useState(true);
@@ -494,16 +497,18 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                   </button>
                 </div>
               )}
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={Boolean(reanalyzeJobId)}
-                icon={<RefreshCw size={12} />}
-                onClick={() => handleReanalyze(true)}
-                title="Re-run LLM coach narrative (default, fast)"
-              >
-                Re-analyze
-              </Button>
+              {!isDirectMode() && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={Boolean(reanalyzeJobId)}
+                  icon={<RefreshCw size={12} />}
+                  onClick={() => handleReanalyze(true)}
+                  title="Re-run LLM coach narrative (default, fast)"
+                >
+                  Re-analyze
+                </Button>
+              )}
               {record.game_url && (
                 <a
                   href={record.game_url}
@@ -516,22 +521,47 @@ export function AnalysisPage({ analysisId, theme, onToggleTheme, onBack }: Analy
                   Open Game
                 </a>
               )}
-              <a
-                href={exportPdfUrl(analysisId)}
-                download
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-              >
-                <Download size={12} />
-                PDF
-              </a>
-              <a
-                href={exportZipUrl(analysisId)}
-                download
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-              >
-                <Download size={12} />
-                .zip
-              </a>
+              {isDirectMode() ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setDownloadingDirectPdf(true);
+                    try {
+                      await downloadGitHubDirectPdf(analysisId);
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : 'Failed to download PDF';
+                      alert(msg);
+                    } finally {
+                      setDownloadingDirectPdf(false);
+                    }
+                  }}
+                  disabled={downloadingDirectPdf}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Download PDF report directly from GitHub repository"
+                >
+                  <Download size={12} className={downloadingDirectPdf ? 'animate-bounce' : ''} />
+                  {downloadingDirectPdf ? 'Downloading…' : 'PDF'}
+                </button>
+              ) : (
+                <a
+                  href={exportPdfUrl(analysisId)}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <Download size={12} />
+                  PDF
+                </a>
+              )}
+              {!isDirectMode() && (
+                <a
+                  href={exportZipUrl(analysisId)}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <Download size={12} />
+                  .zip
+                </a>
+              )}
               {/* Dedicated Sidebar Toggle Button at the header edge */}
               <button
                 onClick={() => setIsBoardOpen(prev => !prev)}
